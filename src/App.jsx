@@ -737,7 +737,7 @@ function HomeScreen({
             className="nb-search-input"
             value={homeQuery}
             onChange={(e) => setHomeQuery(e.target.value)}
-            placeholder="Search: mechanic, daycare, etc."
+            placeholder="Search: mechanic, restaurant, etc."
           />
           {hasQuery ? (
             <button
