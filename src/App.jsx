@@ -4624,159 +4624,34 @@ const [nearText, setNearText] = useState('');
                 >
                   {post.helpType === 'need' ? 'Need' : 'Offer'}
                 </span>
+
                 {post.category ? (
                   <span className="nb-meta-chip">{post.category}</span>
                 ) : null}
+
                 {post.whenRange ? (
                   <span className="nb-meta-chip">{post.whenRange}</span>
                 ) : null}
               </>
             ) : (
               <>
+                <span className="nb-meta-chip accent">Recommendation</span>
                 {post.recCategory ? (
                   <span className="nb-meta-chip">{post.recCategory}</span>
                 ) : null}
-                {effectiveRecPrefTags(post)
-                  .slice(0, 2)
-                  .map((t) => (
-                    <span key={t} className="nb-meta-chip accent">
-                      {t}
-                    </span>
-                  ))}
               </>
             )}
           </div>
         </div>
 
-        <div className="nb-postrow-right">
-          <div
-            className={`nb-status ${
-              post.status === 'resolved' ? 'is-resolved' : ''
-            }`}
-          >
-            {statusLabel}
-          </div>
-          <span className="nb-postrow-chevron" aria-hidden="true">
-            ›
-          </span>
+        <div
+          className={`nb-status ${
+            post.status === 'resolved' ? 'is-resolved' : ''
+          }`}
+        >
+          {statusLabel}
         </div>
       </button>
-    );
-  }
-
-  function PostPreviewModal({ postId }) {
-    const post = posts.find((p) => p.id === postId);
-    if (!post) return null;
-
-    return (
-      <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
-        <div
-          className="nb-modal nb-modal-wide"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="nb-modal-head">
-            <div className="nb-modal-title">Post</div>
-            <button
-              className="nb-x"
-              onClick={() => setModal(null)}
-              aria-label="Close"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="nb-modal-body-scroll">
-            <PostCard post={post} />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function FollowersModal({ userId }) {
-    const u = usersById[userId];
-    const followerIds = Array.isArray(followersByUser?.[userId])
-      ? followersByUser[userId]
-      : [];
-    const list = followerIds.map((id) => usersById[id]).filter(Boolean);
-
-    return (
-      <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
-        <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
-          <div className="nb-modal-head">
-            <div className="nb-modal-title">Followers</div>
-            <button
-              className="nb-x"
-              onClick={() => setModal(null)}
-              aria-label="Close"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="nb-modal-sub">
-            {u?.name ? `${u.name}’s followers` : 'Followers'}
-          </div>
-
-          <div style={{ padding: '14px', display: 'grid', gap: 10 }}>
-            {list.length === 0 ? (
-              <div className="nb-muted" style={{ fontWeight: 850 }}>
-                No followers yet.
-              </div>
-            ) : (
-              list.map((x) => (
-                <button
-                  key={x.id}
-                  type="button"
-                  onClick={() =>
-                    setModal({ type: 'user_profile', userId: x.id })
-                  }
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    padding: '10px 12px',
-                    borderRadius: 14,
-                    border: '1px solid var(--border)',
-                    background: 'rgba(255,255,255,.03)',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <img
-                    className="nb-avatar sm"
-                    src={x.avatar || AVATAR}
-                    alt={x.name}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 950, fontSize: 13 }}>
-                      {x.name} <UserBadge userId={x.id} />
-                      <span className="nb-handle">{x.handle}</span>
-                    </div>
-                    <div className="nb-muted small" style={{ fontWeight: 850 }}>
-                      {x.location || ''}
-                    </div>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-
-          <div className="nb-modal-foot">
-            <div className="nb-muted">
-              Tap a follower to view their profile.
-            </div>
-            <div className="nb-modal-actions">
-              <button
-                className="nb-btn nb-btn-primary"
-                onClick={() => setModal(null)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
     );
   }
 
@@ -4784,14 +4659,20 @@ const [nearText, setNearText] = useState('');
     const u = usersById[userId];
     if (!u) return null;
 
-    const followerCount = (
-      Array.isArray(followersByUser?.[userId]) ? followersByUser[userId] : []
-    ).length;
-    const followingCount = (
-      Array.isArray(followsByUser?.[userId]) ? followsByUser[userId] : []
-    ).length;
+    const isMe = userId === me.id;
 
-    const viewerFollows = userId !== me.id && isFollowing(me.id, userId);
+    const pts = npPointsByUser?.[userId] || 0;
+    const followers = Array.isArray(followersByUser?.[userId])
+      ? followersByUser[userId].length
+      : 0;
+
+    const followingCount = Array.isArray(followsByUser?.[userId])
+      ? followsByUser[userId].filter(Boolean).length
+      : 0;
+
+    const theirPosts = posts
+      .filter((p) => p && p.ownerId === userId)
+      .sort((a, b) => b.createdAt - a.createdAt);
 
     return (
       <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
@@ -4807,83 +4688,127 @@ const [nearText, setNearText] = useState('');
             </button>
           </div>
 
-          <div style={{ padding: '14px', display: 'grid', gap: 12 }}>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-              <img
-                className="nb-avatar lg"
-                src={u.avatar || AVATAR}
-                alt={u.name}
-              />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 980, fontSize: 16 }}>
-                  {u.name} <span className="nb-handle">{u.handle}</span>
-                </div>
-                <div className="nb-muted" style={{ fontWeight: 850 }}>
-                  {u.location || ''} {u.tagline ? `· ${u.tagline}` : ''}
-                </div>
+          <div style={{ padding: 14, display: 'flex', gap: 12 }}>
+            <img className="nb-avatar" src={u.avatar} alt={u.name} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 980, fontSize: 16 }}>
+                {u.name} <span className="nb-handle">{u.handle}</span>
+                <UserBadge userId={u.id} showText />
+              </div>
+              <div style={{ marginTop: 4, color: 'var(--muted)', fontWeight: 850 }}>
+                {u.location || ''}
+              </div>
+              {u.tagline ? (
+                <div style={{ marginTop: 8, fontWeight: 850 }}>{u.tagline}</div>
+              ) : null}
 
-                <div
-                  style={{
-                    marginTop: 8,
-                    display: 'flex',
-                    gap: 10,
-                    flexWrap: 'wrap',
-                  }}
-                >
+              {!isMe ? (
+                <div style={{ marginTop: 12 }}>
                   <button
                     type="button"
-                    className="nb-btn nb-btn-ghost nb-btn-sm"
-                    onClick={() => setModal({ type: 'followers', userId })}
-                    title="View followers"
+                    className={`nb-btn ${isFollowing(me.id, u.id) ? 'nb-btn-ghost' : 'nb-btn-primary'}`}
+                    onClick={() => toggleFollow(u.id)}
                   >
-                    Followers: {followerCount}
+                    {isFollowing(me.id, u.id) ? 'Following' : 'Follow'}
                   </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
 
-                  <div
-                    className="nb-muted"
-                    style={{ fontWeight: 900, alignSelf: 'center' }}
-                  >
-                    Following: {followingCount}
-                  </div>
+          <div style={{ padding: '0 14px 14px' }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: 10,
+              }}
+            >
+              <div
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 14,
+                  padding: 12,
+                  background: 'rgba(255,255,255,.03)',
+                }}
+              >
+                <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
+                  NP
+                </div>
+                <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
+                  {pts}
                 </div>
               </div>
 
-              {userId !== me.id ? (
-                <button
-                  type="button"
-                  className={`nb-btn ${
-                    viewerFollows ? 'nb-btn-ghost' : 'nb-btn-primary'
-                  }`}
-                  onClick={() => toggleFollow(userId)}
-                  title={viewerFollows ? 'Unfollow' : 'Follow'}
-                >
-                  {viewerFollows ? 'Following' : 'Follow'}
-                </button>
-              ) : null}
+              <div
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 14,
+                  padding: 12,
+                  background: 'rgba(255,255,255,.03)',
+                }}
+              >
+                <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
+                  Followers
+                </div>
+                <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
+                  {followers}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 14,
+                  padding: 12,
+                  background: 'rgba(255,255,255,.03)',
+                }}
+              >
+                <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
+                  Following
+                </div>
+                <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
+                  {followingCount}
+                </div>
+              </div>
             </div>
 
             <div
-              style={{ paddingTop: 12, borderTop: '1px solid var(--border)' }}
+              style={{
+                marginTop: 14,
+                borderTop: '1px solid var(--border)',
+                paddingTop: 14,
+              }}
             >
-              <div style={{ fontWeight: 950, marginBottom: 8 }}>Trust</div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <span className="nb-badge">
-                  {badgeFor(npPointsByUser?.[userId] || 0)}
-                </span>
-                <span className="nb-badge">
-                  NP: {npPointsByUser?.[userId] || 0}
-                </span>
-              </div>
+              <div style={{ fontWeight: 980 }}>Posts</div>
+
+              {theirPosts.length === 0 ? (
+                <div className="nb-muted" style={{ marginTop: 10 }}>
+                  No posts yet.
+                </div>
+              ) : (
+                <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+                  {theirPosts.map((p) => (
+                    <ProfilePostRow
+                      key={p.id}
+                      post={p}
+                      onOpen={() => {
+                        // Jump user to Home and open the thread for this post
+                        setActiveTab('home');
+                        setExpandedThreads((prev) => ({ ...prev, [p.id]: true }));
+                        setModal(null);
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
           <div className="nb-modal-foot">
-          <div className="nb-muted">Follow to see their posts in your feed.</div>
+            <div className="nb-muted">Profiles are local-demo only right now.</div>
             <div className="nb-modal-actions">
-              <button
-                className="nb-btn nb-btn-primary"
-                onClick={() => setModal(null)}
-              >
+              <button className="nb-btn nb-btn-primary" onClick={() => setModal(null)}>
                 Close
               </button>
             </div>
@@ -4894,118 +4819,201 @@ const [nearText, setNearText] = useState('');
   }
 
   function ProfileTab() {
-    const [showAllMyPosts, setShowAllMyPosts] = useState(false);
+    const myFollowers = Array.isArray(followersByUser?.[me.id])
+      ? followersByUser[me.id].length
+      : 0;
 
-    const hasMorePosts = myPosts.length > 3;
-    const postsToRender = showAllMyPosts ? myPosts : myPosts.slice(0, 3);
+    const myFollowing = Array.isArray(followsByUser?.[me.id])
+      ? followsByUser[me.id].filter(Boolean).length
+      : 0;
+
+    const discover = USERS_SEED.filter((u) => u.id !== me.id);
+
     return (
       <div className="nb-page">
-        <div className="nb-profile">
-          <div className="nb-profile-top">
-            <img className="nb-avatar lg" src={me.avatar} alt={me.name} />
-            <div className="nb-profile-meta">
-              <div className="nb-profile-name">
+        <div className="nb-section">
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <img className="nb-avatar" src={me.avatar} alt={me.name} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 980, fontSize: 18 }}>
                 {me.name} <span className="nb-handle">{me.handle}</span>
+                <UserBadge userId={me.id} showText />
               </div>
-              <div className="nb-profile-tagline">{me.tagline}</div>
-              <div className="nb-profile-badges">
-                <span className="nb-badge">{myBadge}</span>
-                <span className="nb-badge">NP: {npPoints}</span>
-                <span className="nb-badge">
-                  Helpful replies: {helpfulRepliesCount}
-                </span>
-                <span className="nb-badge">Posts: {myPostCount}</span>
-                <button
-                  type="button"
-                  className="nb-badge"
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => setModal({ type: 'followers', userId: me.id })}
-                  title="View your followers"
-                >
-                  Followers:{' '}
-                  {
-                    (Array.isArray(followersByUser?.[me.id])
-                      ? followersByUser[me.id]
-                      : []
-                    ).length
-                  }
-                </button>
-                <span className="nb-badge">
-                  Following:{' '}
-                  {
-                    (Array.isArray(followsByUser?.[me.id])
-                      ? followsByUser[me.id]
-                      : []
-                    ).length
-                  }
-                </span>
+              <div style={{ marginTop: 4, color: 'var(--muted)', fontWeight: 850 }}>
+                {me.location || ''}
               </div>
-            </div>
-
-            <div className="nb-profile-right">
-              <div className="nb-minihead">Demo user</div>
-              <select
-                className="nb-input"
-                value={meId}
-                onChange={(e) => setMeId(e.target.value)}
-              >
-                {USERS_SEED.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
-              </select>
-              <div className="nb-muted small">
-                Remove this selector later (dev-only).
-              </div>
-              <button
-                className="nb-btn nb-btn-ghost"
-                onClick={() => {
-                  resetAppState();
-                  window.location.reload();
-                }}
-              >
-                Reset demo data
-              </button>
+              {me.tagline ? (
+                <div style={{ marginTop: 8, fontWeight: 850 }}>{me.tagline}</div>
+              ) : null}
             </div>
           </div>
 
-          <div className="nb-section nb-section-row">
-            <div>
-              <div className="nb-section-title">
-                Your latest posts (open + resolved).
+          <div
+            style={{
+              marginTop: 14,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 10,
+            }}
+          >
+            <div
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: 14,
+                padding: 12,
+                background: 'rgba(255,255,255,.03)',
+              }}
+            >
+              <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
+                NP
               </div>
-              <div className="nb-section-sub">Shows open + resolved.</div>
+              <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
+                {npPoints}
+              </div>
             </div>
 
-            {hasMorePosts ? (
-              <button
-                type="button"
-                className="nb-link"
-                onClick={() => setShowAllMyPosts((v) => !v)}
-                style={{ whiteSpace: 'nowrap', fontWeight: 900 }}
-              >
-                {showAllMyPosts ? 'Show less' : 'View all'}
-              </button>
-            ) : null}
+            <div
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: 14,
+                padding: 12,
+                background: 'rgba(255,255,255,.03)',
+              }}
+            >
+              <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
+                Helpful
+              </div>
+              <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
+                {helpfulRepliesCount}
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: 14,
+                padding: 12,
+                background: 'rgba(255,255,255,.03)',
+              }}
+            >
+              <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
+                Followers
+              </div>
+              <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
+                {myFollowers}
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: 14,
+                padding: 12,
+                background: 'rgba(255,255,255,.03)',
+              }}
+            >
+              <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
+                Following
+              </div>
+              <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
+                {myFollowing}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Demo user switcher (optional but useful for testing) */}
+        <div className="nb-section">
+          <div className="nb-section-title">Demo user</div>
+          <div className="nb-section-sub">
+            Switch identities to test Following, chats, and activity audience filtering.
+          </div>
+
+          <select
+            className="nb-input"
+            value={meId}
+            onChange={(e) => setMeId(e.target.value)}
+            title="Switch demo user"
+          >
+            {USERS_SEED.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name} ({u.location})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="nb-section">
+          <div className="nb-section-title">Discover neighbors</div>
+          <div className="nb-section-sub">
+            Follow someone to enable the “Following” feed filter.
+          </div>
+
+          <div style={{ display: 'grid', gap: 10 }}>
+            {discover.map((u) => {
+              const followed = isFollowing(me.id, u.id);
+              return (
+                <div
+                  key={u.id}
+                  style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: 14,
+                    padding: 12,
+                    background: 'rgba(255,255,255,.03)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                  }}
+                >
+                  <img
+                    className="nb-avatar sm"
+                    src={u.avatar}
+                    alt={u.name}
+                    onClick={() => setModal({ type: 'user_profile', userId: u.id })}
+                    style={{ cursor: 'pointer' }}
+                    title="View profile"
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 980 }}>
+                      {u.name} <span className="nb-handle">{u.handle}</span>
+                      <UserBadge userId={u.id} />
+                    </div>
+                    <div style={{ color: 'var(--muted)', fontWeight: 850 }}>
+                      {u.location}
+                    </div>
+                  </div>
+
+                  <button
+                    className={`nb-btn ${followed ? 'nb-btn-ghost' : 'nb-btn-primary'}`}
+                    onClick={() => toggleFollow(u.id)}
+                    type="button"
+                  >
+                    {followed ? 'Following' : 'Follow'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="nb-section">
+          <div className="nb-section-title">My posts</div>
+          <div className="nb-section-sub">
+            Tap a row to jump back to the feed and expand that post’s thread.
           </div>
 
           {myPosts.length === 0 ? (
-            <EmptyState
-              title="No posts yet"
-              body="If you want a community, you have to seed it. One good post beats ten ideas."
-              ctaLabel="Create your first post"
-              onCta={() => setActiveTab('post')}
-            />
+            <div className="nb-muted">No posts yet.</div>
           ) : (
-            <div className="nb-postlist">
-              {postsToRender.map((p) => (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {myPosts.map((p) => (
                 <ProfilePostRow
                   key={p.id}
                   post={p}
-                  onOpen={() =>
-                    setModal({ type: 'post_preview', postId: p.id })
-                  }
+                  onOpen={() => {
+                    setActiveTab('home');
+                    setExpandedThreads((prev) => ({ ...prev, [p.id]: true }));
+                  }}
                 />
               ))}
             </div>
@@ -5015,46 +5023,67 @@ const [nearText, setNearText] = useState('');
     );
   }
 
-  function BottomNav() {
+  function TabBar() {
+    const tabs = [
+      { key: 'home', label: 'Home', icon: '🏠' },
+      { key: 'post', label: 'Post', icon: '➕' },
+      { key: 'activity', label: 'Activity', icon: '🔔' },
+      { key: 'profile', label: 'Profile', icon: '👤' },
+    ];
+
     return (
-      <div className="nb-bottomnav">
-        <button
-          className={`nb-navbtn ${activeTab === 'home' ? 'is-active' : ''}`}
-          onClick={() => setActiveTab('home')}
-        >
-          <span className="nb-navicon">🏠</span>
-          <span className="nb-navlabel">Home</span>
-        </button>
-
-        <button
-          className={`nb-navbtn ${activeTab === 'post' ? 'is-active' : ''}`}
-          onClick={() => {
-            setActiveTab('post');
-            setPostFlow({ step: 'chooser', kind: null });
-          }}
-        >
-          <span className="nb-navicon nb-navicon-plus" aria-hidden="true">
-            +
-          </span>
-          <span className="nb-navlabel">Post</span>
-        </button>
-
-        <button
-          className={`nb-navbtn ${activeTab === 'activity' ? 'is-active' : ''}`}
-          onClick={() => setActiveTab('activity')}
-        >
-          <span className="nb-navicon">🔔</span>
-          <span className="nb-navlabel">Activity</span>
-        </button>
-
-        <button
-          className={`nb-navbtn ${activeTab === 'profile' ? 'is-active' : ''}`}
-          onClick={() => setActiveTab('profile')}
-        >
-          <span className="nb-navicon">👤</span>
-          <span className="nb-navlabel">Profile</span>
-        </button>
+      <div className="nb-tabs">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            className={`nb-tab ${activeTab === t.key ? 'is-on' : ''}`}
+            onClick={() => setActiveTab(t.key)}
+          >
+            <div className="nb-tab-ico" aria-hidden="true">
+              {t.icon}
+            </div>
+            <div className="nb-tab-label">{t.label}</div>
+          </button>
+        ))}
       </div>
+    );
+  }
+
+  function HomeTab() {
+    return (
+      <HomeScreen
+        Hero={HomeHero}
+        Chips={Chips}
+        EmptyState={EmptyState}
+        PostCard={PostCard}
+        homeChip={homeChip}
+        homeShowAll={homeShowAll}
+        setHomeShowAll={setHomeShowAll}
+        homeFollowOnly={homeFollowOnly}
+        setHomeFollowOnly={setHomeFollowOnly}
+        homeQuery={homeQuery}
+        setHomeQuery={setHomeQuery}
+        feed={searchedFeed}
+        setActiveTab={setActiveTab}
+        setPostFlow={setPostFlow}
+        radiusPreset={radiusPreset}
+        setRadiusPreset={setRadiusPresetForMe}
+        homeCenterLabel={homeCenter?.label || homeCenter?.townKey || ''}
+        onOpenHomeSetup={() => setModal({ type: 'home_setup' })}
+        savedSearches={mySavedSearchesWithCounts}
+        activeSavedSearchId={activeSavedSearchId}
+        onApplySavedSearch={applySavedSearch}
+        onClearSavedSearch={clearSavedSearch}
+        onClearSavedSearchHighlight={() => setActiveSavedSearchId(null)}
+        onSaveCurrentSearch={saveCurrentSearch}
+        canSaveCurrentSearch={canSaveCurrentSearch}
+        currentSearchIsSaved={currentSearchIsSaved}
+        savedLimitReached={savedLimitReached}
+        onManageSavedSearch={(id) =>
+          setModal({ type: 'saved_search_manage', searchId: id })
+        }
+      />
     );
   }
 
@@ -5062,77 +5091,40 @@ const [nearText, setNearText] = useState('');
     <div className="nb-app">
       <Header />
 
-      <div className="nb-content">
-        {activeTab === 'home' ? (
-          <HomeScreen
-            Hero={HomeHero}
-            Chips={Chips}
-            EmptyState={EmptyState}
-            PostCard={PostCard}
-            homeChip={homeChip}
-            homeShowAll={homeShowAll}
-            setHomeShowAll={setHomeShowAll}
-            homeFollowOnly={homeFollowOnly}
-            setHomeFollowOnly={setHomeFollowOnly}
-            homeQuery={homeQuery}
-            setHomeQuery={setHomeQuery}
-            feed={searchedFeed}
-            setActiveTab={setActiveTab}
-            setPostFlow={setPostFlow}
-            // Hyperlocal
-            radiusPreset={radiusPreset}
-            setRadiusPreset={setRadiusPresetForMe}
-            homeCenterLabel={homeCenter?.label || me.location || ''}
-            onOpenHomeSetup={() => setModal({ type: 'home_setup' })}
-            // Saved searches
-            savedSearches={mySavedSearchesWithCounts}
-            activeSavedSearchId={activeSavedSearchId}
-            onApplySavedSearch={applySavedSearch}
-            onClearSavedSearch={clearSavedSearch}
-            onClearSavedSearchHighlight={() => setActiveSavedSearchId(null)}
-            onSaveCurrentSearch={saveCurrentSearch}
-            canSaveCurrentSearch={canSaveCurrentSearch}
-            currentSearchIsSaved={currentSearchIsSaved}
-            savedLimitReached={savedLimitReached}
-            onManageSavedSearch={(id) =>
-              setModal({ type: 'saved_search_manage', searchId: id })
-            }
-          />
-        ) : null}
-        {activeTab === 'post' ? <PostTab /> : null}
-        {activeTab === 'activity' ? <ActivityTab /> : null}
-        {activeTab === 'profile' ? <ProfileTab /> : null}
-      </div>
+      {activeTab === 'home' ? (
+        <HomeTab />
+      ) : activeTab === 'post' ? (
+        <PostTab />
+      ) : activeTab === 'activity' ? (
+        <ActivityTab />
+      ) : (
+        <ProfileTab />
+      )}
 
-      <ChatDrawer />
+      <TabBar />
 
-      <BottomNav />
+      {/* Drawers / overlays */}
+      {chat ? <ChatDrawer /> : null}
 
+      {/* Modals (modal state) */}
       {modal?.type === 'reply' ? (
         <ReplyModal postId={modal.postId} mode={modal.mode} />
       ) : null}
+
       {modal?.type === 'points' ? <PointsModal /> : null}
-      {modal?.type === 'post_preview' ? (
-        <PostPreviewModal postId={modal.postId} />
-      ) : null}
-      {modal?.type === 'saved_search_manage' ? (
-        <SavedSearchManageModal searchId={modal.searchId} />
-      ) : null}
+
       {modal?.type === 'home_setup' ? <HomeSetupModal /> : null}
 
       {modal?.type === 'saved_search_manage' ? (
         <SavedSearchManageModal searchId={modal.searchId} />
       ) : null}
-      {modal?.type === 'home_setup' ? <HomeSetupModal /> : null}
+
       {modal?.type === 'user_profile' ? (
         <UserProfileModal userId={modal.userId} />
       ) : null}
-      {modal?.type === 'followers' ? (
-        <FollowersModal userId={modal.userId} />
-      ) : null}
-      {thread ? (
-        <RecThreadModal postId={thread.postId} replyId={thread.replyId} />
-      ) : null}
+
+      {/* Recommendation thread modal (separate state) */}
+      {thread ? <RecThreadModal postId={thread.postId} replyId={thread.replyId} /> : null}
     </div>
   );
 }
