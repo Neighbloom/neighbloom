@@ -47,6 +47,8 @@ html{
     radial-gradient(900px 600px at 50% 110%, rgba(82,121,255,.10), transparent 55%),
     linear-gradient(180deg, var(--bg1), var(--bg0));
   overscroll-behavior-y: none;
+  text-size-adjust: 100%;
+-webkit-text-size-adjust: 100%;
 }
 
 body{
@@ -623,6 +625,15 @@ backdrop-filter: blur(10px);
 @media (max-width: 760px){
   .nb-grid3{ grid-template-columns: 1fr; }
   .nb-card-struct{ grid-template-columns: 1fr; }
+}
+@media (max-width: 520px){
+  .nb-search-input,
+  .nb-input,
+  .nb-app input:not(.nb-input):not(.nb-search-input),
+  .nb-app select:not(.nb-input),
+  .nb-app textarea:not(.nb-input){
+    font-size: 16px;
+  }
 }
 
 .nb-choice{
@@ -1340,4 +1351,22 @@ backdrop-filter: blur(10px);
   background: rgba(255,145,90,.95);
   color: #111;
   border: 1px solid rgba(255,255,255,.14);
+}
+/* --- Mobile density: make the UI feel less "zoomed in" on small Android screens --- */
+@media (max-width: 430px){
+  .nb-content{ padding: 12px 12px calc(86px + env(safe-area-inset-bottom)); }
+
+  .nb-header{ padding: 12px 12px; }
+  .nb-logo{ width: 40px; height: 40px; border-radius: 12px; }
+
+  .nb-title{ font-size: 20px; }
+  .nb-card-title{ font-size: 18px; }
+
+  .nb-pill{ padding: 8px 10px; }
+  .nb-pill-strong{ font-size: 15px; }
+
+  .nb-btn{ padding: 11px 12px; border-radius: 14px; }
+
+  .nb-navicon{ width: 32px; height: 32px; font-size: 18px; }
+  .nb-navlabel{ font-size: 11px; }
 }
