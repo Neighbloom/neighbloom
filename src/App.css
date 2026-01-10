@@ -41,14 +41,8 @@ button { -webkit-tap-highlight-color: transparent; }
 html,body,#root{ height:100%; }
 
 html{
-  background:
-    radial-gradient(900px 520px at 10% 0%, rgba(255,106,61,.22), transparent 55%),
-    radial-gradient(780px 480px at 90% 12%, rgba(255,145,90,.16), transparent 55%),
-    radial-gradient(900px 600px at 50% 110%, rgba(82,121,255,.10), transparent 55%),
-    linear-gradient(180deg, var(--bg1), var(--bg0));
+  background: linear-gradient(180deg, var(--bg1), var(--bg0));
   overscroll-behavior-y: none;
-  text-size-adjust: 100%;
--webkit-text-size-adjust: 100%;
 }
 
 body{
