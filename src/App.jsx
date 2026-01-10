@@ -2431,6 +2431,78 @@ useEffect(() => {
     );
   }
 
+  function BottomTabs() {
+    // total unread across chats involving me (for the badge on Activity)
+    const totalUnread = (() => {
+      let sum = 0;
+      const obj = chats && typeof chats === 'object' ? chats : {};
+      for (const chatId of Object.keys(obj)) {
+        const pair = String(chatId).split('::')[1] || '';
+        if (!pair.split('|').includes(me.id)) continue;
+        sum += unreadCount(chatId, me.id);
+      }
+      return sum;
+    })();
+
+    const unreadLabel = totalUnread > 9 ? '9+' : String(totalUnread);
+
+    function go(tab) {
+      // kill overlays that can make it FEEL like tabs don't work
+      setChat(null);
+      setThread(null);
+      setModal(null);
+
+      if (tab === 'post') setPostFlow({ step: 'chooser', kind: null });
+      setActiveTab(tab);
+    }
+
+    return (
+      <div className="nb-bottomtabs" role="navigation" aria-label="Primary">
+        <button
+          type="button"
+          className={`nb-tabbtn ${activeTab === 'home' ? 'is-active' : ''}`}
+          onClick={() => go('home')}
+        >
+          <span className="nb-tabicon" aria-hidden="true">🏠</span>
+          <span className="nb-tablabel">Home</span>
+        </button>
+
+        <button
+          type="button"
+          className={`nb-tabbtn ${activeTab === 'post' ? 'is-active' : ''}`}
+          onClick={() => go('post')}
+        >
+          <span className="nb-tabicon" aria-hidden="true">➕</span>
+          <span className="nb-tablabel">Post</span>
+        </button>
+
+        <button
+          type="button"
+          className={`nb-tabbtn ${activeTab === 'activity' ? 'is-active' : ''}`}
+          onClick={() => go('activity')}
+        >
+          <span className="nb-tabicon" aria-hidden="true">🔔</span>
+          <span className="nb-tablabel">Activity</span>
+
+          {totalUnread > 0 ? (
+            <span className="nb-tabbadge" aria-label={`${totalUnread} unread chats`}>
+              {unreadLabel}
+            </span>
+          ) : null}
+        </button>
+
+        <button
+          type="button"
+          className={`nb-tabbtn ${activeTab === 'profile' ? 'is-active' : ''}`}
+          onClick={() => go('profile')}
+        >
+          <span className="nb-tabicon" aria-hidden="true">👤</span>
+          <span className="nb-tablabel">Profile</span>
+        </button>
+      </div>
+    );
+  }
+
   function Chips() {
     return (
       <div className="nb-chips">
@@ -5101,7 +5173,7 @@ const [nearText, setNearText] = useState('');
         <ProfileTab />
       )}
 
-      <TabBar />
+      <BottomTabs activeTab={activeTab} onChange={setActiveTab} />
 
       {/* Drawers / overlays */}
       {chat ? <ChatDrawer /> : null}
@@ -5126,6 +5198,37 @@ const [nearText, setNearText] = useState('');
       {/* Recommendation thread modal (separate state) */}
       {thread ? <RecThreadModal postId={thread.postId} replyId={thread.replyId} /> : null}
     </div>
+  );
+}
+
+function BottomTabs({ activeTab, onChange }) {
+  const tabs = [
+    { key: 'home', label: 'Home', icon: '🏠' },
+    { key: 'post', label: 'Post', icon: '➕' },
+    { key: 'activity', label: 'Activity', icon: '🔔' },
+    { key: 'profile', label: 'Profile', icon: '👤' },
+  ];
+
+  return (
+    <nav className="nb-bottomtabs" role="navigation" aria-label="Bottom Tabs">
+      {tabs.map((t) => {
+        const isActive = activeTab === t.key;
+        return (
+          <button
+            key={t.key}
+            type="button"
+            className={`nb-bottomtab ${isActive ? 'active' : ''}`}
+            onClick={() => onChange(t.key)}
+            aria-current={isActive ? 'page' : undefined}
+          >
+            <span className="nb-bottomtab-ico" aria-hidden="true">
+              {t.icon}
+            </span>
+            <span className="nb-bottomtab-label">{t.label}</span>
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 
