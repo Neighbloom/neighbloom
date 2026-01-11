@@ -12,8 +12,8 @@ const AVATAR =
 
 const BUSINESS_MODE = false; // set true when you're ready for local ads/sponsors
 
-const NOW = () => Date.now();
-const uid = (p = 'id') => `${p}_${Math.random().toString(36).slice(2, 10)}`;
+const uid = (p = 'id') =>
+  `${p}_${(crypto?.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2, 12))}`;
 
 function timeAgo(ts) {
   const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
@@ -207,11 +207,12 @@ const STORAGE_KEY = 'neighbloom_v1';
 const STORAGE_VERSION = 1;
 const MAX_SAVED_SEARCHES = 5;
 
-function searchFingerprint({ query, homeChip, homeShowAll }) {
+function searchFingerprint({ query, homeChip, homeShowAll, radiusPreset }) {
   const q = normalizeText(query).toLowerCase();
   const chip = homeChip || 'all';
   const showAll = homeShowAll ? '1' : '0';
-  return `${chip}|${showAll}|${q}`;
+  const rad = radiusPreset || 'all';
+  return `${chip}|${showAll}|${rad}|${q}`;
 }
 
 function defaultSavedSearchName(query) {
@@ -236,17 +237,18 @@ function loadAppState() {
   if (!data || data.version !== STORAGE_VERSION) return null;
 
   // Basic shape checks (keep it light, avoid brittle validation)
+  const isPlainObject = (v) =>
+    v && typeof v === 'object' && !Array.isArray(v);
+
   if (!Array.isArray(data.posts)) return null;
   if (!Array.isArray(data.activity)) return null;
-  if (typeof data.npPointsByUser !== 'object') return null;
-  if (typeof data.replyStats !== 'object') return null;
-  if (typeof data.chats !== 'object') return null;
+  if (!isPlainObject(data.npPointsByUser)) return null;
+  if (!isPlainObject(data.replyStats)) return null;
+  if (!isPlainObject(data.chats)) return null;
 
-  // Optional (newer versions). Keep backwards compatible.
-  if ('followsByUser' in data && typeof data.followsByUser !== 'object')
-    return null;
-  if ('homeFollowOnly' in data && typeof data.homeFollowOnly !== 'boolean')
-    return null;
+  if ('followsByUser' in data && !isPlainObject(data.followsByUser)) return null;
+  if ('homeCenters' in data && !isPlainObject(data.homeCenters)) return null;
+  if ('radiusByUser' in data && !isPlainObject(data.radiusByUser)) return null;
 
   return data;
 }
@@ -1469,13 +1471,16 @@ function App() {
   }
 
   function markChatRead(chatId, viewerId) {
-    const lastTs = getLastChatTs(chatId);
-    const k = readKey(viewerId, chatId);
-    setLastRead((prev) => ({
-      ...prev,
-      [k]: Math.max(prev[k] || 0, lastTs),
-    }));
-  }
+  const lastTs = getLastChatTs(chatId);
+  const k = readKey(viewerId, chatId);
+
+  setLastRead((prev) => {
+    const cur = prev[k] || 0;
+    const next = Math.max(cur, lastTs);
+    if (next === cur) return prev; // ✅ critical: no state change
+    return { ...prev, [k]: next };
+  });
+}
 
   function getHelpersNeeded(post) {
     const n = Number(post.helpersNeeded ?? post.needHelpers ?? 1);
@@ -2191,6 +2196,14 @@ useEffect(() => {
   savedSearches,
   activeSavedSearchId,
 ]);
+
+const capChats = (obj, maxPerChat = 80) => {
+  const out = {};
+  for (const [k, arr] of Object.entries(obj || {})) {
+    out[k] = Array.isArray(arr) ? arr.slice(-maxPerChat) : [];
+  }
+  return out;
+};
 
   // ---------- UI COMPONENTS ----------
   function HomeSetupModal() {
@@ -3826,20 +3839,33 @@ useEffect(() => {
     return (
       <div className="nb-chat-compose">
         <input
-          className="nb-input"
-          value={t}
-          onChange={(e) => setT(e.target.value)}
-          placeholder="Message…"
-        />
-        <button
-          className="nb-btn nb-btn-primary"
-          onClick={() => {
-            onSend(t);
-            setT('');
-          }}
-        >
-          Send
-        </button>
+  className="nb-input"
+  value={t}
+  onChange={(e) => setT(e.target.value)}
+  onKeyDown={(e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const clean = normalizeText(t);
+      if (!clean) return;
+      onSend(clean);
+      setT('');
+    }
+  }}
+  placeholder="Message…"
+/>
+
+<button
+  className="nb-btn nb-btn-primary"
+  disabled={!normalizeText(t)}
+  onClick={() => {
+    const clean = normalizeText(t);
+    if (!clean) return;
+    onSend(clean);
+    setT('');
+  }}
+>
+  Send
+</button>
       </div>
     );
   }
@@ -4359,7 +4385,9 @@ const [nearText, setNearText] = useState('');
     function submit() {
       setErr('');
 
-      const a = normalizeText(area);
+      const a = normalizeText(
+  nearText ? `${townKey} (near ${nearText})` : `${townKey}`
+);
       const q = normalizeText(question);
       const typedPref = normalizeText(preferences);
 
@@ -4400,6 +4428,7 @@ const [nearText, setNearText] = useState('');
         id: uid('p'),
         kind: 'rec',
         recCategory: catFinal,
+        townKey,
         area: a,
         prefTags: tags,
         preferences: prefFinal,
