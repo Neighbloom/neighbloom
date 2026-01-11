@@ -548,6 +548,18 @@ backdrop-filter: blur(10px);
   align-items:center;
   justify-content:space-between;
 }
+.nb-modal {
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.nb-modal-body-scroll {
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .nb-muted{ color: var(--muted); font-weight: 800; }
 .nb-muted.small{ font-size: 12px; }
 

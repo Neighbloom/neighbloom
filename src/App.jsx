@@ -3150,7 +3150,7 @@ useEffect(() => {
             </button>
           </div>
 
-          <div style={{ padding: '14px' }}>
+          <div className="nb-modal-body-scroll" style={{ padding: 14 }}>
             <div style={{ fontWeight: 980, fontSize: 18 }}>{current.name}</div>
             <div
               style={{
