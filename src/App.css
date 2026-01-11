@@ -1376,3 +1376,20 @@ backdrop-filter: blur(10px);
   .nb-navicon{ width: 32px; height: 32px; font-size: 18px; }
   .nb-navlabel{ font-size: 11px; }
 }
+/* --- Mobile safety net: prevents horizontal overflow that forces pinch-zoom --- */
+html, body, #root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Clamp anything that tries to exceed the viewport */
+#root * {
+  max-width: 100%;
+}
+
+/* Media elements should never blow out layout width */
+img, svg, video, canvas {
+  max-width: 100%;
+  height: auto;
+}
