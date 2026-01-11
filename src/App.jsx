@@ -960,7 +960,9 @@ function App() {
   const [expandedThreads, setExpandedThreads] = useState(
     () => saved?.expandedThreads ?? {}
   ); // postId -> bool
-  const [expandedOtherVols, setExpandedOtherVols] = useState(() => new Set()); // Set(postId)
+  const [expandedOtherVols, setExpandedOtherVols] = useState(
+  () => saved?.expandedOtherVols ?? {}
+); // postId -> bool
   const [homeQuery, setHomeQuery] = useState(() => saved?.homeQuery ?? '');
   const [savedSearches, setSavedSearches] = useState(
     () => saved?.savedSearches ?? []
@@ -1006,7 +1008,9 @@ function App() {
     if (!post) return null;
   
     const areaText = String(post.area || '');
-    const ownerLoc = String(usersById?.[post.ownerId]?.location || '');
+    const ownerLoc = String(
+  (USERS_SEED.find((u) => u.id === post.ownerId)?.location) || ''
+);
   
     const explicitTownKey = String(post.townKey || '').trim();
     const townKey =
@@ -1427,13 +1431,8 @@ function App() {
   }
 
   function toggleOtherVols(postId) {
-    setExpandedOtherVols((prev) => {
-      const next = new Set(prev);
-      if (next.has(postId)) next.delete(postId);
-      else next.add(postId);
-      return next;
-    });
-  }
+  setExpandedOtherVols((prev) => ({ ...prev, [postId]: !prev?.[postId] }));
+}
 
   function getChatId(postId, a, b) {
     const x = [a, b].sort().join('|');
@@ -2170,7 +2169,7 @@ useEffect(() => {
       savedSearches,
       activeSavedSearchId,
     });
-  }, 400);
+  }, 1200);
 
   return () => clearTimeout(t);
 }, [
