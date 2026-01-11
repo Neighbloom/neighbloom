@@ -4,6 +4,9 @@ import './App.css';
 const NEIGHBLOOM_LOGO =
   'https://storage.googleapis.com/space-apps-assets/store_MJDeCrFHOB/9kmK0Kexuz-logo.jpg';
 
+  const APP_NAME = 'Neighbloom';
+const APP_TAGLINE = 'Little missions, big city.';
+
 const AVATAR =
   'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&w=80';
 
@@ -4565,6 +4568,14 @@ const [nearText, setNearText] = useState('');
   }
 
   function ActivityTab() {
+    const visibleActivity = useMemo(() => {
+  const list = Array.isArray(activity) ? activity : [];
+  return list.filter((a) => {
+    if (!a || typeof a !== 'object') return false;
+    const aud = Array.isArray(a.audienceIds) ? a.audienceIds : [];
+    return aud.includes(me.id);
+  });
+}, [activity, me.id]);
     const shownChatCtas = new Set(); // dedupe per thread (newest event wins)
 
     return (
