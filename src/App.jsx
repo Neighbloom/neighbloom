@@ -622,7 +622,7 @@ function HomeScreen({
   onManageSavedSearch,
 }) {
   const hasQuery = normalizeText(homeQuery).length > 0;
-  const feedAfterSearch = feed;
+  const visibleFeed = feed;
 
   const saveDisabled =
     homeFollowOnly || !hasQuery || currentSearchIsSaved || savedLimitReached;
@@ -758,7 +758,7 @@ function HomeScreen({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {hasQuery ? (
             <div className="nb-search-meta">
-              {feedAfterSearch.length} results
+              {visibleFeed.length} results
             </div>
           ) : null}
 
@@ -796,7 +796,7 @@ function HomeScreen({
             onClick={onClearSavedSearch}
             title="Reset to default feed"
           >
-            All
+            Default
           </button>
 
           {(savedSearches || []).map((s) => {
@@ -809,13 +809,21 @@ function HomeScreen({
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
               >
                 <button
-                  type="button"
-                  className={`nb-segbtn ${
-                    activeSavedSearchId === s.id ? 'is-on' : ''
-                  }`}
-                  onClick={() => onApplySavedSearch(s.id)}
-                  title="Apply saved search"
-                >
+  type="button"
+  className={`nb-segbtn ${
+    activeSavedSearchId === s.id ? 'is-on' : ''
+  }`}
+  onClick={() => {
+    if (homeFollowOnly) setHomeFollowOnly(false);
+    onApplySavedSearch(s.id);
+  }}
+  disabled={homeFollowOnly}
+  title={
+    homeFollowOnly
+      ? 'Turn off Following to use saved searches'
+      : 'Apply saved search'
+  }
+>
                   {s.name || 'Saved'}
                   {newCount > 0 ? (
                     <span
@@ -865,8 +873,8 @@ function HomeScreen({
 
       {!hasQuery &&
       radiusPreset !== 'all' &&
-      feedAfterSearch.length > 0 &&
-      feedAfterSearch.length < 10 ? (
+      visibleFeed.length > 0 &&
+      visibleFeed.length < 10 ? (
         <div style={{ marginTop: 10 }}>
           <button
             type="button"
@@ -876,7 +884,7 @@ function HomeScreen({
             title="Expand your radius to see more posts"
           >
             <span style={{ fontWeight: 900 }}>
-            Seeing only {feedAfterSearch.length} posts — expand to All
+            Seeing only {visibleFeed.length} posts — expand to All
             </span>
             <span aria-hidden="true" style={{ opacity: 0.8 }}>
               →
@@ -885,7 +893,7 @@ function HomeScreen({
         </div>
       ) : null}
 
-      {feedAfterSearch.length === 0 ? (
+      {visibleFeed.length === 0 ? (
         <>
           {!hasQuery && radiusPreset !== 'all' ? (
             <div style={{ marginTop: 10 }}>
@@ -926,7 +934,7 @@ function HomeScreen({
         </>
       ) : (
         <div className="nb-feed">
-          {feedAfterSearch.map((p) => (
+          {visibleFeed.map((p) => (
             <PostCard key={p.id} post={p} />
           ))}
         </div>
