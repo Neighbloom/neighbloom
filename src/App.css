@@ -1397,3 +1397,70 @@ img, svg, video, canvas {
   max-width: 100%;
   height: auto;
 }
+/* =========================
+   Round 8: Header spacing (anti-cram)
+   Paste at VERY BOTTOM of App.css
+   ========================= */
+
+.nb-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  /* Adds breathing room on both edges (and respects iOS safe-area when present) */
+  padding-left: max(14px, env(safe-area-inset-left));
+  padding-right: max(14px, env(safe-area-inset-right));
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.nb-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  /* Critical: lets title/subtitle shrink instead of pushing right side into the edge */
+  min-width: 0;
+  flex: 1;
+}
+
+.nb-logo {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+}
+
+.nb-titlewrap {
+  min-width: 0;
+}
+
+.nb-title,
+.nb-subtitle {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nb-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.nb-avatarbtn {
+  padding: 2px;
+  border-radius: 999px;
+}
+
+.nb-avatar.sm {
+  width: 34px;
+  height: 34px;
+}
+
+@media (max-width: 380px) {
+  .nb-header-right {
+    gap: 8px;
+  }
+}
