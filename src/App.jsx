@@ -4639,7 +4639,7 @@ const [nearText, setNearText] = useState('');
     return aud.includes(me.id);
   });
 }, [activity, me.id]);
-    const shownChatCtas = new Set(); // dedupe per thread (newest event wins)
+    const shownChatCtas = useMemo(() => new Set(), [visibleActivity.length]);
 
     function onActivityRowClick(a) {
   const isChatEvent = a?.type === 'chat_unlocked' || a?.type === 'chat_message';
@@ -4780,9 +4780,7 @@ const [nearText, setNearText] = useState('');
     );
   }
 
-  const visibleActivity = (activity || []).filter(
-    (a) => !a?.audienceIds || a.audienceIds.includes(me.id)
-  );
+  
 
   function ProfilePostRow({ post, onOpen }) {
     const owner = usersById[post.ownerId];
