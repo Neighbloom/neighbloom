@@ -1913,11 +1913,17 @@ function App() {
 
     // Keep "others" open until slots are filled
     setExpandedOtherVols((prev) => {
-      const next = new Set(prev);
-      if (nextSelected.length >= helpersNeeded) next.delete(postId);
-      else next.add(postId);
-      return next;
-    });
+  const base = prev && typeof prev === 'object' ? prev : {};
+  const next = { ...base };
+
+  if (nextSelected.length >= helpersNeeded) {
+    delete next[postId];
+  } else {
+    next[postId] = true;
+  }
+
+  return next;
+});
 
     // open chat immediately
     openChat(postId, userId);
@@ -2176,6 +2182,8 @@ useEffect(() => {
       homeChip,
       homeShowAll,
       homeQuery,
+      expandedThreads,
+expandedOtherVols,
       homeFollowOnly,
       followsByUser,
       savedSearches,
@@ -2197,6 +2205,8 @@ useEffect(() => {
   homeChip,
   homeShowAll,
   homeQuery,
+  expandedThreads,
+expandedOtherVols,
   homeFollowOnly,
   followsByUser,
   savedSearches,
@@ -2681,7 +2691,7 @@ useEffect(() => {
       : visibleReplies;
 
     const otherCount = hasChosen ? otherReplies.length : 0;
-    const othersOpen = expandedOtherVols.has(post.id);
+    const othersOpen = !!expandedOtherVols?.[post.id];
 
     const listToRender = hasChosen
       ? [...chosenReplies, ...(othersOpen ? otherReplies : [])]
