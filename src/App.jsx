@@ -1497,37 +1497,75 @@ function App() {
   }
 
   function getLastChatTs(chatId) {
-    const msgs = Array.isArray(chats[chatId]) ? chats[chatId] : [];
-    let max = 0;
-    for (const m of msgs) {
-      if (m && typeof m.ts === 'number' && m.ts > max) max = m.ts;
-    }
-    return max;
+  const msgs = Array.isArray(chats?.[chatId]) ? chats[chatId] : [];
+  let max = 0;
+
+  for (const m of msgs) {
+    if (!m) continue;
+
+    const tsRaw = m.ts;
+    const ts =
+      typeof tsRaw === 'number'
+        ? tsRaw
+        : typeof tsRaw === 'string'
+        ? Number(tsRaw)
+        : 0;
+
+    if (Number.isFinite(ts) && ts > max) max = ts;
   }
+
+  return max;
+}
 
   function unreadCount(chatId, viewerId) {
-    const msgs = Array.isArray(chats[chatId]) ? chats[chatId] : [];
-    const last = lastRead[readKey(viewerId, chatId)] || 0;
+  const msgs = Array.isArray(chats?.[chatId]) ? chats[chatId] : [];
 
-    let c = 0;
-    for (const m of msgs) {
-      if (!m) continue;
-      if (typeof m.ts !== 'number') continue;
-      if (m.ts <= last) continue;
-      if (m.fromId === viewerId) continue; // don’t count my own messages as unread
-      c += 1;
-    }
-    return c;
+  const rawLast = lastRead?.[readKey(viewerId, chatId)];
+  const last =
+    typeof rawLast === 'number'
+      ? rawLast
+      : typeof rawLast === 'string'
+      ? Number(rawLast)
+      : 0;
+
+  let c = 0;
+  for (const m of msgs) {
+    if (!m) continue;
+
+    const tsRaw = m.ts;
+    const ts =
+      typeof tsRaw === 'number'
+        ? tsRaw
+        : typeof tsRaw === 'string'
+        ? Number(tsRaw)
+        : NaN;
+
+    if (!Number.isFinite(ts)) continue;
+    if (Number.isFinite(last) && ts <= last) continue;
+    if (m.fromId === viewerId) continue; // don’t count my own messages as unread
+    c += 1;
   }
+  return c;
+}
 
   function markChatRead(chatId, viewerId) {
-    const lastTs = getLastChatTs(chatId);
-    const k = readKey(viewerId, chatId);
-    setLastRead((prev) => ({
+  const lastTs = getLastChatTs(chatId);
+  const k = readKey(viewerId, chatId);
+
+  setLastRead((prev) => {
+    const raw = prev?.[k];
+    const cur =
+      typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : 0;
+
+    const curSafe = Number.isFinite(cur) ? cur : 0;
+    const lastSafe = Number.isFinite(lastTs) ? lastTs : 0;
+
+    return {
       ...prev,
-      [k]: Math.max(prev[k] || 0, lastTs),
-    }));
-  }
+      [k]: Math.max(curSafe, lastSafe),
+    };
+  });
+}
 
   function getHelpersNeeded(post) {
     const n = Number(post.helpersNeeded ?? post.needHelpers ?? 1);
@@ -2110,10 +2148,17 @@ function App() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (!chat) return;
-    const chatId = getChatId(chat.postId, me.id, chat.otherUserId);
-    markChatRead(chatId, me.id);
-  }, [chat, chats, me.id]);
+  if (!chat) return;
+
+  const post = posts.find((p) => p.id === chat.postId);
+  if (!post) return;
+
+  // Prevent marking read for the wrong viewer (demo user switches / locked chats)
+  if (!canOpenChatForPost(post, chat.otherUserId)) return;
+
+  const chatId = getChatId(chat.postId, me.id, chat.otherUserId);
+  markChatRead(chatId, me.id);
+}, [chat, chats, me.id, posts]);
 
   // If you switch demo users while a chat is open, ensure "otherUserId" is still the OTHER person.
   // Otherwise you end up chatting with yourself / wrong chatId.
