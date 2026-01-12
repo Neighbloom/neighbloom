@@ -5233,7 +5233,7 @@ function BottomTabs({ activeTab, onChange }) {
         const isActive = activeTab === t.key;
         return (
           <button
-            key={t.key}
+            key="home-screen"
             type="button"
             className={`nb-bottomtab ${isActive ? 'active' : ''}`}
             onClick={() => onChange(t.key)}
