@@ -623,6 +623,10 @@ function HomeScreen({
 }) {
   const hasQuery = normalizeText(homeQuery).length > 0;
   const visibleFeed = feed;
+  useEffect(() => {
+    console.log('[HomeScreen] mount');
+    return () => console.log('[HomeScreen] unmount');
+  }, []);
 
   const saveDisabled =
     homeFollowOnly || !hasQuery || currentSearchIsSaved || savedLimitReached;
@@ -2631,10 +2635,10 @@ useEffect(() => {
 
   function ReplyList({ post }) {
     const isOwner = post.ownerId === me.id;
-    const open = !!expandedThreads[post.id];
+    
     const visibleReplies = (post.replies || []).filter((r) => !r.hidden);
 
-    if (!open) return null;
+    
 
     if (!visibleReplies.length) {
       return (
@@ -2742,7 +2746,7 @@ useEffect(() => {
               <img
                 className="nb-avatar sm"
                 src={u?.avatar}
-                alt={u?.name}
+                alt={u?.name || 'Neighbor'}
                 onClick={() =>
                   setModal({ type: 'user_profile', userId: r.authorId })
                 }
