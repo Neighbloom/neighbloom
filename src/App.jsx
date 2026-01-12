@@ -5183,14 +5183,45 @@ const [nearText, setNearText] = useState('');
       <Header />
 
       {activeTab === 'home' ? (
-        renderHomeTab()
-      ) : activeTab === 'post' ? (
-        <PostTab />
-      ) : activeTab === 'activity' ? (
-        <ActivityTab />
-      ) : (
-        <ProfileTab />
-      )}
+  <HomeScreen
+    Hero={HomeHero}
+    Chips={Chips}
+    EmptyState={EmptyState}
+    PostCard={PostCard}
+    homeChip={homeChip}
+    homeShowAll={homeShowAll}
+    setHomeShowAll={setHomeShowAll}
+    homeFollowOnly={homeFollowOnly}
+    setHomeFollowOnly={setHomeFollowOnly}
+    homeQuery={homeQuery}
+    setHomeQuery={setHomeQuery}
+    feed={searchedFeed}
+    setActiveTab={setActiveTab}
+    setPostFlow={setPostFlow}
+    radiusPreset={radiusPreset}
+    setRadiusPreset={setRadiusPresetForMe}
+    homeCenterLabel={homeCenter?.label || homeCenter?.townKey || ''}
+    onOpenHomeSetup={() => setModal({ type: 'home_setup' })}
+    savedSearches={mySavedSearchesWithCounts}
+    activeSavedSearchId={activeSavedSearchId}
+    onApplySavedSearch={applySavedSearch}
+    onClearSavedSearch={clearSavedSearch}
+    onClearSavedSearchHighlight={() => setActiveSavedSearchId(null)}
+    onSaveCurrentSearch={saveCurrentSearch}
+    canSaveCurrentSearch={canSaveCurrentSearch}
+    currentSearchIsSaved={currentSearchIsSaved}
+    savedLimitReached={savedLimitReached}
+    onManageSavedSearch={(id) =>
+      setModal({ type: 'saved_search_manage', searchId: id })
+    }
+  />
+) : activeTab === 'post' ? (
+  <PostTab />
+) : activeTab === 'activity' ? (
+  <ActivityTab />
+) : (
+  <ProfileTab />
+)}
 
       <BottomTabs activeTab={activeTab} onChange={setActiveTab} />
 
