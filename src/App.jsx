@@ -623,13 +623,7 @@ onRefresh,
   savedLimitReached,
   onManageSavedSearch,
 }) {
-  const scrollRef = React.useRef(null);
-const { pull, threshold } = usePullToRefresh(scrollRef, {
-  refreshing,
-  onRefresh,
-  threshold: 70,
-  maxPull: 140,
-});
+  
   const hasQuery = normalizeText(homeQuery).length > 0;
   const visibleFeed = feed;
   useEffect(() => {
@@ -648,7 +642,6 @@ const { pull, threshold } = usePullToRefresh(scrollRef, {
   return (
     <div
       className="nb-page"
-      ref={scrollRef}
       style={{ overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}
     >
       <Hero />
@@ -803,6 +796,17 @@ const { pull, threshold } = usePullToRefresh(scrollRef, {
           >
             {saveLabel}
           </button>
+          <button
+  type="button"
+  className="nb-iconbtn"
+  aria-label="Refresh feed"
+  title={refreshing ? 'Refreshing…' : 'Refresh'}
+  onClick={onRefresh}
+  disabled={refreshing}
+  style={{ width: 36, height: 36 }}
+>
+  {refreshing ? '⏳' : '↻'}
+</button>
         </div>
       </div>
 
@@ -975,89 +979,7 @@ function sleep(ms) {
  * Pull-to-refresh for a scrollable DIV (not window).
  * Triggers only when scrollTop === 0.
  */
-function usePullToRefresh(scrollRef, { onRefresh, threshold = 70, maxPull = 140, refreshing = false } = {}) {
-  const startYRef = React.useRef(0);
-  const pullingRef = React.useRef(false);
-  const pullRef = React.useRef(0);
-  const [pull, setPull] = React.useState(0);
 
-  const setPullSafe = (v) => {
-    pullRef.current = v;
-    setPull(v);
-  };
-
-  React.useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-
-    const onTouchStart = (e) => {
-      if (refreshing) return;
-      if (el.scrollTop > 0) return;
-      pullingRef.current = true;
-      startYRef.current = e.touches[0].clientY;
-      setPullSafe(0);
-    };
-
-    const onTouchMove = (e) => {
-      if (!pullingRef.current || refreshing) return;
-
-      // only when you're at the very top
-      if (el.scrollTop > 0) {
-        pullingRef.current = false;
-        setPullSafe(0);
-        return;
-      }
-
-      const y = e.touches[0].clientY;
-      const dy = y - startYRef.current;
-
-      if (dy <= 0) {
-        setPullSafe(0);
-        return;
-      }
-
-      // stop native scroll while pulling
-      e.preventDefault();
-
-      // dampen the pull so it feels less jumpy
-      const damped = Math.min(maxPull, dy * 0.5);
-      setPullSafe(damped);
-    };
-
-    const onTouchEnd = async () => {
-      if (!pullingRef.current) return;
-      pullingRef.current = false;
-
-      const pulled = pullRef.current;
-
-      if (pulled >= threshold && typeof onRefresh === 'function') {
-        // lock indicator in place while refreshing
-        setPullSafe(threshold);
-        try {
-          await onRefresh();
-        } finally {
-          setPullSafe(0);
-        }
-      } else {
-        setPullSafe(0);
-      }
-    };
-
-    el.addEventListener('touchstart', onTouchStart, { passive: true });
-    el.addEventListener('touchmove', onTouchMove, { passive: false });
-    el.addEventListener('touchend', onTouchEnd);
-    el.addEventListener('touchcancel', onTouchEnd);
-
-    return () => {
-      el.removeEventListener('touchstart', onTouchStart);
-      el.removeEventListener('touchmove', onTouchMove);
-      el.removeEventListener('touchend', onTouchEnd);
-      el.removeEventListener('touchcancel', onTouchEnd);
-    };
-  }, [scrollRef, onRefresh, threshold, maxPull, refreshing]);
-
-  return { pull, threshold };
-}
 
 function App() {
   // -------------------- LOAD SAVED STATE (V1) --------------------
@@ -2671,17 +2593,7 @@ expandedOtherVols,
             <span className="nb-pill-strong">{npPoints}</span>
           </button>
 
-          {activeTab === 'home' ? (
-            <button
-              className="nb-iconbtn"
-              aria-label="Refresh feed"
-              title={homeRefreshing ? 'Refreshing…' : 'Refresh'}
-              onClick={refreshHome}
-              disabled={homeRefreshing}
-            >
-              {homeRefreshing ? '⏳' : '↻'}
-            </button>
-          ) : null}
+          
 
           <button
             className="nb-iconbtn"
@@ -4208,6 +4120,119 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
     );
   }
 
+  function ProfileScreen() {
+  const followers = (followersByUser?.[me.id] || []).length;
+  const following = Array.isArray(followsByUser?.[me.id])
+    ? followsByUser[me.id].filter(Boolean).length
+    : 0;
+
+  return (
+    <div className="nb-page">
+      <div className="nb-section">
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <img className="nb-avatar" src={me.avatar} alt={me.name} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 980, fontSize: 18 }}>
+              {me.name} <UserBadge userId={me.id} showText />
+            </div>
+            <div className="nb-muted" style={{ fontWeight: 850 }}>
+              {me.handle} · {me.location}
+            </div>
+          </div>
+        </div>
+
+        {me.tagline ? (
+          <div style={{ marginTop: 10, fontWeight: 850 }}>{me.tagline}</div>
+        ) : null}
+
+        <div
+          style={{
+            marginTop: 14,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: 10,
+          }}
+        >
+          <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
+            <div style={{ fontWeight: 980, fontSize: 18 }}>{npPoints}</div>
+            <div className="nb-muted" style={{ fontWeight: 850, fontSize: 12 }}>NP</div>
+          </div>
+
+          <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
+            <div style={{ fontWeight: 980, fontSize: 18 }}>{myPostCount}</div>
+            <div className="nb-muted" style={{ fontWeight: 850, fontSize: 12 }}>Posts</div>
+          </div>
+
+          <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
+            <div style={{ fontWeight: 980, fontSize: 18 }}>{helpfulRepliesCount}</div>
+            <div className="nb-muted" style={{ fontWeight: 850, fontSize: 12 }}>Helpful</div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div className="nb-pill">
+            <span className="nb-pill-text">Following</span>
+            <span className="nb-pill-strong">{following}</span>
+          </div>
+          <div className="nb-pill">
+            <span className="nb-pill-text">Followers</span>
+            <span className="nb-pill-strong">{followers}</span>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
+          <button className="nb-btn nb-btn-ghost" onClick={() => setModal({ type: 'points' })}>
+            View badges & points
+          </button>
+
+          <button
+            className="nb-btn nb-btn-ghost"
+            onClick={() => {
+              const ok = window.confirm(
+                'Reset all local demo data? This clears posts, chats, saved searches, and points.'
+              );
+              if (!ok) return;
+              resetAppState();
+              window.location.reload();
+            }}
+            title="Clears localStorage demo data"
+          >
+            Reset demo data
+          </button>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <div className="nb-muted small" style={{ fontWeight: 850, marginBottom: 8 }}>
+            Demo user
+          </div>
+          <select
+            className="nb-input"
+            value={meId}
+            onChange={(e) => setMeId(e.target.value)}
+          >
+            {USERS_SEED.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name} ({u.location})
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {myPosts.length ? (
+        <div className="nb-section">
+          <div className="nb-section-title">Your posts</div>
+          <div className="nb-feed">
+            {myPosts.map((p) => (
+              <PostCard key={p.id} post={p} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
   function HelpForm() {
     const helpType = 'need';
 
@@ -5535,6 +5560,7 @@ onRefresh={refreshHome}
 ) : (
   <ProfileTab />
 )}
+{activeTab === 'profile' ? <ProfileScreen /> : null}
 
       <BottomTabs activeTab={activeTab} onChange={setActiveTab} />
 

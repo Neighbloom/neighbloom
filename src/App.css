@@ -1464,39 +1464,3 @@ img, svg, video, canvas {
     gap: 8px;
   }
 }
-/* Pull-to-refresh */
-.nb-scroll {
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
-}
-
-.nb-ptr-slot {
-  height: 0;
-  overflow: hidden;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-
-.nb-ptr-label {
-  padding: 10px 0;
-  font-weight: 900;
-  opacity: 0.85;
-  font-size: 12px;
-}
-
-.nb-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 999px;
-  animation: nbspin 0.8s linear infinite;
-}
-
-@keyframes nbspin {
-  to {
-    transform: rotate(360deg);
-  }
-}
