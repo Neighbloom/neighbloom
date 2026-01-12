@@ -646,8 +646,17 @@ const { pull, threshold } = usePullToRefresh(scrollRef, {
     : 'Save';
 
   return (
-    <div className="nb-page">
+    <div
+      className="nb-page"
+      ref={scrollRef}
+      style={{ overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}
+    >
       <Hero />
+      {refreshing ? (
+        <div className="nb-muted small" style={{ marginTop: 8, fontWeight: 900 }}>
+          Refreshing…
+        </div>
+      ) : null}
       <Chips />
 
       {/* Hyperlocal radius (Phase 1) */}
@@ -2608,6 +2617,16 @@ expandedOtherVols,
     );
   }
 
+  function navTo(tab) {
+    // kill overlays that can make it FEEL like tabs don't work
+    setChat(null);
+    setThread(null);
+    setModal(null);
+
+    if (tab === 'post') setPostFlow({ step: 'chooser', kind: null });
+    setActiveTab(tab);
+  }
+
   function Header() {
     const titleMap = {
       home: 'Your Feed',
@@ -2652,11 +2671,23 @@ expandedOtherVols,
             <span className="nb-pill-strong">{npPoints}</span>
           </button>
 
+          {activeTab === 'home' ? (
+            <button
+              className="nb-iconbtn"
+              aria-label="Refresh feed"
+              title={homeRefreshing ? 'Refreshing…' : 'Refresh'}
+              onClick={refreshHome}
+              disabled={homeRefreshing}
+            >
+              {homeRefreshing ? '⏳' : '↻'}
+            </button>
+          ) : null}
+
           <button
             className="nb-iconbtn"
             aria-label="Activity"
             title="Activity"
-            onClick={() => setActiveTab('activity')}
+            onClick={() => navTo('activity')}
           >
             🔔
           </button>
@@ -2665,7 +2696,7 @@ expandedOtherVols,
             className="nb-avatarbtn"
             aria-label="Profile"
             title="Profile"
-            onClick={() => setActiveTab('profile')}
+            onClick={() => navTo('profile')}
           >
             <img className="nb-avatar sm" src={me.avatar} alt={me.name} />
           </button>
@@ -2689,22 +2720,14 @@ expandedOtherVols,
 
     const unreadLabel = totalUnread > 9 ? '9+' : String(totalUnread);
 
-    function go(tab) {
-      // kill overlays that can make it FEEL like tabs don't work
-      setChat(null);
-      setThread(null);
-      setModal(null);
-
-      if (tab === 'post') setPostFlow({ step: 'chooser', kind: null });
-      setActiveTab(tab);
-    }
+    
 
     return (
       <div className="nb-bottomtabs" role="navigation" aria-label="Primary">
         <button
           type="button"
           className={`nb-tabbtn ${activeTab === 'home' ? 'is-active' : ''}`}
-          onClick={() => go('home')}
+          onClick={() => navTo('home')}
         >
           <span className="nb-tabicon" aria-hidden="true">🏠</span>
           <span className="nb-tablabel">Home</span>
@@ -2713,7 +2736,7 @@ expandedOtherVols,
         <button
           type="button"
           className={`nb-tabbtn ${activeTab === 'post' ? 'is-active' : ''}`}
-          onClick={() => go('post')}
+          onClick={() => navTo('post')}
         >
           <span className="nb-tabicon" aria-hidden="true">➕</span>
           <span className="nb-tablabel">Post</span>
@@ -2722,7 +2745,7 @@ expandedOtherVols,
         <button
           type="button"
           className={`nb-tabbtn ${activeTab === 'activity' ? 'is-active' : ''}`}
-          onClick={() => go('activity')}
+          onClick={() => navTo('activity')}
         >
           <span className="nb-tabicon" aria-hidden="true">🔔</span>
           <span className="nb-tablabel">Activity</span>
@@ -2737,7 +2760,7 @@ expandedOtherVols,
         <button
           type="button"
           className={`nb-tabbtn ${activeTab === 'profile' ? 'is-active' : ''}`}
-          onClick={() => go('profile')}
+          onClick={() => navTo('profile')}
         >
           <span className="nb-tabicon" aria-hidden="true">👤</span>
           <span className="nb-tablabel">Profile</span>
@@ -5477,6 +5500,8 @@ onRefresh={refreshHome}
     EmptyState={EmptyState}
     PostCard={PostCard}
     homeChip={homeChip}
+    refreshing={homeRefreshing}
+onRefresh={refreshHome}
     homeShowAll={homeShowAll}
     setHomeShowAll={setHomeShowAll}
     homeFollowOnly={homeFollowOnly}
