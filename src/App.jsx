@@ -1585,54 +1585,72 @@ function App() {
   }
 
   function openChat(postId, otherUserId) {
-    const post = posts.find((p) => p.id === postId);
-    if (!post) return;
-    if (!otherUserId) return;
+  const post = posts.find((p) => p.id === postId);
+  if (!post || !otherUserId) return;
 
-    // never open a chat with yourself
-    if (otherUserId === me.id) return;
-    // REC: don’t open the drawer unless it’s actually unlocked
-    if (post.kind === 'rec' && !canOpenChatForPost(post, otherUserId)) return;
+  // never open a chat with yourself
+  if (otherUserId === me.id) return;
 
-    // normalize "other" based on the rules:
-    // - owner chats with selected helpers
-    // - selected helper chats only with owner
-    if (post.kind === 'help') {
-      const selected = getSelectedHelperIds(post);
-      const meIsOwner = me.id === post.ownerId;
-      const meIsSelectedHelper = selected.includes(me.id);
+  // HELP: normalize "other" so a selected helper always chats with the owner
+  if (post.kind === 'help') {
+    const selected = getSelectedHelperIds(post);
+    const meIsOwner = me.id === post.ownerId;
+    const meIsSelectedHelper = selected.includes(me.id);
 
-      if (meIsSelectedHelper && !meIsOwner) {
-        otherUserId = post.ownerId; // helper can only chat with owner
-      }
+    if (meIsSelectedHelper && !meIsOwner) {
+      otherUserId = post.ownerId;
     }
-
-    setChat({ postId, otherUserId });
   }
+
+  // Final gate for BOTH help + rec (prevents opening locked drawers)
+  if (!canOpenChatForPost(post, otherUserId)) return;
+
+  setChat({ postId, otherUserId });
+}
 
   function sendChatMessage(postId, otherUserId, text) {
-    const clean = normalizeText(text);
-    if (!clean) return;
+  const clean = normalizeText(text);
+  if (!clean) return;
 
-    const chatId = getChatId(postId, me.id, otherUserId);
+  const post = posts.find((p) => p && p.id === postId);
+  if (!post || !otherUserId) return;
 
-    setChats((prev) => {
-      const prevMsgs = Array.isArray(prev[chatId]) ? prev[chatId] : [];
-      const next = [
-        ...prevMsgs,
-        { id: uid('m'), fromId: me.id, text: clean, ts: NOW() },
-      ];
-      return { ...prev, [chatId]: next };
-    });
+  // never message yourself
+  if (otherUserId === me.id) return;
 
-    pushActivity({
-      type: 'chat_message',
-      actorId: me.id,
-      otherUserId,
-      postId,
-      audienceIds: [me.id, otherUserId],
-    });
+  // HELP: normalize "other" so a selected helper always chats with the owner
+  if (post.kind === 'help') {
+    const selected = getSelectedHelperIds(post);
+    const meIsOwner = me.id === post.ownerId;
+    const meIsSelectedHelper = selected.includes(me.id);
+
+    if (meIsSelectedHelper && !meIsOwner) {
+      otherUserId = post.ownerId;
+    }
   }
+
+  // Final gate (prevents ghost threads / writing into locked chats)
+  if (!canOpenChatForPost(post, otherUserId)) return;
+
+  const chatId = getChatId(postId, me.id, otherUserId);
+
+  setChats((prev) => {
+    const prevMsgs = Array.isArray(prev?.[chatId]) ? prev[chatId] : [];
+    const next = [
+      ...prevMsgs,
+      { id: uid('m'), fromId: me.id, text: clean, ts: NOW() },
+    ];
+    return { ...(prev || {}), [chatId]: next };
+  });
+
+  pushActivity({
+    type: 'chat_message',
+    actorId: me.id,
+    otherUserId,
+    postId,
+    audienceIds: [me.id, otherUserId],
+  });
+}
 
   function getReplyLimitKey(kind) {
     // separate limits by kind
@@ -3810,7 +3828,7 @@ expandedOtherVols,
 
     const other = usersById[chat.otherUserId];
     const chatId = getChatId(post.id, me.id, chat.otherUserId);
-    const rawMsgs = chats[chatId];
+    const rawMsgs = chats?.[chatId];
     const msgs = Array.isArray(rawMsgs)
       ? rawMsgs.filter(
           (m) => m && typeof m === 'object' && typeof m.text === 'string'
@@ -3818,27 +3836,24 @@ expandedOtherVols,
       : [];
 
     // guard: only show if gated properly
-    if (!canOpenChatForPost(post, chat.otherUserId)) {
-      const canChat = canOpenChatForPost(post, chat.otherUserId);
-      return (
-        <div className="nb-chat">
-          <div className="nb-chat-head">
-            <div className="nb-chat-title">Chat locked</div>
-            <button
-              className="nb-x"
-              onClick={() => setChat(null)}
-              aria-label="Close"
-            >
-              ✕
-            </button>
-          </div>
-          <div className="nb-chat-body">
-            This chat isn’t available yet. It only unlocks after the post owner
-            selects one person.
-          </div>
-        </div>
-      );
-    }
+if (!canOpenChatForPost(post, chat.otherUserId)) {
+  const lockedBody =
+    post.kind === 'rec'
+      ? 'This chat unlocks only after the post owner chooses a Top pick (and private chat is enabled).'
+      : 'This chat unlocks only after the requester selects you as a helper.';
+
+  return (
+    <div className="nb-chat">
+      <div className="nb-chat-head">
+        <div className="nb-chat-title">Chat locked</div>
+        <button className="nb-x" onClick={() => setChat(null)} aria-label="Close">
+          ✕
+        </button>
+      </div>
+      <div className="nb-chat-body">{lockedBody}</div>
+    </div>
+  );
+}
 
     return (
       <div className="nb-chat">
