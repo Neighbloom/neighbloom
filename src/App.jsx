@@ -794,14 +794,16 @@ function HomeScreen({
           className="nb-seg nb-seg-compact nb-seg-scroll"
           style={{ width: '100%' }}
         >
-          <button
-            type="button"
-            className={`nb-segbtn ${!activeSavedSearchId ? 'is-on' : ''}`}
-            onClick={onClearSavedSearch}
-            title="Reset to default feed"
-          >
-            Default
-          </button>
+          {(savedSearches || []).length > 0 ? (
+  <button
+    type="button"
+    className={`nb-segbtn ${!activeSavedSearchId ? 'is-on' : ''}`}
+    onClick={onClearSavedSearch}
+    title="Reset feed"
+  >
+    Reset
+  </button>
+) : null}
 
           {(savedSearches || []).map((s) => {
             const newCount = Number(s.newCount || 0);
