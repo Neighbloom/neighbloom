@@ -2899,8 +2899,7 @@ useEffect(() => {
         ? `Recommendations (${replyCount})`
         : `Volunteers (${replyCount})`;
 
-    const helpersNeeded =
-      post.kind === 'help' ? Math.max(1, Number(post.helpersNeeded || 1)) : 1;
+    const helpersNeeded = post.kind === 'help' ? getHelpersNeeded(post) : 1;
 
       const rulesRow =
       post.kind === 'rec'
@@ -2963,7 +2962,7 @@ useEffect(() => {
           <div className="nb-meta-chips">
             {/* At-a-glance (no duplicates) */}
             {post.kind === 'help' ? (
-              <div className="nb-meta-chips">
+  <>
                 <span
                   className={`nb-meta-chip ${
                     post.helpType === 'need' ? 'accent' : ''
@@ -2976,7 +2975,7 @@ useEffect(() => {
                 {post.whenRange ? (
                   <span className="nb-meta-chip">{post.whenRange}</span>
                 ) : null}
-              </div>
+              </>
             ) : null}
 
             {post.kind === 'rec' ? (
@@ -3022,7 +3021,7 @@ useEffect(() => {
                   setModal({
                     type: 'reply',
                     postId: post.id,
-                    mode: post.kind === 'rec' ? 'suggest' : 'offer',
+                    mode: post.kind === 'rec' ? 'suggest' : 'volunteer',
                   })
                 }
               >
@@ -3050,9 +3049,7 @@ useEffect(() => {
 
             {isOwner &&
             post.kind === 'help' &&
-            ((Array.isArray(post.selectedUserIds) &&
-              post.selectedUserIds.length > 0) ||
-              !!post.selectedUserId) ? (
+            (selectedHelperIds.length > 0) ? (
               <div className="nb-helpflow">
                 <button
                   className={`nb-mini ${
@@ -3100,7 +3097,7 @@ useEffect(() => {
             </button>
           </div>
 
-          <ReplyList post={post} />
+          {open ? <ReplyList post={post} /> : null}
         </div>
       </div>
     );
