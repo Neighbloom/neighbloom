@@ -5140,7 +5140,7 @@ const [nearText, setNearText] = useState('');
     );
   }
 
-  function HomeTab() {
+  function renderHomeTab() {
     return (
       <HomeScreen
         Hero={HomeHero}
@@ -5182,7 +5182,7 @@ const [nearText, setNearText] = useState('');
       <Header />
 
       {activeTab === 'home' ? (
-        <HomeTab />
+        renderHomeTab()
       ) : activeTab === 'post' ? (
         <PostTab />
       ) : activeTab === 'activity' ? (
@@ -5233,7 +5233,7 @@ function BottomTabs({ activeTab, onChange }) {
         const isActive = activeTab === t.key;
         return (
           <button
-            key="home-screen"
+            key={t.key}
             type="button"
             className={`nb-bottomtab ${isActive ? 'active' : ''}`}
             onClick={() => onChange(t.key)}
