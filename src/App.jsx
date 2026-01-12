@@ -867,14 +867,14 @@ function HomeScreen({
           })}
         </div>
 
-        {!savedSearches || savedSearches.length === 0 ? (
-          <div
-            className="nb-muted small"
-            style={{ marginTop: 8, fontWeight: 850 }}
-          >
-            Save a search to pin it here for one-tap access.
-          </div>
-        ) : null}
+        {((savedSearches || []).length === 0) ? (
+  <div
+    className="nb-muted small"
+    style={{ marginTop: 8, fontWeight: 850 }}
+  >
+    Save a search to pin it here for one-tap access.
+  </div>
+) : null}
       </div>
 
       {!hasQuery &&
