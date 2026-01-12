@@ -1481,7 +1481,10 @@ function App() {
   }
 
   function toggleOtherVols(postId) {
-  setExpandedOtherVols((prev) => ({ ...prev, [postId]: !prev?.[postId] }));
+  setExpandedOtherVols((prev) => {
+    const base = prev && typeof prev === 'object' ? prev : {};
+    return { ...base, [postId]: !base[postId] };
+  });
 }
 
   function getChatId(postId, a, b) {
@@ -1954,6 +1957,7 @@ function App() {
   const base = prev && typeof prev === 'object' ? prev : {};
   const next = { ...base };
 
+  // If slots are full, collapse others. Otherwise keep it open.
   if (nextSelected.length >= helpersNeeded) {
     delete next[postId];
   } else {
