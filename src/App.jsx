@@ -2869,7 +2869,10 @@ expandedOtherVols,
                       canOpenChatForPost(post, chatOtherUserId) ? (
                         <button
                           className="nb-link"
-                          onClick={() => openChat(post.id, chatOtherUserId)}
+                          onClick={(e) => {
+  e.stopPropagation();
+  openChat(post.id, otherId);
+}}
                           title="Open private chat (unlocked by Top pick)"
                         >
                           Open chat
@@ -4638,6 +4641,38 @@ const [nearText, setNearText] = useState('');
 }, [activity, me.id]);
     const shownChatCtas = new Set(); // dedupe per thread (newest event wins)
 
+    function onActivityRowClick(a) {
+  const isChatEvent = a?.type === 'chat_unlocked' || a?.type === 'chat_message';
+  const post = a?.postId ? posts.find((p) => p.id === a.postId) : null;
+  const otherId = otherIdFromActivity(a, me.id);
+
+  // If it's a chat-related event and it's actually unlocked, open the chat
+  if (isChatEvent && post && otherId && canOpenChatForPost(post, otherId)) {
+    openChat(post.id, otherId);
+    return;
+  }
+
+  // Otherwise, if the activity points to a post, jump to Home and expand that thread
+  if (post) {
+    setChat(null);
+    setThread(null);
+    setModal(null);
+
+    setActiveTab('home');
+
+    // Clear filters that could hide the post
+    setHomeChip('all');
+    setHomeQuery('');
+    setHomeFollowOnly(false);
+
+    // If the post is resolved, Home might be hiding it → show All
+    if (post.status === 'resolved') setHomeShowAll(true);
+
+    // Expand the post thread
+    setExpandedThreads((prev) => ({ ...(prev || {}), [post.id]: true }));
+  }
+}
+
     return (
       <div className="nb-page">
         <div className="nb-section">
@@ -4693,10 +4728,11 @@ const [nearText, setNearText] = useState('');
   className="nb-listitem"
   role="button"
   tabIndex={0}
-  onClick={() => handleActivityClick(a)}
+  onClick={() => onActivityRowClick(a)}
   onKeyDown={(e) => {
-    if (e.key === 'Enter' || e.key === ' ') handleActivityClick(a);
+    if (e.key === 'Enter' || e.key === ' ') onActivityRowClick(a);
   }}
+  style={{ cursor: 'pointer' }}
 >
                   <div className="nb-listdot" />
                   <div className="nb-listtext">
