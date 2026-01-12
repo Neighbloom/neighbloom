@@ -1438,6 +1438,44 @@ function App() {
     }
   }
 
+  // ---------- Round 4: Activity click behavior ----------
+  function jumpToPostFromActivity(postId) {
+    if (!postId) return;
+
+    // Make sure the post is visible regardless of current filters
+    setHomeShowAll(true);
+    setHomeChip('all');
+    setHomeQuery('');
+    setActiveSavedSearchId(null);
+
+    // Close overlays so it never feels "stuck"
+    setChat(null);
+    setThread(null);
+    setModal(null);
+
+    // Go home + expand the thread
+    setActiveTab('home');
+    setExpandedThreads((prev) => ({ ...(prev || {}), [postId]: true }));
+  }
+
+  function handleActivityClick(a) {
+    if (!a || !a.postId) return;
+
+    const post = posts.find((p) => p && p.id === a.postId);
+    if (!post) return;
+
+    const otherUserId = otherIdFromActivity(a, me.id);
+
+    // If chat is allowed for THIS viewer + otherUserId, open it.
+    if (otherUserId && canOpenChatForPost(post, otherUserId)) {
+      openChat(a.postId, otherUserId);
+      return;
+    }
+
+    // Otherwise, jump to the post and expand it.
+    jumpToPostFromActivity(a.postId);
+  }
+
   function toggleThread(postId) {
     setExpandedThreads((prev) => ({ ...prev, [postId]: !prev[postId] }));
   }
@@ -4646,7 +4684,16 @@ const [nearText, setNearText] = useState('');
               const unreadLabel = unread > 9 ? '9+' : String(unread);
 
               return (
-                <div key={a.id} className="nb-listitem">
+                <div
+  key={a.id}
+  className="nb-listitem"
+  role="button"
+  tabIndex={0}
+  onClick={() => handleActivityClick(a)}
+  onKeyDown={(e) => {
+    if (e.key === 'Enter' || e.key === ' ') handleActivityClick(a);
+  }}
+>
                   <div className="nb-listdot" />
                   <div className="nb-listtext">
                     <div className="nb-listmain">{activityText(a, me.id)}</div>
@@ -4657,7 +4704,10 @@ const [nearText, setNearText] = useState('');
                     <button
                       type="button"
                       className="nb-btn nb-btn-ghost nb-btn-sm"
-                      onClick={() => openChat(post.id, otherId)}
+                      onClick={(e) => {
+  e.stopPropagation();
+  openChat(post.id, otherId);
+}}
                     >
                       Open chat
                       {unread > 0 ? (
