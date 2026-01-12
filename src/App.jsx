@@ -593,6 +593,8 @@ function HomeScreen({
   EmptyState,
   PostCard,
   homeChip,
+  refreshing,
+onRefresh,
   homeShowAll,
   setHomeShowAll,
   homeFollowOnly,
@@ -621,6 +623,13 @@ function HomeScreen({
   savedLimitReached,
   onManageSavedSearch,
 }) {
+  const scrollRef = React.useRef(null);
+const { pull, threshold } = usePullToRefresh(scrollRef, {
+  refreshing,
+  onRefresh,
+  threshold: 70,
+  maxPull: 140,
+});
   const hasQuery = normalizeText(homeQuery).length > 0;
   const visibleFeed = feed;
   useEffect(() => {
@@ -949,11 +958,114 @@ function HomeScreen({
   );
 }
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Pull-to-refresh for a scrollable DIV (not window).
+ * Triggers only when scrollTop === 0.
+ */
+function usePullToRefresh(scrollRef, { onRefresh, threshold = 70, maxPull = 140, refreshing = false } = {}) {
+  const startYRef = React.useRef(0);
+  const pullingRef = React.useRef(false);
+  const pullRef = React.useRef(0);
+  const [pull, setPull] = React.useState(0);
+
+  const setPullSafe = (v) => {
+    pullRef.current = v;
+    setPull(v);
+  };
+
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const onTouchStart = (e) => {
+      if (refreshing) return;
+      if (el.scrollTop > 0) return;
+      pullingRef.current = true;
+      startYRef.current = e.touches[0].clientY;
+      setPullSafe(0);
+    };
+
+    const onTouchMove = (e) => {
+      if (!pullingRef.current || refreshing) return;
+
+      // only when you're at the very top
+      if (el.scrollTop > 0) {
+        pullingRef.current = false;
+        setPullSafe(0);
+        return;
+      }
+
+      const y = e.touches[0].clientY;
+      const dy = y - startYRef.current;
+
+      if (dy <= 0) {
+        setPullSafe(0);
+        return;
+      }
+
+      // stop native scroll while pulling
+      e.preventDefault();
+
+      // dampen the pull so it feels less jumpy
+      const damped = Math.min(maxPull, dy * 0.5);
+      setPullSafe(damped);
+    };
+
+    const onTouchEnd = async () => {
+      if (!pullingRef.current) return;
+      pullingRef.current = false;
+
+      const pulled = pullRef.current;
+
+      if (pulled >= threshold && typeof onRefresh === 'function') {
+        // lock indicator in place while refreshing
+        setPullSafe(threshold);
+        try {
+          await onRefresh();
+        } finally {
+          setPullSafe(0);
+        }
+      } else {
+        setPullSafe(0);
+      }
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd);
+    el.addEventListener('touchcancel', onTouchEnd);
+
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [scrollRef, onRefresh, threshold, maxPull, refreshing]);
+
+  return { pull, threshold };
+}
+
 function App() {
   // -------------------- LOAD SAVED STATE (V1) --------------------
   const saved = useMemo(() => loadAppState(), []);
 
   const [activeTab, setActiveTab] = useState(() => saved?.activeTab ?? 'home'); // home | post | activity | profile
+  const [homeRefreshing, setHomeRefreshing] = React.useState(false);
+
+const refreshHome = React.useCallback(async () => {
+  if (homeRefreshing) return;
+  setHomeRefreshing(true);
+
+  // Simulate a network refresh (swap this later for real fetch)
+  await sleep(650);
+
+  setHomeRefreshing(false);
+}, [homeRefreshing]);
   const [meId, setMeId] = useState('me'); // tiny demo switcher (optional)
   const me = useMemo(
     () => USERS_SEED.find((u) => u.id === meId) || USERS_SEED[0],
@@ -2936,7 +3048,7 @@ expandedOtherVols,
                           className="nb-link"
                           onClick={(e) => {
   e.stopPropagation();
-  openChat(post.id, otherId);
+  openChat(post.id, chatOtherUserId);
 }}
                           title="Open private chat (unlocked by Top pick)"
                         >
@@ -5081,7 +5193,21 @@ const [nearText, setNearText] = useState('');
     const discover = USERS_SEED.filter((u) => u.id !== me.id);
 
     return (
-      <div className="nb-page">
+      <div className="nb-page nb-scroll" ref={scrollRef}>
+        <div className="nb-ptr-slot" style={{ height: pull }}>
+  <div className="nb-ptr-label">
+    {refreshing ? (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <span className="nb-spinner" aria-hidden="true" />
+        Refreshing…
+      </span>
+    ) : pull >= threshold ? (
+      'Release to refresh'
+    ) : (
+      'Pull to refresh'
+    )}
+  </div>
+</div>
         <div className="nb-section">
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <img className="nb-avatar" src={me.avatar} alt={me.name} />
@@ -5309,6 +5435,8 @@ const [nearText, setNearText] = useState('');
         EmptyState={EmptyState}
         PostCard={PostCard}
         homeChip={homeChip}
+        refreshing={homeRefreshing}
+onRefresh={refreshHome}
         homeShowAll={homeShowAll}
         setHomeShowAll={setHomeShowAll}
         homeFollowOnly={homeFollowOnly}
