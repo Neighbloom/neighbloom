@@ -1098,6 +1098,25 @@ function sleep(ms) {
  * Triggers only when scrollTop === 0.
  */
 
+function useLocalStorageJsonState(key, fallbackValue) {
+  const [value, setValue] = useState(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw == null ? fallbackValue : JSON.parse(raw);
+    } catch {
+      return fallbackValue;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }, [key, value]);
+
+  return [value, setValue];
+}
+
 
 function App() {
   // -------------------- LOAD SAVED STATE (V1) --------------------
@@ -1241,33 +1260,12 @@ function App() {
   // modal: reply or confirm actions
   const [modal, setModal] = useState(null); // {type, postId, mode}
   // ---------------- BLOCK / REPORT (local MVP) ----------------
-  const [blockedByUser, setBlockedByUser] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('nb_blockedByUser') || '{}');
-    } catch {
-      return {};
-    }
-  });
+  const [blockedByUser, setBlockedByUser] = useLocalStorageJsonState(
+    'nb_blockedByUser',
+    {}
+  );
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('nb_blockedByUser', JSON.stringify(blockedByUser));
-    } catch {}
-  }, [blockedByUser]);
-
-  const [reports, setReports] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('nb_reports') || '[]');
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('nb_reports', JSON.stringify(reports));
-    } catch {}
-  }, [reports]);
+  const [reports, setReports] = useLocalStorageJsonState('nb_reports', []);
   // recommendation comment thread (per recommendation reply)
   const [thread, setThread] = useState(null); // { postId, replyId } | null
   // chat drawer
