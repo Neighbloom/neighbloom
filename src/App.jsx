@@ -1104,17 +1104,24 @@ function App() {
   const saved = useMemo(() => loadAppState(), []);
 
   const [activeTab, setActiveTab] = useState(() => saved?.activeTab ?? 'home'); // home | post | activity | profile
-  const [homeRefreshing, setHomeRefreshing] = React.useState(false);
+  const [homeRefreshing, setHomeRefreshing] = useState(false);
+  const homeRefreshingRef = useRef(false);
 
-const refreshHome = React.useCallback(async () => {
-  if (homeRefreshing) return;
-  setHomeRefreshing(true);
+  const refreshHome = React.useCallback(async () => {
+    // Ref guard prevents double-trigger before React commits state.
+    if (homeRefreshingRef.current) return;
 
-  // Simulate a network refresh (swap this later for real fetch)
-  await sleep(650);
+    homeRefreshingRef.current = true;
+    setHomeRefreshing(true);
 
-  setHomeRefreshing(false);
-}, [homeRefreshing]);
+    try {
+      // Simulate a network refresh (swap this later for real fetch)
+      await sleep(650);
+    } finally {
+      homeRefreshingRef.current = false;
+      setHomeRefreshing(false);
+    }
+  }, []);
   const [meId, setMeId] = useState('me'); // tiny demo switcher (optional)
   const me = useMemo(
     () => USERS_SEED.find((u) => u.id === meId) || USERS_SEED[0],
