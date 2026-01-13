@@ -624,6 +624,17 @@ onRefresh,
   onManageSavedSearch,
 }) {
   
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Mobile detection (simple + good enough for MVP)
+  const isMobile =
+    typeof window !== 'undefined' &&
+    window.matchMedia &&
+    window.matchMedia('(max-width: 720px)').matches;
+
+  function closeFilters() {
+    setFiltersOpen(false);
+  }
   const hasQuery = normalizeText(homeQuery).length > 0;
   const visibleFeed = feed;
   useEffect(() => {
@@ -639,6 +650,290 @@ onRefresh,
     ? 'Max 5'
     : 'Save';
 
+    // --- Collapsible filter content (used for desktop inline + mobile modal) ---
+  function FiltersContent() {
+    return (
+      <>
+        <Chips />
+
+        {/* Hyperlocal radius (Phase 1) */}
+        <div
+          className="nb-home-toggles"
+          style={{ marginTop: 10, justifyContent: 'space-between' }}
+        >
+          <div className="nb-seg nb-seg-compact">
+            <button
+              type="button"
+              className={`nb-segbtn ${radiusPreset === 'near' ? 'is-on' : ''}`}
+              onClick={() => {
+                setRadiusPreset('near');
+                if (isMobile) closeFilters();
+              }}
+              title="About 1 mile"
+            >
+              Near
+            </button>
+
+            <button
+              type="button"
+              className={`nb-segbtn ${radiusPreset === 'local' ? 'is-on' : ''}`}
+              onClick={() => {
+                setRadiusPreset('local');
+                if (isMobile) closeFilters();
+              }}
+              title="About 3 miles"
+            >
+              Local
+            </button>
+
+            <button
+              type="button"
+              className={`nb-segbtn ${radiusPreset === 'area' ? 'is-on' : ''}`}
+              onClick={() => {
+                setRadiusPreset('area');
+                if (isMobile) closeFilters();
+              }}
+              title="About 8 miles"
+            >
+              Area
+            </button>
+
+            <button
+              type="button"
+              className={`nb-segbtn ${radiusPreset === 'all' ? 'is-on' : ''}`}
+              onClick={() => {
+                setRadiusPreset('all');
+                if (isMobile) closeFilters();
+              }}
+              title="Any distance"
+            >
+              Any
+            </button>
+          </div>
+
+          <button
+            type="button"
+            className="nb-btn nb-btn-ghost nb-btn-sm"
+            onClick={() => {
+              onOpenHomeSetup?.();
+              if (isMobile) closeFilters();
+            }}
+            title="Set your home center"
+          >
+            Home: {homeCenterLabel || 'Set'}
+          </button>
+        </div>
+
+        {/* Open / All / Following */}
+        <div className="nb-home-toggles">
+          <div className="nb-seg nb-seg-compact">
+            <button
+              type="button"
+              className={`nb-segbtn ${
+                !homeShowAll && !homeFollowOnly ? 'is-on' : ''
+              }`}
+              onClick={() => {
+                setHomeFollowOnly(false);
+                setHomeShowAll(false);
+                if (isMobile) closeFilters();
+              }}
+            >
+              Open
+            </button>
+
+            <button
+              type="button"
+              className={`nb-segbtn ${
+                homeShowAll && !homeFollowOnly ? 'is-on' : ''
+              }`}
+              onClick={() => {
+                setHomeFollowOnly(false);
+                setHomeShowAll(true);
+                if (isMobile) closeFilters();
+              }}
+            >
+              All
+            </button>
+
+            <button
+              type="button"
+              className={`nb-segbtn ${homeFollowOnly ? 'is-on' : ''}`}
+              onClick={() => {
+                onClearSavedSearchHighlight?.();
+                setHomeShowAll(false);
+                setHomeFollowOnly(true);
+                if (isMobile) closeFilters();
+              }}
+              title="Only posts from neighbors you follow (plus you)"
+            >
+              Following
+            </button>
+          </div>
+        </div>
+
+        {/* Search + Save + Refresh (desktop) */}
+        <div className="nb-searchrow">
+          <div className="nb-search">
+            <span className="nb-search-icon">🔎</span>
+            <input
+              className="nb-search-input"
+              value={homeQuery}
+              onChange={(e) => setHomeQuery(e.target.value)}
+              placeholder="Search: mechanic, restaurant, etc."
+            />
+            {hasQuery ? (
+              <button
+                type="button"
+                className="nb-search-clear"
+                onClick={() => setHomeQuery('')}
+                aria-label="Clear search"
+                title="Clear"
+              >
+                ✕
+              </button>
+            ) : null}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {hasQuery ? (
+              <div className="nb-search-meta">{visibleFeed.length} results</div>
+            ) : null}
+
+            <button
+              type="button"
+              className="nb-btn nb-btn-ghost nb-btn-sm"
+              onClick={() => {
+                onSaveCurrentSearch?.();
+                if (isMobile) closeFilters();
+              }}
+              disabled={saveDisabled}
+              title={
+                homeFollowOnly
+                  ? 'Turn off Following to use saved searches'
+                  : !hasQuery
+                  ? 'Type a search query to save it'
+                  : currentSearchIsSaved
+                  ? 'Already saved'
+                  : savedLimitReached
+                  ? 'Saved searches are limited to 5'
+                  : 'Save this search'
+              }
+            >
+              {saveLabel}
+            </button>
+
+            {!isMobile ? (
+              <button
+                type="button"
+                className="nb-btn nb-btn-ghost nb-btn-sm"
+                onClick={onRefresh}
+                disabled={refreshing}
+                title={refreshing ? 'Refreshing…' : 'Refresh feed'}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+              >
+                <span aria-hidden="true">{refreshing ? '⏳' : '↻'}</span>
+                {refreshing ? 'Refreshing…' : 'Refresh'}
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Saved Searches row */}
+        <div style={{ marginTop: 10 }}>
+          <div
+            className="nb-seg nb-seg-compact nb-seg-scroll"
+            style={{ width: '100%' }}
+          >
+            {(savedSearches || []).length > 0 ? (
+              <button
+                type="button"
+                className={`nb-segbtn ${!activeSavedSearchId ? 'is-on' : ''}`}
+                onClick={() => {
+                  onClearSavedSearch?.();
+                  if (isMobile) closeFilters();
+                }}
+                title="Reset feed"
+              >
+                Reset
+              </button>
+            ) : null}
+
+            {(savedSearches || []).map((s) => {
+              const newCount = Number(s.newCount || 0);
+              const badge = newCount > 9 ? '9+' : String(newCount);
+
+              return (
+                <div
+                  key={s.id}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <button
+                    type="button"
+                    className={`nb-segbtn ${
+                      activeSavedSearchId === s.id ? 'is-on' : ''
+                    }`}
+                    onClick={() => {
+                      if (homeFollowOnly) setHomeFollowOnly(false);
+                      onApplySavedSearch?.(s.id);
+                      if (isMobile) closeFilters();
+                    }}
+                    disabled={homeFollowOnly}
+                    title={
+                      homeFollowOnly
+                        ? 'Turn off Following to use saved searches'
+                        : 'Apply saved search'
+                    }
+                  >
+                    {s.name || 'Saved'}
+                    {newCount > 0 ? (
+                      <span
+                        aria-label={`${newCount} new`}
+                        title={`${newCount} new since last view`}
+                        style={{
+                          marginLeft: 8,
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          fontSize: 12,
+                          fontWeight: 900,
+                          lineHeight: '16px',
+                          background: 'rgba(255,145,90,.95)',
+                          color: '#111',
+                          border: '1px solid rgba(255,255,255,.12)',
+                        }}
+                      >
+                        {badge}
+                      </span>
+                    ) : null}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="nb-iconbtn"
+                    onClick={() => onManageSavedSearch?.(s.id)}
+                    aria-label="Manage saved search"
+                    title="Rename / delete"
+                    style={{ width: 34 }}
+                  >
+                    ⋯
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          {(savedSearches || []).length === 0 ? (
+            <div
+              className="nb-muted small"
+              style={{ marginTop: 8, fontWeight: 850 }}
+            >
+              Save a search to pin it here for one-tap access.
+            </div>
+          ) : null}
+        </div>
+      </>
+    );
+  }
+
   return (
     <div
       className="nb-page"
@@ -650,261 +945,77 @@ onRefresh,
           Refreshing…
         </div>
       ) : null}
-      <Chips />
 
-      {/* Hyperlocal radius (Phase 1) */}
-      <div
-        className="nb-home-toggles"
-        style={{ marginTop: 10, justifyContent: 'space-between' }}
-      >
-        <div className="nb-seg nb-seg-compact">
-          <button
-            type="button"
-            className={`nb-segbtn ${radiusPreset === 'near' ? 'is-on' : ''}`}
-            onClick={() => setRadiusPreset('near')}
-            title="About 1 mile"
-          >
-            Near
-          </button>
-          <button
-            type="button"
-            className={`nb-segbtn ${radiusPreset === 'local' ? 'is-on' : ''}`}
-            onClick={() => setRadiusPreset('local')}
-            title="~About 3 miles"
-          >
-            Local
-          </button>
-          <button
-  type="button"
-  className={`nb-segbtn ${radiusPreset === 'area' ? 'is-on' : ''}`}
-  onClick={() => setRadiusPreset('area')}
-  title="~About 8 miles"
->
-  Area
-</button>
-
-          <button
-  type="button"
-  className={`nb-segbtn ${radiusPreset === 'all' ? 'is-on' : ''}`}
-  onClick={() => setRadiusPreset('all')}
-  title="Any distance"
->
-  Any
-</button>
-        </div>
-
-        
-
-        <button
-          type="button"
-          className="nb-btn nb-btn-ghost nb-btn-sm"
-          onClick={onOpenHomeSetup}
-          title="Set your home center"
-        >
-          Home: {homeCenterLabel || 'Set'}
-        </button>
-      </div>
-
-      <div className="nb-home-toggles">
-        <div className="nb-seg nb-seg-compact">
-          <button
-            type="button"
-            className={`nb-segbtn ${
-              !homeShowAll && !homeFollowOnly ? 'is-on' : ''
-            }`}
-            onClick={() => {
-              setHomeFollowOnly(false);
-              setHomeShowAll(false);
+      {/* Progressive disclosure: collapse filters behind one button on mobile */}
+      {isMobile ? (
+        <>
+          <div
+            style={{
+              marginTop: 10,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
             }}
           >
-            Open
-          </button>
-
-          <button
-            type="button"
-            className={`nb-segbtn ${
-              homeShowAll && !homeFollowOnly ? 'is-on' : ''
-            }`}
-            onClick={() => {
-              setHomeFollowOnly(false);
-              setHomeShowAll(true);
-            }}
-          >
-            All
-          </button>
-
-          <button
-            type="button"
-            className={`nb-segbtn ${homeFollowOnly ? 'is-on' : ''}`}
-            onClick={() => {
-              onClearSavedSearchHighlight?.(); // prevent a highlighted pill that no longer reflects the feed
-              setHomeShowAll(false); // Following = Open-only (simple + consistent)
-              setHomeFollowOnly(true);
-            }}
-            title="Only posts from neighbors you follow (plus you)"
-          >
-            Following
-          </button>
-        </div>
-      </div>
-
-      <div className="nb-searchrow">
-        <div className="nb-search">
-          <span className="nb-search-icon">🔎</span>
-          <input
-            className="nb-search-input"
-            value={homeQuery}
-            onChange={(e) => setHomeQuery(e.target.value)}
-            placeholder="Search: mechanic, restaurant, etc."
-          />
-          {hasQuery ? (
             <button
               type="button"
-              className="nb-search-clear"
-              onClick={() => setHomeQuery('')}
-              aria-label="Clear search"
-              title="Clear"
+              className="nb-btn nb-btn-ghost nb-btn-sm"
+              onClick={() => setFiltersOpen(true)}
+              title="Filters"
             >
-              ✕
+              Filter
             </button>
-          ) : null}
-        </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {hasQuery ? (
-            <div className="nb-search-meta">
-              {visibleFeed.length} results
+            <button
+              type="button"
+              className="nb-btn nb-btn-ghost nb-btn-sm"
+              onClick={onRefresh}
+              disabled={refreshing}
+              title={refreshing ? 'Refreshing…' : 'Refresh feed'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+            >
+              <span aria-hidden="true">{refreshing ? '⏳' : '↻'}</span>
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+
+          {filtersOpen ? (
+            <div className="nb-modal-backdrop" onClick={closeFilters}>
+              <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="nb-modal-head">
+                  <div className="nb-modal-title">Filters</div>
+                  <button
+                    className="nb-x"
+                    onClick={closeFilters}
+                    aria-label="Close"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="nb-modal-body-scroll" style={{ padding: 14 }}>
+                  <FiltersContent />
+                </div>
+
+                <div className="nb-modal-foot">
+                  <div className="nb-muted">Adjust your feed.</div>
+                  <div className="nb-modal-actions">
+                    <button
+                      className="nb-btn nb-btn-primary"
+                      onClick={closeFilters}
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : null}
-
-          <button
-            type="button"
-            className="nb-btn nb-btn-ghost nb-btn-sm"
-            onClick={onSaveCurrentSearch}
-            disabled={saveDisabled}
-            title={
-              homeFollowOnly
-                ? 'Turn off Following to use saved searches'
-                : !hasQuery
-                ? 'Type a search query to save it'
-                : currentSearchIsSaved
-                ? 'Already saved'
-                : savedLimitReached
-                ? 'Saved searches are limited to 5'
-                : 'Save this search'
-            }
-          >
-            {saveLabel}
-          </button>
-          <div
-  className="nb-muted small"
-  style={{ fontWeight: 850, whiteSpace: 'nowrap' }}
->
-  Tap Refresh to reload your feed
-</div>
-
-<button
-  type="button"
-  className="nb-btn nb-btn-ghost nb-btn-sm"
-  onClick={onRefresh}
-  disabled={refreshing}
-  title={refreshing ? 'Refreshing…' : 'Refresh feed'}
-  style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
->
-  <span aria-hidden="true">{refreshing ? '⏳' : '↻'}</span>
-  {refreshing ? 'Refreshing…' : 'Refresh'}
-</button>
-        </div>
-      </div>
-
-      {/* Saved Searches row */}
-      <div style={{ marginTop: 10 }}>
-        <div
-          className="nb-seg nb-seg-compact nb-seg-scroll"
-          style={{ width: '100%' }}
-        >
-          {(savedSearches || []).length > 0 ? (
-  <button
-    type="button"
-    className={`nb-segbtn ${!activeSavedSearchId ? 'is-on' : ''}`}
-    onClick={onClearSavedSearch}
-    title="Reset feed"
-  >
-    Reset
-  </button>
-) : null}
-
-          {(savedSearches || []).map((s) => {
-            const newCount = Number(s.newCount || 0);
-            const badge = newCount > 9 ? '9+' : String(newCount);
-
-            return (
-              <div
-                key={s.id}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              >
-                <button
-  type="button"
-  className={`nb-segbtn ${
-    activeSavedSearchId === s.id ? 'is-on' : ''
-  }`}
-  onClick={() => {
-    if (homeFollowOnly) setHomeFollowOnly(false);
-    onApplySavedSearch(s.id);
-  }}
-  disabled={homeFollowOnly}
-  title={
-    homeFollowOnly
-      ? 'Turn off Following to use saved searches'
-      : 'Apply saved search'
-  }
->
-                  {s.name || 'Saved'}
-                  {newCount > 0 ? (
-                    <span
-                      aria-label={`${newCount} new`}
-                      title={`${newCount} new since last view`}
-                      style={{
-                        marginLeft: 8,
-                        padding: '2px 8px',
-                        borderRadius: 999,
-                        fontSize: 12,
-                        fontWeight: 900,
-                        lineHeight: '16px',
-                        background: 'rgba(255,145,90,.95)',
-                        color: '#111',
-                        border: '1px solid rgba(255,255,255,.12)',
-                      }}
-                    >
-                      {badge}
-                    </span>
-                  ) : null}
-                </button>
-
-                <button
-                  type="button"
-                  className="nb-iconbtn"
-                  onClick={() => onManageSavedSearch(s.id)}
-                  aria-label="Manage saved search"
-                  title="Rename / delete"
-                  style={{ width: 34 }}
-                >
-                  ⋯
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        {((savedSearches || []).length === 0) ? (
-  <div
-    className="nb-muted small"
-    style={{ marginTop: 8, fontWeight: 850 }}
-  >
-    Save a search to pin it here for one-tap access.
-  </div>
-) : null}
-      </div>
+        </>
+      ) : (
+        <FiltersContent />
+      )}
+      
 
       {!hasQuery &&
       radiusPreset !== 'all' &&
