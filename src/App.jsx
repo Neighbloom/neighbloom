@@ -1408,16 +1408,22 @@ function App() {
     [homeQuery, homeChip, homeShowAll]
   );
 
-  const currentSearchIsSaved = useMemo(() => {
-    return mySavedSearches.some((s) => {
+  const savedSearchFpSet = useMemo(() => {
+    const set = new Set();
+    for (const s of mySavedSearches) {
       const fp = searchFingerprint({
         query: s.query,
         homeChip: s.homeChip,
         homeShowAll: s.homeShowAll,
       });
-      return fp === currentSearchFp;
-    });
-  }, [mySavedSearches, currentSearchFp]);
+      set.add(fp);
+    }
+    return set;
+  }, [mySavedSearches]);
+
+  const currentSearchIsSaved = useMemo(() => {
+    return savedSearchFpSet.has(currentSearchFp);
+  }, [savedSearchFpSet, currentSearchFp]);
 
   function postMatchesSavedSearch(post, s) {
     if (!post || !s) return false;
@@ -1450,25 +1456,28 @@ function App() {
     return hay.includes(q);
   }
 
-  function countNewForSavedSearch(s) {
-    const last = typeof s?.lastSeenTs === 'number' ? s.lastSeenTs : 0;
-    let c = 0;
+  const countNewForSavedSearch = React.useCallback(
+    (s) => {
+      const last = typeof s?.lastSeenTs === 'number' ? s.lastSeenTs : 0;
+      let c = 0;
 
-    for (const p of posts) {
-      if (!p || typeof p.createdAt !== 'number') continue;
-      if (p.createdAt <= last) continue;
-      if (postMatchesSavedSearch(p, s)) c += 1;
-    }
+      for (const p of posts) {
+        if (!p || typeof p.createdAt !== 'number') continue;
+        if (p.createdAt <= last) continue;
+        if (postMatchesSavedSearch(p, s)) c += 1;
+      }
 
-    return c;
-  }
+      return c;
+    },
+    [posts]
+  );
 
   const mySavedSearchesWithCounts = useMemo(() => {
     return mySavedSearches.map((s) => ({
       ...s,
       newCount: countNewForSavedSearch(s),
     }));
-  }, [mySavedSearches, posts]);
+  }, [mySavedSearches, countNewForSavedSearch]);
 
   const savedLimitReached = mySavedSearches.length >= MAX_SAVED_SEARCHES;
 
