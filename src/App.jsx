@@ -796,16 +796,23 @@ onRefresh,
           >
             {saveLabel}
           </button>
-          <button
+          <div
+  className="nb-muted small"
+  style={{ fontWeight: 850, whiteSpace: 'nowrap' }}
+>
+  Tap Refresh to reload your feed
+</div>
+
+<button
   type="button"
-  className="nb-iconbtn"
-  aria-label="Refresh feed"
-  title={refreshing ? 'Refreshing…' : 'Refresh'}
+  className="nb-btn nb-btn-ghost nb-btn-sm"
   onClick={onRefresh}
   disabled={refreshing}
-  style={{ width: 36, height: 36 }}
+  title={refreshing ? 'Refreshing…' : 'Refresh feed'}
+  style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
 >
-  {refreshing ? '⏳' : '↻'}
+  <span aria-hidden="true">{refreshing ? '⏳' : '↻'}</span>
+  {refreshing ? 'Refreshing…' : 'Refresh'}
 </button>
         </div>
       </div>
@@ -5558,9 +5565,9 @@ onRefresh={refreshHome}
 ) : activeTab === 'activity' ? (
   <ActivityTab />
 ) : (
-  <ProfileTab />
+  <ProfileScreen />
 )}
-{activeTab === 'profile' ? <ProfileScreen /> : null}
+
 
       <BottomTabs activeTab={activeTab} onChange={setActiveTab} />
 
