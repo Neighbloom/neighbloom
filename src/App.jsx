@@ -1122,6 +1122,34 @@ const refreshHome = React.useCallback(async () => {
 
   // modal: reply or confirm actions
   const [modal, setModal] = useState(null); // {type, postId, mode}
+  // ---------------- BLOCK / REPORT (local MVP) ----------------
+  const [blockedByUser, setBlockedByUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('nb_blockedByUser') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('nb_blockedByUser', JSON.stringify(blockedByUser));
+    } catch {}
+  }, [blockedByUser]);
+
+  const [reports, setReports] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('nb_reports') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('nb_reports', JSON.stringify(reports));
+    } catch {}
+  }, [reports]);
   // recommendation comment thread (per recommendation reply)
   const [thread, setThread] = useState(null); // { postId, replyId } | null
   // chat drawer
@@ -2807,7 +2835,9 @@ expandedOtherVols,
   function ReplyList({ post }) {
     const isOwner = post.ownerId === me.id;
     
-    const visibleReplies = (post.replies || []).filter((r) => !r.hidden);
+    const visibleReplies = (post.replies || []).filter(
+      (r) => !r.hidden && !isBlockedUser(r.authorId)
+    );
 
     
 
@@ -3066,8 +3096,161 @@ expandedOtherVols,
     );
   }
 
+  // ---------------- ACTIVITY (in-app notifications) ----------------
+  function pushActivityEvent(evt) {
+    setActivity((prev) => [evt, ...(Array.isArray(prev) ? prev : [])]);
+  }
+
+  function notify(text, extra = {}) {
+    pushActivityEvent({
+      id: uid('a'),
+      type: extra.type || 'notice',
+      text,
+      ts: NOW(),
+      audienceIds: [me.id],
+      actorId: me.id,
+      ...extra,
+    });
+  }
+
+  // ---------------- BLOCK / REPORT ----------------
+  function getBlockedSet(userId) {
+    const arr = blockedByUser?.[userId];
+    return new Set(Array.isArray(arr) ? arr : []);
+  }
+
+  function isBlockedUser(otherUserId) {
+    return getBlockedSet(me.id).has(otherUserId);
+  }
+
+  function toggleBlockUser(otherUserId) {
+    setBlockedByUser((prev) => {
+      const base = prev && typeof prev === 'object' ? prev : {};
+      const cur = new Set(Array.isArray(base[me.id]) ? base[me.id] : []);
+      if (cur.has(otherUserId)) cur.delete(otherUserId);
+      else cur.add(otherUserId);
+      return { ...base, [me.id]: Array.from(cur) };
+    });
+
+    // Close chat if you block them (prevents weird “still chatting” behavior)
+    setChat((c) => (c?.otherUserId === otherUserId ? null : c));
+
+    notify(
+      isBlockedUser(otherUserId) ? 'User unblocked.' : 'User blocked.',
+      { type: 'user_block', otherUserId }
+    );
+  }
+
+  function reportUser(otherUserId) {
+    const reason = window.prompt('Report reason (short):');
+    if (!reason) return;
+
+    const clean = normalizeText(reason);
+    if (!clean) return;
+
+    setReports((prev) => [
+      {
+        id: uid('rep'),
+        reporterId: me.id,
+        reportedUserId: otherUserId,
+        reason: clean,
+        ts: NOW(),
+      },
+      ...(Array.isArray(prev) ? prev : []),
+    ]);
+
+    notify('Report submitted (local demo).', {
+      type: 'user_report',
+      otherUserId,
+    });
+  }
+
+  // ---------------- POST LIFECYCLE ----------------
+  function inferLifecycle(post) {
+    // Prefer explicit lifecycle if present
+    if (post?.lifecycle) return post.lifecycle;
+
+    // Back-compat with your older states
+    if (post?.status === 'archived') return 'archived';
+    if (post?.status === 'resolved') return 'completed';
+
+    // Help posts already have stage — map it
+    if (post?.kind === 'help') {
+      if (post.stage === 'confirmed') return 'completed';
+      if (post.stage && post.stage !== 'open') return 'in_progress';
+    }
+
+    return 'open';
+  }
+
+  function setPostLifecycle(postId, nextLifecycle) {
+    setPosts((prev) =>
+      (Array.isArray(prev) ? prev : []).map((p) => {
+        if (!p || p.id !== postId) return p;
+
+        // Keep your old "status" in sync for backwards UI logic if needed
+        const nextStatus =
+          nextLifecycle === 'archived'
+            ? 'archived'
+            : nextLifecycle === 'completed'
+            ? 'resolved'
+            : 'open';
+
+        return {
+          ...p,
+          lifecycle: nextLifecycle,
+          status: nextStatus,
+        };
+      })
+    );
+
+    notify(`Post moved to: ${nextLifecycle.replace('_', ' ')}`, {
+      type: 'post_status',
+      postId,
+    });
+  }
+
+  function nextLifecycle(cur) {
+    if (cur === 'open') return 'in_progress';
+    if (cur === 'in_progress') return 'completed';
+    if (cur === 'completed') return 'archived';
+    return 'open';
+  }
+
+  // ---------------- EDIT / DELETE ----------------
+  function updatePost(postId, patch) {
+    setPosts((prev) =>
+      (Array.isArray(prev) ? prev : []).map((p) =>
+        p && p.id === postId ? { ...p, ...patch } : p
+      )
+    );
+    notify('Post updated.', { type: 'post_edit', postId });
+  }
+
+  function deletePost(postId) {
+    const ok = window.confirm(
+      'Delete this post? This cannot be undone (local demo).'
+    );
+    if (!ok) return;
+
+    setPosts((prev) => (Array.isArray(prev) ? prev : []).filter((p) => p?.id !== postId));
+
+    // Clean UI state so you don’t get “ghost thread/chat”
+    setExpandedThreads((prev) => {
+      const next = { ...(prev || {}) };
+      delete next[postId];
+      return next;
+    });
+    setThread((t) => (t?.postId === postId ? null : t));
+    setChat((c) => (c?.postId === postId ? null : c));
+    setModal(null);
+
+    notify('Post deleted.', { type: 'post_delete', postId });
+  }
+
   function PostCard({ post }) {
     const isOwner = post.ownerId === me.id;
+    const lifecycle = inferLifecycle(post);
     const open = !!expandedThreads[post.id];
     const repliesVisible = (post.replies || []).filter((r) => !r.hidden);
     const replyCount = repliesVisible.length;
@@ -3216,13 +3399,36 @@ expandedOtherVols,
               </button>
             ) : null}
 
-            {isOwner && post.status !== 'resolved' ? (
-              <button
-                className="nb-btn nb-btn-ghost"
-                onClick={() => setResolved(post.id)}
-              >
-                Mark resolved
-              </button>
+            {isOwner ? (
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  className="nb-btn nb-btn-ghost nb-btn-sm"
+                  onClick={() => setModal({ type: 'edit_post', postId: post.id })}
+                >
+                  Edit
+                </button>
+
+                <button
+                  className="nb-btn nb-btn-ghost nb-btn-sm"
+                  onClick={() => deletePost(post.id)}
+                >
+                  Delete
+                </button>
+
+                <button
+                  className="nb-btn nb-btn-ghost nb-btn-sm"
+                  onClick={() => setPostLifecycle(post.id, nextLifecycle(lifecycle))}
+                  title="Open → In progress → Completed → Archived"
+                >
+                  {lifecycle === 'open'
+                    ? 'Start'
+                    : lifecycle === 'in_progress'
+                    ? 'Complete'
+                    : lifecycle === 'completed'
+                    ? 'Archive'
+                    : 'Restore'}
+                </button>
+              </div>
             ) : null}
 
             {isOwner &&
@@ -3605,6 +3811,94 @@ expandedOtherVols,
                 onClick={() => setModal(null)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function EditPostModal({ postId }) {
+    const post = posts.find((p) => p?.id === postId);
+    const [title, setTitle] = useState(post?.title || '');
+    const [details, setDetails] = useState(post?.details || '');
+    const [area, setArea] = useState(post?.area || '');
+    const [err, setErr] = useState('');
+
+    if (!post) return null;
+
+    return (
+      <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
+        <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="nb-modal-head">
+            <div className="nb-modal-title">Edit post</div>
+            <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">
+              ✕
+            </button>
+          </div>
+
+          <div className="nb-modal-body-scroll" style={{ padding: 14 }}>
+            <div className="nb-row">
+              <label className="nb-label">Title</label>
+              <input
+                className="nb-input"
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  setErr('');
+                }}
+              />
+            </div>
+
+            <div className="nb-row">
+              <label className="nb-label">Area</label>
+              <input
+                className="nb-input"
+                value={area}
+                onChange={(e) => {
+                  setArea(e.target.value);
+                  setErr('');
+                }}
+              />
+            </div>
+
+            <div className="nb-row">
+              <label className="nb-label">Details</label>
+              <textarea
+                className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
+                value={details}
+                onChange={(e) => {
+                  setDetails(e.target.value);
+                  setErr('');
+                }}
+              />
+            </div>
+
+            {err ? <div className="nb-error">{err}</div> : null}
+          </div>
+
+          <div className="nb-modal-foot">
+            <div className="nb-muted">Edits are local demo only.</div>
+            <div className="nb-modal-actions">
+              <button className="nb-btn nb-btn-ghost" onClick={() => setModal(null)}>
+                Cancel
+              </button>
+              <button
+                className="nb-btn nb-btn-primary"
+                onClick={() => {
+                  const t = normalizeText(title);
+                  const d = normalizeText(details);
+                  const a = normalizeText(area);
+                  if (!t) return setErr('Title is required.');
+                  if (!a) return setErr('Area is required.');
+                  if (!d) return setErr('Details are required.');
+
+                  updatePost(postId, { title: t, details: d, area: a });
+                  setModal(null);
+                }}
+              >
+                Save
               </button>
             </div>
           </div>
@@ -4367,6 +4661,7 @@ const [nearText, setNearText] = useState('');
         selectedUserIds: [],
         photo, // local demo only
         status: 'open',
+        lifecycle: 'open',
         stage: 'open',
         ownerId: me.id,
         createdAt: NOW(),
@@ -5129,6 +5424,25 @@ const [nearText, setNearText] = useState('');
                   >
                     {isFollowing(me.id, u.id) ? 'Following' : 'Follow'}
                   </button>
+                  <button
+                    type="button"
+                    className="nb-btn nb-btn-ghost"
+                    onClick={() => reportUser(u.id)}
+                    style={{ marginLeft: 10 }}
+                    title="Report this user (local demo)"
+                  >
+                    Report
+                  </button>
+
+                  <button
+                    type="button"
+                    className="nb-btn nb-btn-ghost"
+                    onClick={() => toggleBlockUser(u.id)}
+                    style={{ marginLeft: 10 }}
+                    title="Block hides their posts/replies"
+                  >
+                    {isBlockedUser(u.id) ? 'Unblock' : 'Block'}
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -5245,7 +5559,7 @@ const [nearText, setNearText] = useState('');
       ? followsByUser[me.id].filter(Boolean).length
       : 0;
 
-    const discover = USERS_SEED.filter((u) => u.id !== me.id);
+    const discover = USERS_SEED.filter((u) => u.id !== me.id && !isBlockedUser(u.id));
 
     return (
       <div className="nb-page nb-scroll" ref={scrollRef}>
@@ -5498,7 +5812,7 @@ onRefresh={refreshHome}
         setHomeFollowOnly={setHomeFollowOnly}
         homeQuery={homeQuery}
         setHomeQuery={setHomeQuery}
-        feed={searchedFeed}
+        feed={visibleFeed}
         setActiveTab={setActiveTab}
         setPostFlow={setPostFlow}
         radiusPreset={radiusPreset}
@@ -5520,7 +5834,18 @@ onRefresh={refreshHome}
       />
     );
   }
+const blockedSet = getBlockedSet(me.id);
 
+  const visibleFeed = (Array.isArray(searchedFeed) ? searchedFeed : []).filter((p) => {
+    if (!p) return false;
+    if (blockedSet.has(p.ownerId)) return false;
+
+    // hide archived by default (only show when "All" is toggled on)
+    const lc = inferLifecycle(p);
+    if (!homeShowAll && lc === 'archived') return false;
+
+    return true;
+  });
   return (
     <div className="nb-app">
       <Header />
@@ -5540,7 +5865,7 @@ onRefresh={refreshHome}
     setHomeFollowOnly={setHomeFollowOnly}
     homeQuery={homeQuery}
     setHomeQuery={setHomeQuery}
-    feed={searchedFeed}
+    feed={visibleFeed}
     setActiveTab={setActiveTab}
     setPostFlow={setPostFlow}
     radiusPreset={radiusPreset}
@@ -5575,6 +5900,9 @@ onRefresh={refreshHome}
       {chat ? <ChatDrawer /> : null}
 
       {/* Modals (modal state) */}
+      {modal?.type === 'edit_post' ? (
+        <EditPostModal postId={modal.postId} />
+      ) : null}
       {modal?.type === 'reply' ? (
         <ReplyModal postId={modal.postId} mode={modal.mode} />
       ) : null}
