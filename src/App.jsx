@@ -4734,6 +4734,437 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
     );
   }
 
+  function PostFormV2({ kind, onBack }) {
+  const isHelp = kind === 'help';
+  const isRec = kind === 'rec';
+
+  const [what, setWhat] = useState('');
+  const [area, setArea] = useState(me.location || '');
+  const [whenRange, setWhenRange] = useState('');
+  const [helpersNeeded, setHelpersNeeded] = useState(1);
+  const [details, setDetails] = useState('');
+  const [prefTags, setPrefTags] = useState([]);
+  const [photo, setPhoto] = useState('');
+  const [photoBytes, setPhotoBytes] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    // Reset when switching kinds
+    setWhat('');
+    setArea(me.location || '');
+    setWhenRange('');
+    setHelpersNeeded(1);
+    setDetails('');
+    setPrefTags([]);
+    setPhoto('');
+    setPhotoBytes(0);
+    setErr('');
+  }, [kind, me.location]);
+
+  const helpExamples = [
+    'shovel my driveway',
+    'move a couch to the curb',
+    'bring trash bins to/from curb',
+    'rake & bag leaves',
+  ];
+
+  const recExamples = [
+    'mechanic',
+    'plumber',
+    'barber',
+    'daycare',
+    'dentist',
+  ];
+
+  function togglePref(tag) {
+    setPrefTags((prev) => {
+      const arr = Array.isArray(prev) ? prev : [];
+      return arr.includes(tag) ? arr.filter((x) => x !== tag) : [...arr, tag];
+    });
+  }
+
+  function fillHelpTemplate(t) {
+    setErr('');
+    setWhat(
+      normalizeText(t?.title || '')
+        .replace(/^need help/i, '')
+        .replace(/^need /i, '')
+        .trim() || ''
+    );
+    setDetails(t?.details || '');
+    setWhenRange(t?.whenRange || '');
+    // keep area as-is (user’s town often differs per post)
+  }
+
+  function fillRecQuick(cat) {
+    setErr('');
+    setWhat(cat);
+  }
+
+  function validate() {
+    const w = normalizeText(what);
+    const a = normalizeText(area);
+    const d = normalizeText(details);
+
+    if (!w) return 'Start with what you need (one short phrase).';
+    if (!a) return 'Add an area (town / neighborhood).';
+    if (!d || d.length < 12)
+      return 'Add one quick detail so people can answer (at least ~12 chars).';
+
+    const combined = `${w} ${a} ${whenRange} ${d}`;
+
+    if (containsLink(combined))
+      return 'No links yet — use names + details instead.';
+    if (mentionsReward(combined))
+      return 'No payments/rewards in posts (keeps scams out).';
+    if (isHelp && mentionsIndoor(combined))
+      return 'Help posts must be outdoor/porch/curb only (no indoor entry).';
+
+    return '';
+  }
+
+  function buildHelpPost() {
+    const w = normalizeText(what);
+    const a = normalizeText(area);
+    const d = maskPhones(normalizeText(details));
+    const when = normalizeText(whenRange);
+
+    const title =
+      /^need/i.test(w) || /^help/i.test(w) ? w : `Need a hand: ${w}`;
+
+    return {
+      id: uid('p_help'),
+      kind: 'help',
+      helpType: 'need',
+      category: w || 'Help request', // kept for your meta chips (but no UI “category” section)
+      title,
+      details: d,
+      area: a,
+      whenRange: when,
+      helpersNeeded: Math.max(1, Math.min(6, Math.floor(Number(helpersNeeded) || 1))),
+      selectedUserIds: [],
+      status: 'open',
+      stage: 'open',
+      ownerId: me.id,
+      createdAt: NOW(),
+      replies: [],
+      selectedUserId: null,
+      ...(photo ? { photo } : {}),
+    };
+  }
+
+  function buildRecPost() {
+    const w = normalizeText(what);
+    const a = normalizeText(area);
+    const d = maskPhones(normalizeText(details));
+
+    const prefs = Array.isArray(prefTags) && prefTags.length ? prefTags : [];
+    const preferences =
+      prefs.length > 0 ? prefs.join(' • ') : '';
+
+    return {
+      id: uid('p_rec'),
+      kind: 'rec',
+      recCategory: w || 'Recommendation',
+      area: a,
+      prefTags: prefs,
+      preferences,
+      allowChatAfterTopPick: false,
+      title: buildRecTitle(w, a),
+      details: d,
+      status: 'open',
+      ownerId: me.id,
+      createdAt: NOW(),
+      replies: [],
+      topPickReplyId: null,
+    };
+  }
+
+  async function onPickPhoto(file) {
+    setErr('');
+    if (!file) return;
+
+    setBusy(true);
+    try {
+      const out = await compressImageFileToDataUrl(file, {
+        maxDim: 1600,
+        quality: 0.82,
+        mime: 'image/jpeg',
+      });
+      setPhoto(out.dataUrl || '');
+      setPhotoBytes(out.bytes || 0);
+    } catch (e) {
+      setErr(e?.message || 'Could not attach that photo.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function submit() {
+    const msg = validate();
+    if (msg) {
+      setErr(msg);
+      return;
+    }
+
+    const post = isHelp ? buildHelpPost() : buildRecPost();
+
+    setPosts((prev) => [post, ...(Array.isArray(prev) ? prev : [])]);
+
+    // Make it feel instant: go home, focus the relevant chip, and auto-expand the new post.
+    setHomeChip(isHelp ? 'help' : 'rec');
+    setHomeShowAll(false);
+    setHomeQuery('');
+    setActiveSavedSearchId(null);
+    setExpandedThreads((prev) => ({ ...(prev || {}), [post.id]: true }));
+
+    notify('Post created.', { type: 'post_create', postId: post.id });
+
+    setActiveTab('home');
+    setPostFlow({ step: 'chooser', kind: null });
+  }
+
+  const headerTitle = isHelp ? 'Need a hand' : 'Recommendations';
+  const sub =
+    isHelp
+      ? 'Write it like a text to a neighbor. Outdoor-only. One solid detail beats a paragraph.'
+      : 'Ask for exactly what you want. One detail about price/timing helps a lot.';
+
+  const quickRow = isHelp ? (
+    <div className="nb-suggest-row" style={{ marginTop: 10 }}>
+      {HELP_TEMPLATES.map((t) => (
+        <button
+          key={t.label}
+          type="button"
+          className="nb-suggest"
+          onClick={() => fillHelpTemplate(t)}
+          title="Fill a quick template"
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  ) : (
+    <div className="nb-suggest-row" style={{ marginTop: 10 }}>
+      {REC_CATEGORIES.filter((x) => x && x !== '__custom__')
+        .slice(0, 8)
+        .map((c) => (
+          <button
+            key={c}
+            type="button"
+            className="nb-suggest"
+            onClick={() => fillRecQuick(c)}
+            title="Use a common request"
+          >
+            {c}
+          </button>
+        ))}
+    </div>
+  );
+
+  return (
+    <div className="nb-page">
+      <div className="nb-section">
+        <div className="nb-form-card">
+          <div className="nb-form-head">
+            <div>
+              <div className="nb-form-title">{headerTitle}</div>
+              <div className="nb-form-sub">{sub}</div>
+            </div>
+
+            <button
+              type="button"
+              className="nb-btn nb-btn-ghost nb-btn-sm"
+              onClick={onBack}
+              title="Back"
+            >
+              ← Back
+            </button>
+          </div>
+
+          {quickRow}
+
+          <div className="nb-row" style={{ marginTop: 12 }}>
+            <label className="nb-label">
+              {isHelp ? 'What do you need?' : 'What are you looking for?'}
+            </label>
+            <input
+              className="nb-input"
+              value={what}
+              onChange={(e) => {
+                setWhat(e.target.value);
+                setErr('');
+              }}
+              placeholder={
+                isHelp
+                  ? `Example: ${helpExamples[Math.floor(Math.random() * helpExamples.length)]}`
+                  : `Example: ${recExamples[Math.floor(Math.random() * recExamples.length)]}`
+              }
+            />
+          </div>
+
+          <div className="nb-row">
+            <label className="nb-label">Area</label>
+            <input
+              className="nb-input"
+              value={area}
+              onChange={(e) => {
+                setArea(e.target.value);
+                setErr('');
+              }}
+              placeholder="Example: Tinley Park near 183rd"
+            />
+          </div>
+
+          {isHelp ? (
+            <div className="nb-row">
+              <label className="nb-label">When (optional)</label>
+              <input
+                className="nb-input"
+                value={whenRange}
+                onChange={(e) => {
+                  setWhenRange(e.target.value);
+                  setErr('');
+                }}
+                placeholder="Example: Today 6–8pm"
+              />
+            </div>
+          ) : null}
+
+          <div className="nb-row">
+            <label className="nb-label">Details (required)</label>
+            <textarea
+              className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
+              value={details}
+              onChange={(e) => {
+                setDetails(e.target.value);
+                setErr('');
+              }}
+              placeholder={
+                isHelp
+                  ? 'What exactly? Approx time? Tools you have? Any stairs/parking notes? (No indoor entry.)'
+                  : 'What matters? Price, turnaround, warranty, who you worked with, accepts insurance, etc.'
+              }
+            />
+          </div>
+
+          <details className="nb-details" style={{ marginTop: 10 }}>
+            <summary>Optional details</summary>
+
+            {isHelp ? (
+              <>
+                <div className="nb-row" style={{ marginTop: 10 }}>
+                  <label className="nb-label">How many helpers?</label>
+                  <div className="nb-stepper">
+                    <button
+                      type="button"
+                      onClick={() => setHelpersNeeded((n) => Math.max(1, (Number(n) || 1) - 1))}
+                    >
+                      −
+                    </button>
+                    <div className="nb-stepper-num">{helpersNeeded}</div>
+                    <button
+                      type="button"
+                      onClick={() => setHelpersNeeded((n) => Math.min(6, (Number(n) || 1) + 1))}
+                    >
+                      +
+                    </button>
+                    <div className="nb-muted" style={{ fontWeight: 850 }}>
+                      (max 6)
+                    </div>
+                  </div>
+                </div>
+
+                <div className="nb-row">
+                  <label className="nb-label">Attach photo (optional)</label>
+                  <div className="nb-photo-row">
+                    {photo ? (
+                      <img className="nb-photo-thumb" src={photo} alt="" />
+                    ) : (
+                      <div className="nb-muted" style={{ fontWeight: 850 }}>
+                        Helps with clarity (driveway, item, etc.)
+                      </div>
+                    )}
+
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => onPickPhoto(e.target.files?.[0])}
+                        disabled={busy}
+                      />
+                      {photo ? (
+                        <button
+                          type="button"
+                          className="nb-btn nb-btn-ghost nb-btn-sm"
+                          onClick={() => {
+                            setPhoto('');
+                            setPhotoBytes(0);
+                          }}
+                        >
+                          Remove photo {photoBytes ? `(${prettyBytes(photoBytes)})` : ''}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="nb-row" style={{ marginTop: 10 }}>
+                  <label className="nb-label">Preference chips (optional)</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {REC_PREF_TAGS.map((t) => {
+                      const on = prefTags.includes(t);
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          className={`nb-suggest ${on ? 'is-on' : ''}`}
+                          onClick={() => togglePref(t)}
+                        >
+                          {t}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </details>
+
+          {err ? <div className="nb-error" style={{ marginTop: 10 }}>{err}</div> : null}
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+            <button
+              type="button"
+              className="nb-btn nb-btn-ghost"
+              onClick={onBack}
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              className="nb-btn nb-btn-primary"
+              onClick={submit}
+              disabled={busy}
+              style={{ flex: 1, justifyContent: 'center' }}
+            >
+              {busy ? 'Working…' : 'Post'}
+            </button>
+          </div>
+
+          <div className="nb-muted" style={{ marginTop: 10, fontWeight: 850 }}>
+            No links • no phone numbers • no payments. Keeps the feed clean and safe.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
   function ProfileScreen() {
   const followers = (followersByUser?.[me.id] || []).length;
   const following = Array.isArray(followsByUser?.[me.id])
@@ -5461,7 +5892,14 @@ const [nearText, setNearText] = useState('');
   }
 
   function PostTab() {
-    if (postFlow.step === 'chooser') return <PostChooser />;
+    {postFlow.step === 'chooser' ? (
+  <PostChooser />
+) : (
+  <PostFormV2
+    kind={postFlow.kind}
+    onBack={() => setPostFlow({ step: 'chooser', kind: null })}
+  />
+)};
     if (postFlow.kind === 'help') return <HelpForm />;
     if (postFlow.kind === 'rec') return <RecForm />;
     return <PostChooser />;

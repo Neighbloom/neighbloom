@@ -1464,3 +1464,107 @@ img, svg, video, canvas {
     gap: 8px;
   }
 }
+/* --- PostFormV2 UX --- */
+.nb-form-card {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 18px;
+  padding: 14px;
+}
+
+.nb-form-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nb-form-title {
+  font-weight: 980;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+.nb-form-sub {
+  margin-top: 4px;
+  color: var(--muted);
+  font-weight: 850;
+  font-size: 12px;
+}
+
+.nb-suggest-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.nb-suggest {
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 12px;
+}
+
+.nb-suggest.is-on {
+  background: rgba(255, 145, 90, 0.12);
+  border-color: rgba(255, 145, 90, 0.35);
+}
+
+details.nb-details {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+details.nb-details summary {
+  cursor: pointer;
+  font-weight: 950;
+  user-select: none;
+}
+
+details.nb-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.nb-photo-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.nb-photo-thumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 14px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
+.nb-stepper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nb-stepper button {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  font-weight: 980;
+}
+
+.nb-stepper-num {
+  min-width: 24px;
+  text-align: center;
+  font-weight: 980;
+}
