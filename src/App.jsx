@@ -2233,45 +2233,96 @@ function App() {
   }
 
   function advanceHelpStage(postId, nextStage) {
-    setPosts((prev) =>
-      prev.map((p) => {
-        if (p.id !== postId) return p;
-        return { ...p, stage: nextStage };
-      })
-    );
-    pushActivity(`Help status updated: ${nextStage}.`);
+  const post = posts.find((p) => p && p.id === postId);
+  if (!post || post.kind !== 'help') return;
+
+  const selected = getSelectedHelperIds(post);
+  const meIsOwner = me.id === post.ownerId;
+  const meIsSelectedHelper = selected.includes(me.id);
+
+  // Only requester OR selected helper(s) can touch stages
+  if (!meIsOwner && !meIsSelectedHelper) return;
+
+  const order = { open: 0, booked: 1, started: 2, done: 3, confirmed: 4 };
+  const curStage = post.stage || 'open';
+
+  if (!(nextStage in order)) return;
+
+  // Selected helpers can ONLY set started/done, and only forward
+  if (!meIsOwner) {
+    if (nextStage !== 'started' && nextStage !== 'done') return;
+    if ((order[nextStage] ?? 0) < (order[curStage] ?? 0)) return;
+    if (curStage === 'confirmed') return;
   }
+
+  setPosts((prev) =>
+    prev.map((p) => (p.id === postId ? { ...p, stage: nextStage } : p))
+  );
+
+  // Activity breadcrumb visible to BOTH sides
+  const audience = Array.from(
+    new Set([post.ownerId, ...selected].filter(Boolean))
+  );
+  const actorName = usersById[me.id]?.name || 'Neighbor';
+
+  pushActivity({
+    text: `${actorName} marked help as ${nextStage}.`,
+    postId,
+    actorId: me.id,
+    postOwnerId: post.ownerId,
+    postKind: post.kind,
+    audienceIds: audience,
+  });
+}
 
   function confirmHelp(postId) {
-    const post = posts.find((p) => p.id === postId);
-    if (!post) return;
+  const post = posts.find((p) => p && p.id === postId);
+  if (!post) return;
 
-    const selectedIds = getSelectedHelperIds(post);
-    if (post.kind !== 'help' || selectedIds.length === 0) return;
+  // Only the requester (post owner) can confirm + award NP
+  if (me.id !== post.ownerId) return;
 
-    // prevent double-award
-    if (post.stage === 'confirmed') return;
+  const selectedIds = getSelectedHelperIds(post);
+  if (post.kind !== 'help' || selectedIds.length === 0) return;
 
-    // Award NP to EVERY selected helper
-    setNpPointsByUser((prev) => {
-      const next = { ...prev };
-      for (const helperId of selectedIds) {
-        next[helperId] = (next[helperId] || 0) + 20;
-      }
-      return next;
-    });
+  if (post.stage === 'confirmed') return;
 
-    setPosts((prev) =>
-      prev.map((p) =>
-        p.id === postId ? { ...p, stage: 'confirmed', status: 'resolved' } : p
-      )
-    );
-
-    const names = selectedIds
-      .map((id) => usersById[id]?.name || 'Helper')
-      .join(', ');
-    pushActivity(`Confirmed help. +20 NP to ${names}.`);
+  // Don’t award points before the helper marks done
+  if (post.stage !== 'done') {
+    notify('Mark this help as “Done” before confirming.');
+    return;
   }
+
+  // Award NP to EVERY selected helper
+  setNpPointsByUser((prev) => {
+    const next = { ...prev };
+    for (const helperId of selectedIds) {
+      next[helperId] = (next[helperId] || 0) + 20;
+    }
+    return next;
+  });
+
+  setPosts((prev) =>
+    prev.map((p) =>
+      p.id === postId ? { ...p, stage: 'confirmed', status: 'resolved' } : p
+    )
+  );
+
+  const names = selectedIds
+    .map((id) => usersById[id]?.name || 'Helper')
+    .join(', ');
+
+  pushActivity({
+    text: `Confirmed help. +20 NP to ${names}.`,
+    postId,
+    actorId: me.id,
+    postOwnerId: post.ownerId,
+    postKind: post.kind,
+    audienceIds: Array.from(new Set([post.ownerId, ...selectedIds].filter(Boolean))),
+  });
+
+  setModal({ type: 'thank_you', postId, helperIds: selectedIds });
+}
 
   const filteredFeed = useMemo(() => {
     let list = [...posts];
@@ -3399,7 +3450,7 @@ expandedOtherVols,
       !isOwner &&
       (post.kind === 'rec' || post.kind === 'help');
 
-    const replyBtnLabel = post.kind === 'rec' ? 'Recommend' : 'Volunteer';
+    const replyBtnLabel = post.kind === 'rec' ? 'Recommend' : 'Offer help';
 
     const remaining = remainingRepliesToday(post.kind);
 
@@ -3461,6 +3512,10 @@ expandedOtherVols,
                 {post.whenRange ? (
                   <span className="nb-meta-chip">{post.whenRange}</span>
                 ) : null}
+                <span className="nb-meta-chip">
+  Helpers now: {selectedHelperIds.length}/{helpersNeeded} selected · {replyCount}{' '}
+  volunteered
+</span>
               </>
             ) : null}
 
@@ -3586,16 +3641,48 @@ expandedOtherVols,
                 </button>
 
                 <button
-                  className={`nb-mini ${
-                    post.stage === 'confirmed' ? 'is-on' : ''
-                  }`}
-                  onClick={() => confirmHelp(post.id)}
-                  title="Awards NP points only when confirmed"
-                >
-                  Confirm
-                </button>
+  className={`nb-mini ${post.stage === 'confirmed' ? 'is-on' : ''}`}
+  onClick={() => confirmHelp(post.id)}
+  disabled={post.stage !== 'done' && post.stage !== 'confirmed'}
+  title={
+    post.stage === 'done'
+      ? 'Confirm completion and award NP'
+      : 'Mark as Done first'
+  }
+>
+  Confirm
+</button>
               </div>
             ) : null}
+
+            {!isOwner &&
+post.kind === 'help' &&
+selectedHelperIds.includes(me.id) &&
+post.status !== 'resolved' ? (
+  <div className="nb-helpflow">
+    <button
+      className={`nb-mini ${post.stage === 'started' ? 'is-on' : ''}`}
+      onClick={() => advanceHelpStage(post.id, 'started')}
+      title="Let the requester know you’ve started"
+    >
+      Started
+    </button>
+
+    <button
+      className={`nb-mini ${post.stage === 'done' ? 'is-on' : ''}`}
+      onClick={() => advanceHelpStage(post.id, 'done')}
+      title="Marks the job done so the requester can confirm and award NP"
+    >
+      Done
+    </button>
+
+    {post.stage === 'done' ? (
+      <span className="nb-muted small" style={{ fontWeight: 900 }}>
+        Waiting for confirm
+      </span>
+    ) : null}
+  </div>
+) : null}
 
             <button
               type="button"
@@ -3828,6 +3915,107 @@ expandedOtherVols,
     );
   }
 
+  function ThankYouModal({ postId, helperIds }) {
+  const post = posts.find((p) => p && p.id === postId);
+  const ids = Array.isArray(helperIds) ? helperIds.filter(Boolean) : [];
+
+  const helpers = ids
+    .map((id) => usersById[id])
+    .filter((u) => u && u.id);
+
+  const totalAwarded = ids.length * 20;
+
+  return (
+    <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
+      <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="nb-modal-head">
+          <div className="nb-modal-title">Thank you</div>
+          <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">
+            ✕
+          </button>
+        </div>
+
+        <div className="nb-modal-sub">
+          Confirmed. {totalAwarded} NP awarded across {ids.length} helper
+          {ids.length === 1 ? '' : 's'}.
+        </div>
+
+        <div className="nb-modal-body-scroll" style={{ padding: 14 }}>
+          <div style={{ fontWeight: 950 }}>{post?.title || 'Help request'}</div>
+
+          <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+            {helpers.map((h) => {
+              const canChat = post ? canOpenChatForPost(post, h.id) : false;
+
+              return (
+                <div
+                  key={h.id}
+                  style={{
+                    display: 'flex',
+                    gap: 10,
+                    alignItems: 'center',
+                    border: '1px solid var(--border)',
+                    borderRadius: 14,
+                    padding: '10px 12px',
+                    background: 'rgba(255,255,255,.03)',
+                  }}
+                >
+                  <img className="nb-avatar sm" src={h.avatar} alt={h.name} />
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 950, fontSize: 13 }}>
+                      {h.name}
+                      <UserBadge userId={h.id} />
+                      <span className="nb-handle">{h.handle}</span>
+                    </div>
+                    <div className="nb-muted" style={{ fontWeight: 850, fontSize: 12 }}>
+                      +20 NP awarded
+                    </div>
+                  </div>
+
+                  <button
+                    className="nb-btn nb-btn-ghost nb-btn-sm"
+                    disabled={!canChat}
+                    onClick={() => openChat(postId, h.id)}
+                    title={canChat ? 'Open chat' : 'Chat is locked'}
+                  >
+                    Chat
+                  </button>
+
+                  <button
+                    className="nb-btn nb-btn-primary nb-btn-sm"
+                    disabled={!canChat}
+                    onClick={() => {
+                      sendChatMessage(
+                        postId,
+                        h.id,
+                        'Thanks again — confirmed. Appreciate you.'
+                      );
+                      openChat(postId, h.id);
+                    }}
+                    title={canChat ? 'Send a quick thank-you' : 'Chat is locked'}
+                  >
+                    Send thanks
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="nb-modal-foot">
+          <div className="nb-muted">No payments in-app — keep it neighborly.</div>
+          <div className="nb-modal-actions">
+            <button className="nb-btn nb-btn-primary" onClick={() => setModal(null)}>
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
   function SavedSearchManageModal({ searchId }) {
     const s = (Array.isArray(savedSearches) ? savedSearches : []).find(
       (x) => x && x.id === searchId && (x.userId || 'me') === me.id
@@ -4040,11 +4228,11 @@ expandedOtherVols,
     if (!post) return null;
 
     const heading =
-      mode === 'suggest'
-        ? 'Add a recommendation'
-        : mode === 'lead'
-        ? 'Share a lead'
-        : 'Volunteer to help';
+  mode === 'suggest'
+    ? 'Add a recommendation'
+    : mode === 'lead'
+    ? 'Share a lead'
+    : 'Offer help';
 
     const helperText =
       post.kind === 'rec'
@@ -6039,6 +6227,10 @@ onRefresh={refreshHome}
       {modal?.type === 'saved_search_manage' ? (
         <SavedSearchManageModal searchId={modal.searchId} />
       ) : null}
+
+      {modal?.type === 'thank_you' ? (
+  <ThankYouModal postId={modal.postId} helperIds={modal.helperIds} />
+) : null}
 
       {modal?.type === 'user_profile' ? (
         <UserProfileModal userId={modal.userId} />
