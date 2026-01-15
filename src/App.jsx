@@ -5019,7 +5019,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
 
           {isHelp ? (
             <div className="nb-row">
-              <label className="nb-label">When (optional)</label>
+              <label className="nb-label">When</label>
               <input
                 className="nb-input"
                 value={whenRange}
