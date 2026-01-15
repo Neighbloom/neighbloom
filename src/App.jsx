@@ -5892,18 +5892,16 @@ const [nearText, setNearText] = useState('');
   }
 
   function PostTab() {
-    {postFlow.step === 'chooser' ? (
-  <PostChooser />
-) : (
-  <PostFormV2
-    kind={postFlow.kind}
-    onBack={() => setPostFlow({ step: 'chooser', kind: null })}
-  />
-)};
-    if (postFlow.kind === 'help') return <HelpForm />;
-    if (postFlow.kind === 'rec') return <RecForm />;
-    return <PostChooser />;
-  }
+  
+
+  // Render the new unified form
+  return (
+    <PostFormV2
+      kind={postFlow.kind}
+      onBack={() => setPostFlow({ step: 'chooser', kind: null })}
+    />
+  );
+}
 
   function ActivityTab() {
     const visibleActivity = useMemo(() => {
@@ -6520,32 +6518,7 @@ const [nearText, setNearText] = useState('');
     );
   }
 
-  function TabBar() {
-    const tabs = [
-      { key: 'home', label: 'Home', icon: '🏠' },
-      { key: 'post', label: 'Post', icon: '➕' },
-      { key: 'activity', label: 'Activity', icon: '🔔' },
-      { key: 'profile', label: 'Profile', icon: '👤' },
-    ];
-
-    return (
-      <div className="nb-tabs">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            className={`nb-tab ${activeTab === t.key ? 'is-on' : ''}`}
-            onClick={() => setActiveTab(t.key)}
-          >
-            <div className="nb-tab-ico" aria-hidden="true">
-              {t.icon}
-            </div>
-            <div className="nb-tab-label">{t.label}</div>
-          </button>
-        ))}
-      </div>
-    );
-  }
+  
 
   function renderHomeTab() {
     return (
