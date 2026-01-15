@@ -1568,3 +1568,15 @@ details.nb-details summary::-webkit-details-marker {
   text-align: center;
   font-weight: 980;
 }
+/* =========================
+   FIX: Create page pill buttons text color
+   (Help templates + Rec categories)
+   ========================= */
+.nb-suggest,
+.nb-chipbtn,
+.nb-pillbtn{
+  color: var(--text, #fff);
+  -webkit-text-fill-color: var(--text, #fff);
+  appearance: none;
+  -webkit-appearance: none;
+}
