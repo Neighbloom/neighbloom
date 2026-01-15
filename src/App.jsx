@@ -5892,7 +5892,11 @@ const [nearText, setNearText] = useState('');
   }
 
   function PostTab() {
-  
+  // Source of truth: step decides whether we're choosing or filling
+  if (postFlow.step === 'chooser') return <PostChooser />;
+
+  // Safety net: if kind isn't set, go back to chooser
+  if (postFlow.kind !== 'help' && postFlow.kind !== 'rec') return <PostChooser />;
 
   // Render the new unified form
   return (
@@ -6518,7 +6522,32 @@ const [nearText, setNearText] = useState('');
     );
   }
 
-  
+  function TabBar() {
+    const tabs = [
+      { key: 'home', label: 'Home', icon: '🏠' },
+      { key: 'post', label: 'Post', icon: '➕' },
+      { key: 'activity', label: 'Activity', icon: '🔔' },
+      { key: 'profile', label: 'Profile', icon: '👤' },
+    ];
+
+    return (
+      <div className="nb-tabs">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            className={`nb-tab ${activeTab === t.key ? 'is-on' : ''}`}
+            onClick={() => setActiveTab(t.key)}
+          >
+            <div className="nb-tab-ico" aria-hidden="true">
+              {t.icon}
+            </div>
+            <div className="nb-tab-label">{t.label}</div>
+          </button>
+        ))}
+      </div>
+    );
+  }
 
   function renderHomeTab() {
     return (
