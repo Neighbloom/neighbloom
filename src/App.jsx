@@ -4803,31 +4803,23 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
   }
 
   function validate() {
-    const w = normalizeText(what);
-    const a = normalizeText(area);
-    const d = normalizeText(details);
+  const w = normalizeText(what);
+  const a = normalizeText(area);
+  const d = normalizeText(details);
 
-    if (!w) return 'Start with what you need (one short phrase).';
-    if (!a) return 'Add an area (town / neighborhood).';
-    if (!d || d.length < 12)
-      return 'Add one quick detail so people can answer (at least ~12 chars).';
+  if (!w) return 'Start with what you need (one short phrase).';
+  if (!a) return 'Add an area (town / neighborhood).';
+  if (!d || d.length < 12)
+    return 'Add one quick detail so people can answer (at least ~12 chars).';
 
-    const combined = `${w} ${a} ${whenRange} ${d}`;
-
-    if (containsLink(combined))
-      return 'No links yet — use names + details instead.';
-    if (mentionsReward(combined))
-      return 'No payments/rewards in posts (keeps scams out).';
-    if (isHelp && mentionsIndoor(combined))
-      return 'Help posts must be outdoor/porch/curb only (no indoor entry).';
-
-    return '';
-  }
+  // No keyword policing. Guidance belongs in UI copy, not hard blocks.
+  return '';
+}
 
   function buildHelpPost() {
     const w = normalizeText(what);
     const a = normalizeText(area);
-    const d = maskPhones(normalizeText(details));
+    const d = normalizeText(details);
     const when = normalizeText(whenRange);
 
     const title =
@@ -4857,7 +4849,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
   function buildRecPost() {
     const w = normalizeText(what);
     const a = normalizeText(area);
-    const d = maskPhones(normalizeText(details));
+    const d = normalizeText(details);
 
     const prefs = Array.isArray(prefTags) && prefTags.length ? prefTags : [];
     const preferences =
@@ -4928,7 +4920,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
   const headerTitle = isHelp ? 'Need a hand' : 'Recommendations';
   const sub =
     isHelp
-      ? 'Write it like a text to a neighbor. Outdoor-only. One solid detail beats a paragraph.'
+      ? 'Write it like a text to a neighbor. Be clear about where/how (porch, curb, driveway, indoors, etc.). One solid detail beats a paragraph.'
       : 'Ask for exactly what you want. One detail about price/timing helps a lot.';
 
   const quickRow = isHelp ? (
@@ -4997,10 +4989,10 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
                 setErr('');
               }}
               placeholder={
-                isHelp
-                  ? `Example: ${helpExamples[Math.floor(Math.random() * helpExamples.length)]}`
-                  : `Example: ${recExamples[Math.floor(Math.random() * recExamples.length)]}`
-              }
+  isHelp
+    ? 'e.g., shovel driveway, move couch to curb, bring bins to curb'
+    : 'e.g., plumber, mechanic, barber, dentist'
+}
             />
           </div>
 
@@ -5042,10 +5034,10 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
                 setErr('');
               }}
               placeholder={
-                isHelp
-                  ? 'What exactly? Approx time? Tools you have? Any stairs/parking notes? (No indoor entry.)'
-                  : 'What matters? Price, turnaround, warranty, who you worked with, accepts insurance, etc.'
-              }
+  isHelp
+    ? 'Add 1–2 specifics: what/where (porch/curb), timing, anything heavy, tools needed'
+    : 'Add a name + why they’re good (price, turnaround time, warranty, experience)'
+}
             />
           </div>
 
@@ -5629,7 +5621,7 @@ const [nearText, setNearText] = useState('');
                 setErr('');
               }}
               maxLength={400}
-              placeholder="Add the key details…"
+              placeholder="Add specifics: what you need, where (porch/curb/outdoor), timing, tools you have, and anything tricky (stairs, ice, parking)."
             />
 
             <div className="nb-hintrow">
@@ -5721,9 +5713,7 @@ const [nearText, setNearText] = useState('');
       }
       const prefFinal = pieces.join(' • ');
 
-      if (containsLink(`${q} ${prefFinal}`)) {
-        return setErr('Links aren’t allowed. Just share names + why.');
-      }
+      
 
       const catFinal = effectiveCategory || recCategory;
 
@@ -5744,7 +5734,7 @@ const [nearText, setNearText] = useState('');
         topPickReplyId: null,
       };
 
-      setPosts((prev) => [p, ...prev]);
+      setPosts((prev) => [p, ...(Array.isArray(prev) ? prev : [])]);
       pushActivity('Created a recommendation request.');
       setActiveTab('home');
       setHomeChip('rec');
@@ -5828,7 +5818,7 @@ const [nearText, setNearText] = useState('');
                 setQuestion(e.target.value);
                 setErr('');
               }}
-              placeholder="Example: Need brakes + general maintenance. Looking for fair pricing + no upsell. Who do you trust and why?"
+              placeholder="Example: Need brakes + general maintenance. Looking for fair pricing + no upsell. Share who you trust and why (no need for links)."
             />
           </div>
 
