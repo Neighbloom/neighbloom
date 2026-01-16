@@ -5148,7 +5148,9 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
             </button>
           </div>
 
-          
+          <div className="nb-muted" style={{ marginTop: 10, fontWeight: 850 }}>
+            Keeps the feed clean and safe.
+          </div>
         </div>
       </div>
     </div>
