@@ -2139,12 +2139,7 @@ function App() {
     const clean = normalizeText(text);
     if (!clean) return { ok: false, error: 'Reply can’t be empty.' };
     if (clean.length < 4) return { ok: false, error: 'Too short.' };
-    if (containsLink(clean)) {
-      return {
-        ok: false,
-        error: 'Links aren’t supported yet — use names + details.',
-      };
-    }
+    
 
     setPosts((prev) =>
       prev.map((p) => {
@@ -4809,10 +4804,9 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
 
   if (!w) return 'Start with what you need (one short phrase).';
   if (!a) return 'Add an area (town / neighborhood).';
-  if (!d || d.length < 12)
-    return 'Add one quick detail so people can answer (at least ~12 chars).';
+  if (!d || d.length < 5) return 'Add a quick detail so people can help.';
 
-  // No keyword policing. Guidance belongs in UI copy, not hard blocks.
+  // No content blocking. Guidance lives in placeholders + hint text.
   return '';
 }
 
@@ -5403,7 +5397,7 @@ const [nearText, setNearText] = useState('');
         selectedUserId: null,
       };
 
-      setPosts((prev) => [p, ...prev]);
+      setPosts((prev) => [p, ...(Array.isArray(prev) ? prev : [])]);
       pushActivity('Created a help request.');
       setActiveTab('home');
       setHomeChip('help');
