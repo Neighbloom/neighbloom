@@ -370,7 +370,7 @@ const HELP_TEMPLATES = [
     category: 'Porch pickup / drop (no valuables)',
     label: 'Pickup/drop',
     title: 'Need a porch pickup/drop (no valuables)',
-    details: 'Small item only. Porch pickup + porch drop. No cash/valuables.',
+    details: 'Small item only. Porch pickup + porch drop.',
     whenRange: 'Anytime today',
   },
 ];
@@ -5363,17 +5363,16 @@ const [nearText, setNearText] = useState('');
 
       const combined = `${t} ${d}`;
 
-      if (mentionsReward(combined)) {
-        return setErr(
-          'Payments aren’t supported here. Keep it neighbor-to-neighbor.'
-        );
-      }
+      // Guidance only (no blocking)
+if (mentionsReward(combined)) {
+  // You can keep this as a soft warning if you want:
+  // setErr('Tip: Avoid mentioning payment; keep it neighbor-to-neighbor.');
+}
 
-      if (mentionsIndoor(combined)) {
-        return setErr(
-          'This looks like an indoor request. Post it as a Recommendation instead.'
-        );
-      }
+if (mentionsIndoor(combined)) {
+  // Soft suggestion only:
+  // setErr('Tip: For indoor tasks, consider a Recommendation post instead.');
+}
 
       const p = {
         id: uid('p'),
