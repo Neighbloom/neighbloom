@@ -2894,6 +2894,15 @@ expandedOtherVols,
         ? 'Bookings, replies, and updates.'
         : 'How neighbors see you.';
 
+        const totalUnread = Object.keys(chatsById || {}).reduce((sum, chatId) => {
+      const pair = String(chatId).split('::')[1] || '';
+      const members = pair.split('|');
+      if (!members.includes(me.id)) return sum;
+      return sum + unreadCount(chatId, me.id);
+    }, 0);
+
+    const unreadLabel = totalUnread > 9 ? '9+' : String(totalUnread);
+
     return (
       <div className="nb-header">
         <div className="nb-header-left">
@@ -2926,6 +2935,11 @@ expandedOtherVols,
             onClick={() => navTo('activity')}
           >
             🔔
+            {totalUnread > 0 ? (
+              <span className="nb-iconbadge" aria-label={`${totalUnread} unread chats`}>
+                {unreadLabel}
+              </span>
+            ) : null}
           </button>
 
           <button
