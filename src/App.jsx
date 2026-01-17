@@ -1271,6 +1271,11 @@ function App() {
   // chat drawer
   const [chat, setChat] = useState(null); // {postId, otherUserId}
   const didAutoOpenChatOnActivity = useRef(false);
+  // Lightweight toast + deep-link guards (share / referrals / post links)
+  const [toastMsg, setToastMsg] = useState(null);
+  const toastTimerRef = useRef(null);
+  const deepLinkHandledRef = useRef(false);
+  const referralHandledRef = useRef(false);
   const [chats, setChats] = useState(() => {
     const raw = saved?.chats ?? {};
     const out = {};
@@ -1568,6 +1573,44 @@ function App() {
       setActiveSavedSearchId(null);
     }
   }, [activeSavedSearchId, mySavedSearches, currentSearchFp]);
+  // Deep-links
+  // - ?p=<postId> opens that post in the feed
+  // - ?ref=<userId> simulates an invite/referral reward
+  useEffect(() => {
+    if (deepLinkHandledRef.current) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const postId = params.get('p');
+    if (postId) {
+      deepLinkHandledRef.current = true;
+      // small delay so the feed DOM exists before we scroll
+      setTimeout(() => jumpToPostFromActivity(postId), 60);
+    }
+  }, [posts]);
+
+  useEffect(() => {
+    if (referralHandledRef.current) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
+    if (!ref) return;
+    if (ref === meId) return;
+
+    const key = `nb_ref_credited_${ref}_${meId}`;
+    if (localStorage.getItem(key)) {
+      referralHandledRef.current = true;
+      return;
+    }
+
+    localStorage.setItem(key, '1');
+    referralHandledRef.current = true;
+    // MVP reward: arriving via an invite link gives the visitor a small boost
+    setNpPointsByUser((prev) => {
+      const cur = prev?.[meId] ?? 0;
+      return { ...prev, [meId]: cur + 20 };
+    });
+    showToast('Invite accepted • +20 NP');
+  }, [meId]);
 
   function pushActivity(payload) {
     // payload can be a string (legacy) or an event object
@@ -1683,6 +1726,81 @@ function App() {
 
   function toggleThread(postId) {
     setExpandedThreads((prev) => ({ ...prev, [postId]: !prev[postId] }));
+  }
+
+  // -------------------- SHARING (viral loop) --------------------
+  function showToast(msg) {
+    if (!msg) return;
+    setToastMsg(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMsg(null), 2000);
+  }
+
+  function baseUrl() {
+    return `${window.location.origin}${window.location.pathname}`;
+  }
+
+  function postUrl(postId) {
+    return `${baseUrl()}?p=${encodeURIComponent(postId)}`;
+  }
+
+  function inviteUrl(userId) {
+    return `${baseUrl()}?ref=${encodeURIComponent(userId)}`;
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch (__) {
+        return false;
+      }
+    }
+  }
+
+  async function shareUrl({ title, text, url }) {
+    try {
+      if (navigator.share) {
+        await navigator.share({ title, text, url });
+        return true;
+      }
+    } catch (e) {
+      // user cancelled share sheet — ignore
+    }
+    const copied = await copyText(url);
+    if (copied) showToast('Link copied');
+    else showToast('Could not copy link');
+    return copied;
+  }
+
+  async function sharePost(post) {
+    const url = postUrl(post.id);
+    await shareUrl({
+      title: post.title || 'Neighbloom',
+      text: `${post.title || 'Post'} — ${post.city || ''}`,
+      url,
+    });
+  }
+
+  async function shareInviteLink(userId) {
+    const url = inviteUrl(userId);
+    await shareUrl({
+      title: 'Join Neighbloom',
+      text: 'Join my neighborhood feed on Neighbloom',
+      url,
+    });
   }
 
   function toggleOtherVols(postId) {
@@ -3678,7 +3796,17 @@ post.status !== 'resolved' ? (
     ) : null}
   </div>
 ) : null}
-
+<button
+              type="button"
+              className="nb-btn nb-btn-ghost nb-btn-sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                sharePost(post);
+              }}
+              title="Share this post"
+            >
+              Share
+            </button>
             <button
               type="button"
               className="nb-btn nb-btn-ghost nb-btn-sm"
@@ -4687,6 +4815,14 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
             >
               Prefer to help?{' '}
               <span className="nb-herolink-accent">Browse requests →</span>
+            </button>
+            <button
+              type="button"
+              className="nb-herolink"
+              onClick={() => shareInviteLink(meId)}
+            >
+              Invite a neighbor{' '}
+              <span className="nb-herolink-accent">(+20 NP)</span>
             </button>
           </div>
         </div>
@@ -6583,6 +6719,11 @@ const blockedSet = getBlockedSet(me.id);
   return (
     <div className="nb-app">
       <Header />
+      {toastMsg ? (
+        <div className="nb-toast" role="status" aria-live="polite">
+          {toastMsg}
+        </div>
+      ) : null}
 
       {activeTab === 'home' ? (
   <HomeScreen

@@ -86,6 +86,24 @@ body{
   padding: 14px 14px calc(94px + env(safe-area-inset-bottom));
 }
 
+/* Small toast for "copied/share" feedback */
+.nb-toast{
+  position: fixed;
+  left: 50%;
+  top: 68px;
+  transform: translateX(-50%);
+  z-index: 200;
+  max-width: min(92vw, 520px);
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(12,14,18,.92);
+  box-shadow: 0 18px 42px rgba(0,0,0,.55);
+  color: rgba(255,255,255,.92);
+  font-size: 14px;
+  backdrop-filter: blur(10px);
+}
+
 /* Header */
 .nb-header{
   position: sticky;
