@@ -2873,6 +2873,20 @@ expandedOtherVols,
     setActiveTab(tab);
   }
 
+  function getTotalUnreadForUser(chatsObj, userId, unreadCountFn) {
+  const obj = chatsObj && typeof chatsObj === 'object' ? chatsObj : {};
+  let sum = 0;
+
+  for (const chatId of Object.keys(obj)) {
+    const pair = String(chatId).split('::')[1] || '';
+    const members = pair.split('|');
+    if (!members.includes(userId)) continue;
+    sum += unreadCountFn(chatId, userId);
+  }
+
+  return sum;
+}
+
   function Header() {
     const titleMap = {
       home: 'Your Feed',
@@ -2894,12 +2908,7 @@ expandedOtherVols,
         ? 'Bookings, replies, and updates.'
         : 'How neighbors see you.';
 
-        const totalUnread = Object.keys(chatsById || {}).reduce((sum, chatId) => {
-      const pair = String(chatId).split('::')[1] || '';
-      const members = pair.split('|');
-      if (!members.includes(me.id)) return sum;
-      return sum + unreadCount(chatId, me.id);
-    }, 0);
+        const totalUnread = getTotalUnreadForUser(chatsById || chats, me.id, unreadCount);
 
     const unreadLabel = totalUnread > 9 ? '9+' : String(totalUnread);
 
@@ -2957,16 +2966,7 @@ expandedOtherVols,
 
   function BottomTabs() {
     // total unread across chats involving me (for the badge on Activity)
-    const totalUnread = (() => {
-      let sum = 0;
-      const obj = chats && typeof chats === 'object' ? chats : {};
-      for (const chatId of Object.keys(obj)) {
-        const pair = String(chatId).split('::')[1] || '';
-        if (!pair.split('|').includes(me.id)) continue;
-        sum += unreadCount(chatId, me.id);
-      }
-      return sum;
-    })();
+    const totalUnread = getTotalUnreadForUser(chatsById || chats, me.id, unreadCount);
 
     const unreadLabel = totalUnread > 9 ? '9+' : String(totalUnread);
 
