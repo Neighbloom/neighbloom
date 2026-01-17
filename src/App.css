@@ -176,7 +176,6 @@ backdrop-filter: blur(10px);
   padding: 10px 12px;
   border-radius: 14px;
   cursor:pointer;
-  position: relative;
 }
 
 .nb-avatarbtn{
@@ -185,23 +184,6 @@ backdrop-filter: blur(10px);
   padding: 6px;
   border-radius: 999px;
   cursor:pointer;
-}
-
-.nb-iconbadge{
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: #FF5A4E;
-  color: #0b0f14;
-  font-size: 11px;
-  font-weight: 950;
-  line-height: 18px;
-  text-align: center;
-  box-shadow: 0 0 0 2px rgba(0,0,0,.65);
 }
 
 /* Chips */
@@ -1616,3 +1598,4 @@ details.nb-details summary::-webkit-details-marker {
   appearance: none;
   -webkit-appearance: none;
 }
+
