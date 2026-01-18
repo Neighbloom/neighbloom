@@ -1277,6 +1277,12 @@ function App() {
       }
   );
 
+  // -------------------- DAILY CHECK-IN (local, no backend) --------------------
+  const [checkInByUser, setCheckInByUser] = useLocalStorageJsonState(
+    'nb_checkInByUser',
+    {}
+  );
+
   // rate limit and spam guard for replies (rec)
   const [replyStats, setReplyStats] = useState(() => saved?.replyStats ?? {});
   // activity log
@@ -1768,6 +1774,72 @@ const chatsById = chats;
 
   function toggleThread(postId) {
     setExpandedThreads((prev) => ({ ...prev, [postId]: !prev[postId] }));
+  }
+
+  // -------------------- DAILY CHECK-IN helpers --------------------
+  function dateKeyLocal(d = new Date()) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`; // local calendar day
+  }
+
+  function todayKey() {
+    return dateKeyLocal(new Date());
+  }
+
+  function yesterdayKey() {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return dateKeyLocal(d);
+  }
+
+  function getCheckInFor(userId) {
+    const raw =
+      checkInByUser && typeof checkInByUser === 'object'
+        ? checkInByUser[userId]
+        : null;
+
+    const lastDate = typeof raw?.lastDate === 'string' ? raw.lastDate : '';
+    const streakNum = Number(raw?.streak);
+    const streak = Number.isFinite(streakNum) ? Math.max(0, Math.floor(streakNum)) : 0;
+
+    return { lastDate, streak };
+  }
+
+  function dailyCheckIn() {
+    const uid = me?.id || 'me';
+    const today = todayKey();
+    const yday = yesterdayKey();
+
+    const cur = getCheckInFor(uid);
+
+    // already checked in today
+    if (cur.lastDate === today) {
+      showToast(`Already checked in • ${cur.streak || 1}-day streak`);
+      return;
+    }
+
+    const nextStreak = cur.lastDate === yday ? cur.streak + 1 : 1;
+
+    // keep economy sane — small reward
+    const reward = 5;
+
+    setCheckInByUser((prev) => {
+      const base = prev && typeof prev === 'object' ? prev : {};
+      return {
+        ...base,
+        [uid]: { lastDate: today, streak: nextStreak },
+      };
+    });
+
+    setNpPointsByUser((prev) => {
+      const base = prev && typeof prev === 'object' ? prev : {};
+      const curPts = Number(base[uid]) || 0;
+      return { ...base, [uid]: curPts + reward };
+    });
+
+    showToast(`Checked in • ${nextStreak}-day streak • +${reward} NP`);
   }
 
   // -------------------- SHARING (viral loop) --------------------
@@ -4810,6 +4882,8 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
   }
 
   function HomeHero() {
+    const ci = getCheckInFor(me?.id || 'me');
+    const checkedInToday = ci.lastDate === todayKey();
     return (
       <div className="nb-hero">
         {(typeof BUSINESS_MODE !== 'undefined' && BUSINESS_MODE) ? (
@@ -4879,6 +4953,17 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
             >
               Invite a neighbor{' '}
               <span className="nb-herolink-accent">(+20 NP)</span>
+            </button>
+            <button
+              type="button"
+              className="nb-quickbtn nb-quickbtn-ghost"
+              onClick={() => dailyCheckIn()}
+              disabled={checkedInToday}
+              title={checkedInToday ? 'Come back tomorrow' : 'Claim your daily NP'}
+            >
+              {checkedInToday
+                ? `Checked in ✅ (${Math.max(1, ci.streak)}-day streak)`
+                : 'Daily check-in (+5 NP)'}
             </button>
           </div>
         </div>
@@ -6708,71 +6793,9 @@ const [nearText, setNearText] = useState('');
     );
   }
 
-  function TabBar() {
-    const tabs = [
-      { key: 'home', label: 'Home', icon: '🏠' },
-      { key: 'post', label: 'Post', icon: '➕' },
-      { key: 'activity', label: 'Activity', icon: '🔔' },
-      { key: 'profile', label: 'Profile', icon: '👤' },
-    ];
+  
 
-    return (
-      <div className="nb-tabs">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            className={`nb-tab ${activeTab === t.key ? 'is-on' : ''}`}
-            onClick={() => setActiveTab(t.key)}
-          >
-            <div className="nb-tab-ico" aria-hidden="true">
-              {t.icon}
-            </div>
-            <div className="nb-tab-label">{t.label}</div>
-          </button>
-        ))}
-      </div>
-    );
-  }
-
-  function renderHomeTab() {
-    return (
-      <HomeScreen
-        Hero={HomeHero}
-        Chips={Chips}
-        EmptyState={EmptyState}
-        PostCard={PostCard}
-        homeChip={homeChip}
-        refreshing={homeRefreshing}
-onRefresh={refreshHome}
-        homeShowAll={homeShowAll}
-        setHomeShowAll={setHomeShowAll}
-        homeFollowOnly={homeFollowOnly}
-        setHomeFollowOnly={setHomeFollowOnly}
-        homeQuery={homeQuery}
-        setHomeQuery={setHomeQuery}
-        feed={visibleFeed}
-        setActiveTab={setActiveTab}
-        setPostFlow={setPostFlow}
-        radiusPreset={radiusPreset}
-        setRadiusPreset={setRadiusPresetForMe}
-        homeCenterLabel={homeCenter?.label || homeCenter?.townKey || ''}
-        onOpenHomeSetup={() => setModal({ type: 'home_setup' })}
-        savedSearches={mySavedSearchesWithCounts}
-        activeSavedSearchId={activeSavedSearchId}
-        onApplySavedSearch={applySavedSearch}
-        onClearSavedSearch={clearSavedSearch}
-        onClearSavedSearchHighlight={() => setActiveSavedSearchId(null)}
-        onSaveCurrentSearch={saveCurrentSearch}
-        canSaveCurrentSearch={canSaveCurrentSearch}
-        currentSearchIsSaved={currentSearchIsSaved}
-        savedLimitReached={savedLimitReached}
-        onManageSavedSearch={(id) =>
-          setModal({ type: 'saved_search_manage', searchId: id })
-        }
-      />
-    );
-  }
+  
 const blockedSet = getBlockedSet(me.id);
 
   const visibleFeed = (Array.isArray(searchedFeed) ? searchedFeed : []).filter((p) => {
