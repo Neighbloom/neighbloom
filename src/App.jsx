@@ -2988,66 +2988,7 @@ expandedOtherVols,
       );
     }
 
-    {showAvailableNow ? (
-  <div className="nb-modal-backdrop" onClick={() => setShowAvailableNow(false)}>
-    <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-        <div style={{ fontWeight: 980 }}>Available now</div>
-        <button type="button" className="nb-btn nb-btn-ghost" onClick={() => setShowAvailableNow(false)}>
-          Close
-        </button>
-      </div>
-
-      <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
-        {(Array.isArray(users) ? users : [])
-          .map((u) => {
-            const v = getUserAvailability(u?.id);
-            const on = isAvailabilityActive(v);
-            return { u, v, on };
-          })
-          .filter((x) => x.on)
-          .map(({ u, v }) => (
-            <div
-              key={u.id}
-              style={{
-                display: 'flex',
-                gap: 10,
-                alignItems: 'center',
-                padding: 10,
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                background: 'rgba(255,255,255,.02)',
-              }}
-            >
-              <img
-                src={u.avatar}
-                alt={u.name}
-                style={{ width: 38, height: 38, borderRadius: 12, objectFit: 'cover' }}
-              />
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontWeight: 950, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {u.name} <span style={{ opacity: 0.7, fontWeight: 800 }}>@{String(u.handle || '').replace('@','')}</span>
-                </div>
-                <div style={{ opacity: 0.75, fontWeight: 850, fontSize: 12 }}>
-                  {u.location || ''}{v?.note ? ` • ${v.note}` : ''}
-                </div>
-              </div>
-              <span style={{ fontWeight: 900, opacity: 0.8 }}>🟢</span>
-            </div>
-          ))}
-
-        {(() => {
-          const any = (Array.isArray(users) ? users : []).some((u) => isAvailabilityActive(getUserAvailability(u?.id)));
-          return !any ? (
-            <div style={{ opacity: 0.75, fontWeight: 850 }}>
-              No one is marked available right now.
-            </div>
-          ) : null;
-        })()}
-      </div>
-    </div>
-  </div>
-) : null}
+    
 
     return (
       <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
