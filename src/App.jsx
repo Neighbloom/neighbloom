@@ -1165,7 +1165,7 @@ function App() {
   const saved = useMemo(() => loadAppState(), []);
 
   const [activeTab, setActiveTab] = useState(() => saved?.activeTab ?? 'home'); // home | post | activity | profile
-  const [showAvailableNow, setShowAvailableNow] = useState(false);
+  
   
   const [homeRefreshing, setHomeRefreshing] = useState(false);
   const homeRefreshingRef = useRef(false);
@@ -5254,11 +5254,7 @@ function setUserAvailability(userId, on, note) {
                 : 'Daily check-in (+5 NP)'}
             </button>
           </div>
-          <LiveBoard
-  me={me}
-  users={users}
-  onOpenAvailable={() => setShowAvailableNow(true)}
-/>
+          
         </div>
       </div>
     );
