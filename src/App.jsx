@@ -1162,6 +1162,8 @@ function App() {
   const saved = useMemo(() => loadAppState(), []);
 
   const [activeTab, setActiveTab] = useState(() => saved?.activeTab ?? 'home'); // home | post | activity | profile
+  // --- FIX: chatsById was referenced but not defined (prevents blank screen) ---
+  const [chatsById, setChatsById] = useState(() => ({}));
   const [homeRefreshing, setHomeRefreshing] = useState(false);
   const homeRefreshingRef = useRef(false);
 
@@ -1316,6 +1318,15 @@ function App() {
   const deepLinkHandledRef = useRef(false);
   const referralHandledRef = useRef(false);
   const [chats, setChats] = useState(() => {
+    // --- FIX: derive chatsById from chats array ---
+  const chatsById = useMemo(() => {
+    const arr = Array.isArray(chats) ? chats : [];
+    const map = {};
+    for (const c of arr) {
+      if (c && c.id) map[c.id] = c;
+    }
+    return map;
+  }, [chats]);
     const raw = saved?.chats ?? {};
     const out = {};
 
