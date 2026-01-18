@@ -47,6 +47,7 @@ const NEIGHBLOOM_LOGO =
 const APP_TAGLINE = 'Little missions, big city.';
 
 const LS_CHECKINS = 'nb_checkins_v1';
+const DAILY_CHECKIN_REWARD = 5;
 
 const AVATAR =
   'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&w=80';
@@ -1908,6 +1909,7 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     setNpPointsByUser((prev) => {
       const base = prev && typeof prev === 'object' ? prev : {};
       const curPts = Number(base[uid]) || 0;
+      const reward = DAILY_CHECKIN_REWARD;
       return { ...base, [uid]: curPts + reward };
     });
 
