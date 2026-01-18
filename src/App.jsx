@@ -1165,6 +1165,7 @@ function App() {
   const saved = useMemo(() => loadAppState(), []);
 
   const [activeTab, setActiveTab] = useState(() => saved?.activeTab ?? 'home'); // home | post | activity | profile
+  const [showAvailableNow, setShowAvailableNow] = useState(false);
   
   const [homeRefreshing, setHomeRefreshing] = useState(false);
   const homeRefreshingRef = useRef(false);
@@ -2986,6 +2987,67 @@ expandedOtherVols,
         { enableHighAccuracy: false, timeout: 8000, maximumAge: 10 * 60 * 1000 }
       );
     }
+
+    {showAvailableNow ? (
+  <div className="nb-modal-backdrop" onClick={() => setShowAvailableNow(false)}>
+    <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <div style={{ fontWeight: 980 }}>Available now</div>
+        <button type="button" className="nb-btn nb-btn-ghost" onClick={() => setShowAvailableNow(false)}>
+          Close
+        </button>
+      </div>
+
+      <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+        {(Array.isArray(users) ? users : [])
+          .map((u) => {
+            const v = getUserAvailability(u?.id);
+            const on = isAvailabilityActive(v);
+            return { u, v, on };
+          })
+          .filter((x) => x.on)
+          .map(({ u, v }) => (
+            <div
+              key={u.id}
+              style={{
+                display: 'flex',
+                gap: 10,
+                alignItems: 'center',
+                padding: 10,
+                border: '1px solid var(--border)',
+                borderRadius: 14,
+                background: 'rgba(255,255,255,.02)',
+              }}
+            >
+              <img
+                src={u.avatar}
+                alt={u.name}
+                style={{ width: 38, height: 38, borderRadius: 12, objectFit: 'cover' }}
+              />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 950, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {u.name} <span style={{ opacity: 0.7, fontWeight: 800 }}>@{String(u.handle || '').replace('@','')}</span>
+                </div>
+                <div style={{ opacity: 0.75, fontWeight: 850, fontSize: 12 }}>
+                  {u.location || ''}{v?.note ? ` • ${v.note}` : ''}
+                </div>
+              </div>
+              <span style={{ fontWeight: 900, opacity: 0.8 }}>🟢</span>
+            </div>
+          ))}
+
+        {(() => {
+          const any = (Array.isArray(users) ? users : []).some((u) => isAvailabilityActive(getUserAvailability(u?.id)));
+          return !any ? (
+            <div style={{ opacity: 0.75, fontWeight: 850 }}>
+              No one is marked available right now.
+            </div>
+          ) : null;
+        })()}
+      </div>
+    </div>
+  </div>
+) : null}
 
     return (
       <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
@@ -5004,63 +5066,24 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
     );
   }
 
-  function LiveBoard({ posts, me, onSeeHelp, onSeeRec }) {
+  function LiveBoard({ me, users, onOpenAvailable }) {
   const [expanded, setExpanded] = useState(false);
+  const [note, setNote] = useState('');
 
-  const all = Array.isArray(posts) ? posts : [];
+  const meId = me?.id || 'me';
   const locRaw = String(me?.location || '').trim();
-  const loc = locRaw.toLowerCase();
 
-  const now = Date.now();
-  const HOUR = 60 * 60 * 1000;
-  const DAY = 24 * 60 * 60 * 1000;
+  const myAvail = getUserAvailability(meId);
+  const myOn = isAvailabilityActive(myAvail);
 
-  const asNum = (v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  const byCreatedDesc = (a, b) => asNum(b?.createdAt) - asNum(a?.createdAt);
-
-  const areaMatches = (p) => {
-    if (!loc) return true;
-    return String(p?.area || '').toLowerCase().includes(loc);
-  };
-
-  const isOpenHelp = (p) => {
-    if (!p || p.kind !== 'help') return false;
-    const s = String(p?.status || p?.stage || '').toLowerCase();
-    return !s || s === 'open';
-  };
-
-  const isRec = (p) => p && p.kind === 'rec';
-
-  const helpOpenAll = all.filter(isOpenHelp).sort(byCreatedDesc);
-  const recAll = all.filter(isRec).sort(byCreatedDesc);
-
-  const helpNear = helpOpenAll.filter(areaMatches);
-  const recNear = recAll.filter(areaMatches);
-
-  const helpCount = (helpNear.length ? helpNear : helpOpenAll).length;
-  const recCount = (recNear.length ? recNear : recAll).length;
-
-  // "Helpers available now" proxy: unique neighbors active recently.
-  const activeNow = new Set(
-    all
-      .filter((p) => asNum(p?.createdAt) >= now - 2 * HOUR)
-      .map((p) => p?.ownerId)
-      .filter(Boolean)
-  ).size;
-
-  const activeToday = new Set(
-    all
-      .filter((p) => asNum(p?.createdAt) >= now - DAY)
-      .map((p) => p?.ownerId)
-      .filter(Boolean)
-  ).size;
-
-  const topHelp = (helpNear.length ? helpNear : helpOpenAll)[0] || null;
-  const topRec = (recNear.length ? recNear : recAll)[0] || null;
+  // Build list of available users (real toggle, auto-expiring)
+  const roster = Array.isArray(users) ? users : [];
+  const availableUsers = roster
+    .map((u) => {
+      const v = getUserAvailability(u?.id);
+      return { u, v, on: isAvailabilityActive(v) };
+    })
+    .filter((x) => x?.u?.id && x.on);
 
   const wrapStyle = {
     marginTop: 10,
@@ -5097,33 +5120,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
     cursor: 'pointer',
   };
 
-  const chipPassive = { ...chipStyle, cursor: 'default', opacity: 0.8 };
-
-  const miniRow = {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    padding: '8px 10px',
-    border: '1px solid var(--border)',
-    borderRadius: 12,
-    background: 'rgba(255,255,255,.02)',
-  };
-
-  const leftText = {
-    minWidth: 0,
-    flex: 1,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    fontWeight: 900,
-  };
-
-  const rightText = {
-    flexShrink: 0,
-    opacity: 0.75,
-    fontWeight: 850,
-  };
+  const chipPassive = { ...chipStyle, cursor: 'default', opacity: 0.85 };
 
   return (
     <div style={wrapStyle}>
@@ -5137,47 +5134,53 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
           className="nb-herolink"
           onClick={() => setExpanded((v) => !v)}
           style={{ padding: 0, margin: 0 }}
-          title={expanded ? 'Hide details' : 'Show details'}
+          title={expanded ? 'Hide controls' : 'Show controls'}
         >
           <span className="nb-herolink-accent">{expanded ? 'Hide' : 'Details'}</span>
         </button>
       </div>
 
       <div style={chipRow}>
-        <span style={chipPassive}>🟢 {activeNow || activeToday} active now</span>
-
-        <button type="button" style={chipStyle} onClick={onSeeHelp}>
-          🧰 {helpCount} open needs
+        <button
+          type="button"
+          style={chipStyle}
+          onClick={() => onOpenAvailable && onOpenAvailable()}
+          title="See who is available now"
+        >
+          🟢 {availableUsers.length} available now
         </button>
 
-        <button type="button" style={chipStyle} onClick={onSeeRec}>
-          🧠 {recCount} new recs
-        </button>
+        <span style={chipPassive}>
+          Your status: {myOn ? 'Available ✅' : 'Off'}
+        </span>
       </div>
 
       {expanded ? (
         <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
-          {topHelp ? (
-            <div style={miniRow}>
-              <span style={leftText}>{topHelp.title || 'Help request'}</span>
-              <span style={rightText}>{topHelp.area || ''}</span>
-            </div>
-          ) : (
-            <div style={{ opacity: 0.75, fontWeight: 850 }}>
-              No open requests yet.
-            </div>
-          )}
+          <div style={{ fontWeight: 900, opacity: 0.85 }}>
+            Toggle your availability (auto-expires in ~2 hours)
+          </div>
 
-          {topRec ? (
-            <div style={miniRow}>
-              <span style={leftText}>{topRec.title || 'Recommendation post'}</span>
-              <span style={rightText}>{topRec.area || ''}</span>
-            </div>
-          ) : (
-            <div style={{ opacity: 0.75, fontWeight: 850 }}>
-              No recommendation posts yet.
-            </div>
-          )}
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Optional note (e.g., 'free until 3pm')"
+            className="nb-input"
+          />
+
+          <button
+            type="button"
+            className={myOn ? 'nb-btn nb-btn-ghost' : 'nb-btn nb-btn-primary'}
+            onClick={() => {
+              const nextOn = !myOn;
+              setUserAvailability(meId, nextOn, note);
+              // force immediate UI refresh
+              setExpanded((v) => v);
+            }}
+            style={{ justifyContent: 'center' }}
+          >
+            {myOn ? 'Turn OFF availability' : 'I’m available now'}
+          </button>
         </div>
       ) : null}
     </div>
@@ -5270,19 +5273,10 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
             </button>
           </div>
           <LiveBoard
-            posts={posts}
-            me={me}
-            onSeeHelp={() => {
-  setActiveTab('home');
-  setHomeChip('help');
-  setHomeShowAll(false);
-}}
-onSeeRec={() => {
-  setActiveTab('home');
-  setHomeChip('rec');
-  setHomeShowAll(false);
-}}
-          />
+  me={me}
+  users={users}
+  onOpenAvailable={() => setShowAvailableNow(true)}
+/>
         </div>
       </div>
     );
@@ -5819,6 +5813,7 @@ onSeeRec={() => {
               resetAppState();
               window.location.reload();
               localStorage.removeItem(LS_CHECKINS);
+              localStorage.removeItem(LS_AVAIL);
             }}
             title="Clears localStorage demo data"
           >
