@@ -46,6 +46,8 @@ const NEIGHBLOOM_LOGO =
   const APP_NAME = 'Neighbloom';
 const APP_TAGLINE = 'Little missions, big city.';
 
+const LS_CHECKINS = 'nb_checkins_v1';
+
 const AVATAR =
   'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&w=80';
 
@@ -1851,49 +1853,57 @@ const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
   }
 
   function yesterdayKey() {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return dateKeyLocal(d);
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+  function getCheckInFor(uid) {
+  const safeUid = uid || 'me';
+  try {
+    const raw = localStorage.getItem(LS_CHECKINS);
+    const map = raw ? JSON.parse(raw) : {};
+    const c = map && map[safeUid] ? map[safeUid] : null;
+    return {
+      lastDate: (c && c.lastDate) || '',
+      streak: Number(c && c.streak) || 0,
+    };
+  } catch {
+    return { lastDate: '', streak: 0 };
   }
+}
 
-  function getCheckInFor(userId) {
-    const raw =
-      checkInByUser && typeof checkInByUser === 'object'
-        ? checkInByUser[userId]
-        : null;
-
-    const lastDate = typeof raw?.lastDate === 'string' ? raw.lastDate : '';
-    const streakNum = Number(raw?.streak);
-    const streak = Number.isFinite(streakNum) ? Math.max(0, Math.floor(streakNum)) : 0;
-
-    return { lastDate, streak };
+function setCheckInFor(uid, next) {
+  const safeUid = uid || 'me';
+  try {
+    const raw = localStorage.getItem(LS_CHECKINS);
+    const map = raw ? JSON.parse(raw) : {};
+    map[safeUid] = {
+      lastDate: (next && next.lastDate) || '',
+      streak: Number(next && next.streak) || 0,
+    };
+    localStorage.setItem(LS_CHECKINS, JSON.stringify(map));
+  } catch {
+    // ignore write errors
   }
+}
 
   function dailyCheckIn() {
     const uid = me?.id || 'me';
-    const today = todayKey();
-    const yday = yesterdayKey();
+const ci = getCheckInFor(uid);
+const today = todayKey();
 
-    const cur = getCheckInFor(uid);
+if (ci.lastDate === today) return;
 
-    // already checked in today
-    if (cur.lastDate === today) {
-      showToast(`Already checked in • ${cur.streak || 1}-day streak`);
-      return;
-    }
+const nextStreak =
+  ci.lastDate === yesterdayKey()
+    ? Math.max(1, (Number(ci.streak) || 0) + 1)
+    : 1;
 
-    const nextStreak = cur.lastDate === yday ? cur.streak + 1 : 1;
-
-    // keep economy sane — small reward
-    const reward = 5;
-
-    setCheckInByUser((prev) => {
-      const base = prev && typeof prev === 'object' ? prev : {};
-      return {
-        ...base,
-        [uid]: { lastDate: today, streak: nextStreak },
-      };
-    });
+setCheckInFor(uid, { lastDate: today, streak: nextStreak });
 
     setNpPointsByUser((prev) => {
       const base = prev && typeof prev === 'object' ? prev : {};
@@ -5613,6 +5623,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
               if (!ok) return;
               resetAppState();
               window.location.reload();
+              localStorage.removeItem(LS_CHECKINS);
             }}
             title="Clears localStorage demo data"
           >
