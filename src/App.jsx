@@ -5005,10 +5005,14 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
   }
 
   function LiveBoard({ posts, me, onSeeHelp, onSeeRec }) {
+  const [expanded, setExpanded] = useState(false);
+
   const all = Array.isArray(posts) ? posts : [];
   const locRaw = String(me?.location || '').trim();
   const loc = locRaw.toLowerCase();
+
   const now = Date.now();
+  const HOUR = 60 * 60 * 1000;
   const DAY = 24 * 60 * 60 * 1000;
 
   const asNum = (v) => {
@@ -5026,120 +5030,156 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
   const isOpenHelp = (p) => {
     if (!p || p.kind !== 'help') return false;
     const s = String(p?.status || p?.stage || '').toLowerCase();
-    // treat missing status as "open" for older demo posts
     return !s || s === 'open';
   };
 
   const isRec = (p) => p && p.kind === 'rec';
 
-  const helpOpen = all.filter(isOpenHelp).sort(byCreatedDesc);
+  const helpOpenAll = all.filter(isOpenHelp).sort(byCreatedDesc);
   const recAll = all.filter(isRec).sort(byCreatedDesc);
 
-  const nearHelp = helpOpen.filter(areaMatches);
-  const nearRec = recAll.filter(areaMatches);
+  const helpNear = helpOpenAll.filter(areaMatches);
+  const recNear = recAll.filter(areaMatches);
 
-  const helpCount = (nearHelp.length ? nearHelp : helpOpen).length;
-  const recCount = (nearRec.length ? nearRec : recAll).length;
+  const helpCount = (helpNear.length ? helpNear : helpOpenAll).length;
+  const recCount = (recNear.length ? recNear : recAll).length;
 
-  const helpPreview = (nearHelp.length ? nearHelp : helpOpen).slice(0, 3);
-  const recPreview = (nearRec.length ? nearRec : recAll).slice(0, 3);
+  // "Helpers available now" proxy: unique neighbors active recently.
+  const activeNow = new Set(
+    all
+      .filter((p) => asNum(p?.createdAt) >= now - 2 * HOUR)
+      .map((p) => p?.ownerId)
+      .filter(Boolean)
+  ).size;
 
-  const activeNeighbors = new Set(
+  const activeToday = new Set(
     all
       .filter((p) => asNum(p?.createdAt) >= now - DAY)
       .map((p) => p?.ownerId)
       .filter(Boolean)
   ).size;
 
-  const panelStyle = {
+  const topHelp = (helpNear.length ? helpNear : helpOpenAll)[0] || null;
+  const topRec = (recNear.length ? recNear : recAll)[0] || null;
+
+  const wrapStyle = {
+    marginTop: 10,
     border: '1px solid var(--border)',
     borderRadius: 16,
     padding: 12,
-    background: 'rgba(255,255,255,.03)',
-    display: 'grid',
-    gap: 10,
+    background: 'rgba(255,255,255,.02)',
   };
 
-  const rowStyle = {
+  const headerRow = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 10,
+  };
+
+  const chipRow = {
+    marginTop: 10,
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 8,
+  };
+
+  const chipStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '7px 10px',
+    border: '1px solid var(--border)',
+    borderRadius: 999,
+    background: 'rgba(255,255,255,.03)',
+    fontWeight: 900,
+    fontSize: 12,
+    cursor: 'pointer',
+  };
+
+  const chipPassive = { ...chipStyle, cursor: 'default', opacity: 0.8 };
+
+  const miniRow = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 10,
     padding: '8px 10px',
     border: '1px solid var(--border)',
     borderRadius: 12,
     background: 'rgba(255,255,255,.02)',
+  };
+
+  const leftText = {
+    minWidth: 0,
+    flex: 1,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontWeight: 900,
+  };
+
+  const rightText = {
+    flexShrink: 0,
+    opacity: 0.75,
     fontWeight: 850,
   };
 
-  const muted = { opacity: 0.75, fontWeight: 800, fontSize: 12 };
-
   return (
-    <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <div style={{ fontWeight: 980 }}>Live Board</div>
-        <div style={muted}>{activeNeighbors} active (24h)</div>
-      </div>
-
-      <div style={panelStyle}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-          <div>
-            <div style={{ fontWeight: 950 }}>
-              Open requests{locRaw ? ` near ${locRaw}` : ''}
-            </div>
-            <div style={muted}>{helpCount} open</div>
-          </div>
-
-          <button type="button" className="nb-quickbtn nb-quickbtn-ghost" onClick={onSeeHelp}>
-            Browse
-          </button>
+    <div style={wrapStyle}>
+      <div style={headerRow}>
+        <div style={{ fontWeight: 980 }}>
+          Helpers available{locRaw ? ` near ${locRaw}` : ''}
         </div>
 
-        {helpPreview.length ? (
-          <div style={{ display: 'grid', gap: 6 }}>
-            {helpPreview.map((p) => (
-              <div key={p.id || `${p.title}-${p.createdAt}`} style={rowStyle}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {p.title || 'Help request'}
-                </span>
-                <span style={{ opacity: 0.75, fontWeight: 850 }}>{p.area || ''}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={muted}>No requests yet — invite neighbors to seed the feed.</div>
-        )}
+        <button
+          type="button"
+          className="nb-herolink"
+          onClick={() => setExpanded((v) => !v)}
+          style={{ padding: 0, margin: 0 }}
+          title={expanded ? 'Hide details' : 'Show details'}
+        >
+          <span className="nb-herolink-accent">{expanded ? 'Hide' : 'Details'}</span>
+        </button>
       </div>
 
-      <div style={panelStyle}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-          <div>
-            <div style={{ fontWeight: 950 }}>
-              New recommendations{locRaw ? ` near ${locRaw}` : ''}
+      <div style={chipRow}>
+        <span style={chipPassive}>🟢 {activeNow || activeToday} active now</span>
+
+        <button type="button" style={chipStyle} onClick={onSeeHelp}>
+          🧰 {helpCount} open needs
+        </button>
+
+        <button type="button" style={chipStyle} onClick={onSeeRec}>
+          🧠 {recCount} new recs
+        </button>
+      </div>
+
+      {expanded ? (
+        <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+          {topHelp ? (
+            <div style={miniRow}>
+              <span style={leftText}>{topHelp.title || 'Help request'}</span>
+              <span style={rightText}>{topHelp.area || ''}</span>
             </div>
-            <div style={muted}>{recCount} posts</div>
-          </div>
+          ) : (
+            <div style={{ opacity: 0.75, fontWeight: 850 }}>
+              No open requests yet.
+            </div>
+          )}
 
-          <button type="button" className="nb-quickbtn nb-quickbtn-ghost" onClick={onSeeRec}>
-            Browse
-          </button>
+          {topRec ? (
+            <div style={miniRow}>
+              <span style={leftText}>{topRec.title || 'Recommendation post'}</span>
+              <span style={rightText}>{topRec.area || ''}</span>
+            </div>
+          ) : (
+            <div style={{ opacity: 0.75, fontWeight: 850 }}>
+              No recommendation posts yet.
+            </div>
+          )}
         </div>
-
-        {recPreview.length ? (
-          <div style={{ display: 'grid', gap: 6 }}>
-            {recPreview.map((p) => (
-              <div key={p.id || `${p.title}-${p.createdAt}`} style={rowStyle}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {p.title || 'Recommendation request'}
-                </span>
-                <span style={{ opacity: 0.75, fontWeight: 850 }}>{p.area || ''}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={muted}>No recommendation posts yet — ask one or browse existing threads.</div>
-        )}
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -5233,13 +5273,15 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
             posts={posts}
             me={me}
             onSeeHelp={() => {
-              setHomeChip('help');
-              setHomeShowAll(true);
-            }}
-            onSeeRec={() => {
-              setHomeChip('rec');
-              setHomeShowAll(true);
-            }}
+  setActiveTab('home');
+  setHomeChip('help');
+  setHomeShowAll(false);
+}}
+onSeeRec={() => {
+  setActiveTab('home');
+  setHomeChip('rec');
+  setHomeShowAll(false);
+}}
           />
         </div>
       </div>
