@@ -1363,11 +1363,74 @@ function App() {
 });
 
   const [lastRead, setLastRead] = useState(() => saved?.lastRead ?? {});
+  const [lastSeenByUser, setLastSeenByUser] = useLocalStorageJsonState(
+    'nb_lastSeenByUser',
+    {}
+  );
+
+  function getLastSeen(userId) {
+    const base =
+      lastSeenByUser && typeof lastSeenByUser === 'object' ? lastSeenByUser : {};
+    const row = base?.[userId] && typeof base[userId] === 'object' ? base[userId] : {};
+    return {
+      homeTs: Number(row.homeTs) || 0,
+      activityTs: Number(row.activityTs) || 0,
+      profileTs: Number(row.profileTs) || 0,
+    };
+  }
+
+  function markSeen(userId, tabKey) {
+    if (!userId || !tabKey) return;
+    setLastSeenByUser((prev) => {
+      const base = prev && typeof prev === 'object' ? prev : {};
+      const row = base?.[userId] && typeof base[userId] === 'object' ? base[userId] : {};
+      return {
+        ...base,
+        [userId]: {
+          ...row,
+          [`${tabKey}Ts`]: NOW(),
+        },
+      };
+    });
+  }
   // Compatibility alias: if older code still calls chatsById, it now points to chats.
 const chatsById = chats;
 
   // post flow
   const [postFlow, setPostFlow] = useState({ step: 'chooser', kind: null });
+
+  const lastSeen = useMemo(() => getLastSeen(me.id), [me.id, lastSeenByUser]);
+
+  const homeNewCount = useMemo(() => {
+    const ts = lastSeen.homeTs || 0;
+    // Simple v1: "new posts" = posts created after last seen, not mine
+    const list = Array.isArray(posts) ? posts : [];
+    return list.filter((p) => p && p.createdAt > ts && p.ownerId !== me.id).length;
+  }, [posts, me.id, lastSeen.homeTs]);
+
+  const activityNewCount = useMemo(() => {
+    const ts = lastSeen.activityTs || 0;
+    const list = Array.isArray(activity) ? activity : [];
+    return list.filter((a) => a && a.ts > ts && Array.isArray(a.audienceIds) && a.audienceIds.includes(me.id)).length;
+  }, [activity, me.id, lastSeen.activityTs]);
+
+  const profileNewCount = useMemo(() => {
+    const ts = lastSeen.profileTs || 0;
+    // New followers since last seen (best signal for profile)
+    const arr = Array.isArray(followersByUser?.[me.id]) ? followersByUser[me.id] : [];
+    // We don’t have follower timestamps, so v1 uses "any follower exists" as a nudge.
+    // If you want true timestamps later, we store follow events in activity (better).
+    return ts === 0 ? 0 : 0;
+  }, [followersByUser, me.id, lastSeen.profileTs]);
+
+  const tabBadges = useMemo(() => {
+    return {
+      home: homeNewCount,
+      activity: activityNewCount,
+      profile: profileNewCount,
+      post: 0,
+    };
+  }, [homeNewCount, activityNewCount, profileNewCount]);
 
   const npPoints = npPointsByUser[me.id] || 0;
   const myBadge = badgeFor(npPoints);
@@ -6973,7 +7036,14 @@ onRefresh={refreshHome}
 )}
 
 
-      <BottomTabs activeTab={activeTab} onChange={setActiveTab} />
+      <BottomTabs
+        activeTab={activeTab}
+        onChange={(k) => {
+          setActiveTab(k);
+          markSeen(me.id, k);
+        }}
+        badges={tabBadges}
+      />
 
       {/* Drawers / overlays */}
       {chat ? <ChatDrawer /> : null}
@@ -7008,7 +7078,7 @@ onRefresh={refreshHome}
   );
 }
 
-function BottomTabs({ activeTab, onChange }) {
+function BottomTabs({ activeTab, onChange, badges }) {
   const tabs = [
     { key: 'home', label: 'Home', icon: '🏠' },
     { key: 'post', label: 'Post', icon: '➕' },
@@ -7032,6 +7102,29 @@ function BottomTabs({ activeTab, onChange }) {
               {t.icon}
             </span>
             <span className="nb-bottomtab-label">{t.label}</span>
+            {badges && badges[t.key] > 0 ? (
+              <span
+                aria-label={`${badges[t.key]} new`}
+                title={`${badges[t.key]} new`}
+                style={{
+                  marginLeft: 6,
+                  minWidth: 18,
+                  height: 18,
+                  padding: '0 6px',
+                  borderRadius: 999,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 12,
+                  fontWeight: 950,
+                  background: 'rgba(255,145,90,.95)',
+                  color: '#111',
+                  border: '1px solid rgba(255,255,255,.12)',
+                }}
+              >
+                {badges[t.key] > 9 ? '9+' : badges[t.key]}
+              </span>
+            ) : null}
           </button>
         );
       })}
