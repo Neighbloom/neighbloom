@@ -1414,14 +1414,8 @@ const chatsById = chats;
     return list.filter((a) => a && a.ts > ts && Array.isArray(a.audienceIds) && a.audienceIds.includes(me.id)).length;
   }, [activity, me.id, lastSeen.activityTs]);
 
-  const profileNewCount = useMemo(() => {
-    const ts = lastSeen.profileTs || 0;
-    // New followers since last seen (best signal for profile)
-    const arr = Array.isArray(followersByUser?.[me.id]) ? followersByUser[me.id] : [];
-    // We don’t have follower timestamps, so v1 uses "any follower exists" as a nudge.
-    // If you want true timestamps later, we store follow events in activity (better).
-    return ts === 0 ? 0 : 0;
-  }, [followersByUser, me.id, lastSeen.profileTs]);
+  // Profile badge is disabled for now (avoids TDZ crash from followersByUser)
+const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
 
   const tabBadges = useMemo(() => {
     return {
