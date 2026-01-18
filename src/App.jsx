@@ -1,6 +1,45 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 
+/* ---------- NB: show fatal errors on-screen (prod-friendly) ---------- */
+function nbFormatErr(err) {
+  if (!err) return 'Unknown error';
+  if (typeof err === 'string') return err;
+  const msg = err.message || String(err);
+  const stack = err.stack ? `\n\n${err.stack}` : '';
+  return `${msg}${stack}`;
+}
+
+function nbShowFatalOverlay(err) {
+  try {
+    const id = 'nb-fatal-overlay';
+    const existing = document.getElementById(id);
+    const box = existing || document.createElement('div');
+    box.id = id;
+    box.style.position = 'fixed';
+    box.style.inset = '12px';
+    box.style.zIndex = '999999';
+    box.style.background = 'rgba(10,10,14,0.95)';
+    box.style.color = '#fff';
+    box.style.padding = '14px';
+    box.style.borderRadius = '12px';
+    box.style.fontFamily =
+      'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+    box.style.fontSize = '12px';
+    box.style.whiteSpace = 'pre-wrap';
+    box.style.overflow = 'auto';
+    box.innerText = 'NeighBloom crashed:\n\n' + nbFormatErr(err);
+    if (!existing) document.body.appendChild(box);
+  } catch (_) {}
+}
+
+if (typeof window !== 'undefined' && typeof document !== 'undefined' && !window.__NB_ERR_HOOKED__) {
+  window.__NB_ERR_HOOKED__ = true;
+  window.addEventListener('error', (e) => nbShowFatalOverlay(e.error || e.message || e));
+  window.addEventListener('unhandledrejection', (e) => nbShowFatalOverlay(e.reason || e));
+}
+/* -------------------------------------------------------------------- */
+
 const NEIGHBLOOM_LOGO =
   'https://storage.googleapis.com/space-apps-assets/store_MJDeCrFHOB/9kmK0Kexuz-logo.jpg';
 
@@ -4770,7 +4809,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
   function HomeHero() {
     return (
       <div className="nb-hero">
-        {BUSINESS_MODE ? (
+        {(typeof BUSINESS_MODE !== 'undefined' && BUSINESS_MODE) ? (
           <div className="nb-hero-bar">
             <div className="nb-hero-bar-left">
               <div className="nb-hero-title">Promote Your Business</div>
@@ -4884,7 +4923,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
   const isRec = kind === 'rec';
 
   const [what, setWhat] = useState('');
-  const [area, setArea] = useState(me.location || '');
+  const [area, setArea] = useState(me?.location || '');
   const [whenRange, setWhenRange] = useState('');
   const [helpersNeeded, setHelpersNeeded] = useState(1);
   const [details, setDetails] = useState('');
@@ -4897,7 +4936,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
   useEffect(() => {
     // Reset when switching kinds
     setWhat('');
-    setArea(me.location || '');
+    setArea(me?.location || '');
     setWhenRange('');
     setHelpersNeeded(1);
     setDetails('');
@@ -4905,7 +4944,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
     setPhoto('');
     setPhotoBytes(0);
     setErr('');
-  }, [kind, me.location]);
+  }, [kind, me?.location]);
 
   const helpExamples = [
     'shovel my driveway',
@@ -5069,7 +5108,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
 
   const quickRow = isHelp ? (
     <div className="nb-suggest-row" style={{ marginTop: 10 }}>
-      {HELP_TEMPLATES.map((t) => (
+      {(typeof HELP_TEMPLATES !== 'undefined' && Array.isArray(HELP_TEMPLATES) ? HELP_TEMPLATES : []).map((t) => (
         <button
           key={t.label}
           type="button"
@@ -5083,7 +5122,8 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
     </div>
   ) : (
     <div className="nb-suggest-row" style={{ marginTop: 10 }}>
-      {REC_CATEGORIES.filter((x) => x && x !== '__custom__')
+      {(typeof REC_CATEGORIES !== 'undefined' && Array.isArray(REC_CATEGORIES) ? REC_CATEGORIES : [])
+  .filter((x) => x && x !== '__custom__')
         .slice(0, 8)
         .map((c) => (
           <button
@@ -5251,7 +5291,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
                 <div className="nb-row" style={{ marginTop: 10 }}>
                   <label className="nb-label">Preference chips (optional)</label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {REC_PREF_TAGS.map((t) => {
+                    {(typeof REC_PREF_TAGS !== 'undefined' && Array.isArray(REC_PREF_TAGS) ? REC_PREF_TAGS : []).map((t) => {
                       const on = prefTags.includes(t);
                       return (
                         <button
