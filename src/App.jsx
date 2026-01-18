@@ -1283,6 +1283,11 @@ function App() {
     {}
   );
 
+  const [onboardingByUser, setOnboardingByUser] = useLocalStorageJsonState(
+    'nb_onboardingByUser',
+    {}
+  );
+
   // rate limit and spam guard for replies (rec)
   const [replyStats, setReplyStats] = useState(() => saved?.replyStats ?? {});
   // activity log
@@ -1843,6 +1848,55 @@ const chatsById = chats;
   }
 
   // -------------------- SHARING (viral loop) --------------------
+  function hasOnboardingClaimed(userId) {
+    const raw =
+      onboardingByUser && typeof onboardingByUser === 'object'
+        ? onboardingByUser[userId]
+        : null;
+    return !!raw?.claimed;
+  }
+
+  function claimOnboardingBonus() {
+    const uid = me?.id || 'me';
+
+    // Requirements
+    const ci = getCheckInFor(uid);
+    const checkedInToday = ci.lastDate === todayKey();
+    const hasPosted = (Array.isArray(posts) ? posts : []).some(
+      (p) => p && p.ownerId === uid
+    );
+    const hasFollowed = followingSet && typeof followingSet.size === 'number'
+      ? followingSet.size > 0
+      : false;
+
+    if (hasOnboardingClaimed(uid)) {
+      showToast('Bonus already claimed');
+      return;
+    }
+
+    if (!checkedInToday || !hasPosted || !hasFollowed) {
+      showToast('Complete all 3 steps first');
+      return;
+    }
+
+    const bonus = 25;
+
+    setOnboardingByUser((prev) => {
+      const base = prev && typeof prev === 'object' ? prev : {};
+      return {
+        ...base,
+        [uid]: { claimed: true, claimedAt: NOW() },
+      };
+    });
+
+    setNpPointsByUser((prev) => {
+      const base = prev && typeof prev === 'object' ? prev : {};
+      const curPts = Number(base[uid]) || 0;
+      return { ...base, [uid]: curPts + bonus };
+    });
+
+    showToast(`Onboarding bonus claimed • +${bonus} NP`);
+  }
   function showToast(msg) {
     if (!msg) return;
     setToastMsg(msg);
@@ -4966,6 +5020,64 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
                 : 'Daily check-in (+5 NP)'}
             </button>
           </div>
+          {(() => {
+            const uid = me?.id || 'me';
+            const ci = getCheckInFor(uid);
+            const checkedInToday = ci.lastDate === todayKey();
+            const hasPosted = (Array.isArray(posts) ? posts : []).some(
+              (p) => p && p.ownerId === uid
+            );
+            const hasFollowed =
+              followingSet && typeof followingSet.size === 'number'
+                ? followingSet.size > 0
+                : false;
+
+            const claimed = hasOnboardingClaimed(uid);
+            const doneCount = [checkedInToday, hasPosted, hasFollowed].filter(Boolean).length;
+
+            const rowStyle = {
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '8px 10px',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              background: 'rgba(255,255,255,.03)',
+              fontWeight: 850,
+            };
+
+            return (
+              <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                <div style={{ fontWeight: 980 }}>Quick start ({doneCount}/3)</div>
+
+                <div style={rowStyle}>
+                  <span>Daily check-in</span>
+                  <span>{checkedInToday ? '✅' : '⬜'}</span>
+                </div>
+
+                <div style={rowStyle}>
+                  <span>Create your first post</span>
+                  <span>{hasPosted ? '✅' : '⬜'}</span>
+                </div>
+
+                <div style={rowStyle}>
+                  <span>Follow 1 neighbor</span>
+                  <span>{hasFollowed ? '✅' : '⬜'}</span>
+                </div>
+
+                <button
+                  type="button"
+                  className="nb-btn nb-btn-primary"
+                  onClick={() => claimOnboardingBonus()}
+                  disabled={claimed || doneCount < 3}
+                  style={{ justifyContent: 'center' }}
+                  title={claimed ? 'Already claimed' : doneCount < 3 ? 'Finish all steps first' : 'Claim bonus'}
+                >
+                  {claimed ? 'Bonus claimed ✅' : 'Claim onboarding bonus (+25 NP)'}
+                </button>
+              </div>
+            );
+          })()}
         </div>
       </div>
     );
