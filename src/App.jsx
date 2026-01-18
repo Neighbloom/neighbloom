@@ -5494,7 +5494,19 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
     const [title, setTitle] = useState('');
     const [helpersNeeded, setHelpersNeeded] = useState(1);
     const [area, setArea] = useState(me.location || '');
-    const [townKey, setTownKey] = useState(() => inferTownKeyFromText(me.location) || TOWN_KEYS[0] || '');
+    const [townKey, setTownKey] = useState(() => inferTownKeyFromText(me?.location) || '');
+    // Ensure townKey gets a default AFTER TOWN_KEYS exists (prevents TDZ crash)
+useEffect(() => {
+  setTownKey((prev) => {
+    if (prev) return prev;
+    const first =
+      typeof TOWN_KEYS !== 'undefined' && Array.isArray(TOWN_KEYS) && TOWN_KEYS[0]
+        ? TOWN_KEYS[0]
+        : '';
+    return first;
+  });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 const [nearText, setNearText] = useState('');
 
     // Premium Timing: single selector + optional custom field (no chip spam)
