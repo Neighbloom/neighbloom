@@ -5004,6 +5004,146 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
     );
   }
 
+  function LiveBoard({ posts, me, onSeeHelp, onSeeRec }) {
+  const all = Array.isArray(posts) ? posts : [];
+  const locRaw = String(me?.location || '').trim();
+  const loc = locRaw.toLowerCase();
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+
+  const asNum = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const byCreatedDesc = (a, b) => asNum(b?.createdAt) - asNum(a?.createdAt);
+
+  const areaMatches = (p) => {
+    if (!loc) return true;
+    return String(p?.area || '').toLowerCase().includes(loc);
+  };
+
+  const isOpenHelp = (p) => {
+    if (!p || p.kind !== 'help') return false;
+    const s = String(p?.status || p?.stage || '').toLowerCase();
+    // treat missing status as "open" for older demo posts
+    return !s || s === 'open';
+  };
+
+  const isRec = (p) => p && p.kind === 'rec';
+
+  const helpOpen = all.filter(isOpenHelp).sort(byCreatedDesc);
+  const recAll = all.filter(isRec).sort(byCreatedDesc);
+
+  const nearHelp = helpOpen.filter(areaMatches);
+  const nearRec = recAll.filter(areaMatches);
+
+  const helpCount = (nearHelp.length ? nearHelp : helpOpen).length;
+  const recCount = (nearRec.length ? nearRec : recAll).length;
+
+  const helpPreview = (nearHelp.length ? nearHelp : helpOpen).slice(0, 3);
+  const recPreview = (nearRec.length ? nearRec : recAll).slice(0, 3);
+
+  const activeNeighbors = new Set(
+    all
+      .filter((p) => asNum(p?.createdAt) >= now - DAY)
+      .map((p) => p?.ownerId)
+      .filter(Boolean)
+  ).size;
+
+  const panelStyle = {
+    border: '1px solid var(--border)',
+    borderRadius: 16,
+    padding: 12,
+    background: 'rgba(255,255,255,.03)',
+    display: 'grid',
+    gap: 10,
+  };
+
+  const rowStyle = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+    padding: '8px 10px',
+    border: '1px solid var(--border)',
+    borderRadius: 12,
+    background: 'rgba(255,255,255,.02)',
+    fontWeight: 850,
+  };
+
+  const muted = { opacity: 0.75, fontWeight: 800, fontSize: 12 };
+
+  return (
+    <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <div style={{ fontWeight: 980 }}>Live Board</div>
+        <div style={muted}>{activeNeighbors} active (24h)</div>
+      </div>
+
+      <div style={panelStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <div>
+            <div style={{ fontWeight: 950 }}>
+              Open requests{locRaw ? ` near ${locRaw}` : ''}
+            </div>
+            <div style={muted}>{helpCount} open</div>
+          </div>
+
+          <button type="button" className="nb-quickbtn nb-quickbtn-ghost" onClick={onSeeHelp}>
+            Browse
+          </button>
+        </div>
+
+        {helpPreview.length ? (
+          <div style={{ display: 'grid', gap: 6 }}>
+            {helpPreview.map((p) => (
+              <div key={p.id || `${p.title}-${p.createdAt}`} style={rowStyle}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {p.title || 'Help request'}
+                </span>
+                <span style={{ opacity: 0.75, fontWeight: 850 }}>{p.area || ''}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={muted}>No requests yet — invite neighbors to seed the feed.</div>
+        )}
+      </div>
+
+      <div style={panelStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <div>
+            <div style={{ fontWeight: 950 }}>
+              New recommendations{locRaw ? ` near ${locRaw}` : ''}
+            </div>
+            <div style={muted}>{recCount} posts</div>
+          </div>
+
+          <button type="button" className="nb-quickbtn nb-quickbtn-ghost" onClick={onSeeRec}>
+            Browse
+          </button>
+        </div>
+
+        {recPreview.length ? (
+          <div style={{ display: 'grid', gap: 6 }}>
+            {recPreview.map((p) => (
+              <div key={p.id || `${p.title}-${p.createdAt}`} style={rowStyle}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {p.title || 'Recommendation request'}
+                </span>
+                <span style={{ opacity: 0.75, fontWeight: 850 }}>{p.area || ''}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={muted}>No recommendation posts yet — ask one or browse existing threads.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
   function HomeHero() {
     const ci = getCheckInFor(me?.id || 'me');
     const checkedInToday = ci.lastDate === todayKey();
@@ -5089,7 +5229,18 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
                 : 'Daily check-in (+5 NP)'}
             </button>
           </div>
-          
+          <LiveBoard
+            posts={posts}
+            me={me}
+            onSeeHelp={() => {
+              setHomeChip('help');
+              setHomeShowAll(true);
+            }}
+            onSeeRec={() => {
+              setHomeChip('rec');
+              setHomeShowAll(true);
+            }}
+          />
         </div>
       </div>
     );
