@@ -5187,6 +5187,47 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
   );
 }
 
+// ---------------- AVAILABILITY (Helpers Available Now) ----------------
+const LS_AVAIL = 'nb_availability_v1';
+
+// Returns: { [userId]: { on: boolean, note: string, ts: number } }
+function getAvailabilityMap() {
+  try {
+    const raw = localStorage.getItem(LS_AVAIL);
+    const obj = raw ? JSON.parse(raw) : {};
+    return obj && typeof obj === 'object' ? obj : {};
+  } catch {
+    return {};
+  }
+}
+
+function setAvailabilityMap(next) {
+  try {
+    localStorage.setItem(LS_AVAIL, JSON.stringify(next || {}));
+  } catch {}
+}
+
+function getUserAvailability(userId) {
+  const m = getAvailabilityMap();
+  const v = m?.[userId];
+  return v && typeof v === 'object'
+    ? { on: !!v.on, note: String(v.note || ''), ts: Number(v.ts || 0) }
+    : { on: false, note: '', ts: 0 };
+}
+
+// Auto-expire after 2 hours so people don’t stay “on” forever.
+function isAvailabilityActive(v) {
+  const ts = Number(v?.ts || 0);
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
+  return !!v?.on && ts > 0 && Date.now() - ts < TWO_HOURS;
+}
+
+function setUserAvailability(userId, on, note) {
+  const m = getAvailabilityMap();
+  m[userId] = { on: !!on, note: String(note || ''), ts: Date.now() };
+  setAvailabilityMap(m);
+}
+
   function HomeHero() {
     const ci = getCheckInFor(me?.id || 'me');
     const checkedInToday = ci.lastDate === todayKey();
