@@ -1162,8 +1162,7 @@ function App() {
   const saved = useMemo(() => loadAppState(), []);
 
   const [activeTab, setActiveTab] = useState(() => saved?.activeTab ?? 'home'); // home | post | activity | profile
-  // --- FIX: chatsById was referenced but not defined (prevents blank screen) ---
-  const [chatsById, setChatsById] = useState(() => ({}));
+  
   const [homeRefreshing, setHomeRefreshing] = useState(false);
   const homeRefreshingRef = useRef(false);
 
@@ -1318,50 +1317,43 @@ function App() {
   const deepLinkHandledRef = useRef(false);
   const referralHandledRef = useRef(false);
   const [chats, setChats] = useState(() => {
-    // --- FIX: derive chatsById from chats array ---
-  const chatsById = useMemo(() => {
-    const arr = Array.isArray(chats) ? chats : [];
-    const map = {};
-    for (const c of arr) {
-      if (c && c.id) map[c.id] = c;
-    }
-    return map;
-  }, [chats]);
-    const raw = saved?.chats ?? {};
-    const out = {};
+  const raw = saved?.chats ?? {};
+  const out = {};
 
-    if (raw && typeof raw === 'object') {
-      for (const [k, v] of Object.entries(raw)) {
-        // expected: array of message objects
-        if (Array.isArray(v)) {
-          out[k] = v.filter((m) => m && typeof m === 'object');
-          continue;
-        }
-
-        // support older shape: { messages: [...] }
-        if (v && typeof v === 'object' && Array.isArray(v.messages)) {
-          out[k] = v.messages.filter((m) => m && typeof m === 'object');
-          continue;
-        }
-
-        // if someone saved JSON as a string
-        if (typeof v === 'string') {
-          const parsed = safeJsonParse(v, null);
-          out[k] = Array.isArray(parsed)
-            ? parsed.filter((m) => m && typeof m === 'object')
-            : [];
-          continue;
-        }
-
-        // anything else is invalid → drop it
-        out[k] = [];
+  if (raw && typeof raw === 'object') {
+    for (const [k, v] of Object.entries(raw)) {
+      // expected: array of message objects
+      if (Array.isArray(v)) {
+        out[k] = v.filter((m) => m && typeof m === 'object');
+        continue;
       }
-    }
 
-    return out;
-  });
+      // support older shape: { messages: [...] }
+      if (v && typeof v === 'object' && Array.isArray(v.messages)) {
+        out[k] = v.messages.filter((m) => m && typeof m === 'object');
+        continue;
+      }
+
+      // if someone saved JSON as a string
+      if (typeof v === 'string') {
+        const parsed = safeJsonParse(v, null);
+        out[k] = Array.isArray(parsed)
+          ? parsed.filter((m) => m && typeof m === 'object')
+          : [];
+        continue;
+      }
+
+      // anything else is invalid → drop it
+      out[k] = [];
+    }
+  }
+
+  return out;
+});
 
   const [lastRead, setLastRead] = useState(() => saved?.lastRead ?? {});
+  // Compatibility alias: if older code still calls chatsById, it now points to chats.
+const chatsById = chats;
 
   // post flow
   const [postFlow, setPostFlow] = useState({ step: 'chooser', kind: null });
@@ -2958,7 +2950,7 @@ expandedOtherVols,
         ? 'Bookings, replies, and updates.'
         : 'How neighbors see you.';
 
-        const totalUnread = getTotalUnreadForUser(chatsById || chats, me.id, unreadCount);
+        const totalUnread = getTotalUnreadForUser(chats || chats, me.id, unreadCount);
 
     const unreadLabel = totalUnread > 9 ? '9+' : String(totalUnread);
 
@@ -3016,7 +3008,7 @@ expandedOtherVols,
 
   function BottomTabs() {
     // total unread across chats involving me (for the badge on Activity)
-    const totalUnread = getTotalUnreadForUser(chatsById || chats, me.id, unreadCount);
+    const totalUnread = getTotalUnreadForUser(chats || chats, me.id, unreadCount);
 
     const unreadLabel = totalUnread > 9 ? '9+' : String(totalUnread);
 
