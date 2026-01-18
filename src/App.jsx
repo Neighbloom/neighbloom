@@ -1910,10 +1910,10 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
       const base = prev && typeof prev === 'object' ? prev : {};
       const curPts = Number(base[uid]) || 0;
       const reward = DAILY_CHECKIN_REWARD;
-      return { ...base, [uid]: curPts + reward };
+      return { ...base, [uid]: curPts + DAILY_CHECKIN_REWARD };
     });
 
-    showToast(`Checked in • ${nextStreak}-day streak • +${reward} NP`);
+    showToast(`Checked in • ${nextStreak}-day streak • +${DAILY_CHECKIN_REWARD} NP`);
   }
 
   // -------------------- SHARING (viral loop) --------------------
