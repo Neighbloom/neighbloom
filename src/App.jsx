@@ -5011,6 +5011,10 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
   const [expanded, setExpanded] = useState(false);
   const [note, setNote] = useState('');
   const [availTick, setAvailTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setAvailTick((x) => x + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
 
   const meId = me?.id || 'me';
   const locRaw = String(me?.location || '').trim();
@@ -5257,7 +5261,14 @@ function setUserAvailability(userId, on, note) {
                 : 'Daily check-in (+5 NP)'}
             </button>
           </div>
-          
+          <LiveBoard
+            me={me}
+            users={USERS_SEED}
+            onOpenAvailable={() => {
+              // simplest possible behavior for now
+              alert('Available now list coming next.');
+            }}
+          />
         </div>
       </div>
     );
