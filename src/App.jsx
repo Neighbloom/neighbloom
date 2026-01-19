@@ -5010,21 +5010,24 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
   function LiveBoard({ me, users, onOpenAvailable }) {
   const [expanded, setExpanded] = useState(false);
   const [note, setNote] = useState('');
+  const [availTick, setAvailTick] = useState(0);
 
   const meId = me?.id || 'me';
   const locRaw = String(me?.location || '').trim();
 
-  const myAvail = getUserAvailability(meId);
+  const myAvail = useMemo(() => getUserAvailability(meId), [meId, availTick]);
   const myOn = isAvailabilityActive(myAvail);
 
   // Build list of available users (real toggle, auto-expiring)
-  const roster = Array.isArray(users) ? users : [];
-  const availableUsers = roster
-    .map((u) => {
-      const v = getUserAvailability(u?.id);
-      return { u, v, on: isAvailabilityActive(v) };
-    })
-    .filter((x) => x?.u?.id && x.on);
+  const availableUsers = useMemo(() => {
+    const roster = Array.isArray(users) ? users : [];
+    return roster
+      .map((u) => {
+        const v = getUserAvailability(u?.id);
+        return { u, v, on: isAvailabilityActive(v) };
+      })
+      .filter((x) => x?.u?.id && x.on);
+  }, [users, availTick]);
 
   const wrapStyle = {
     marginTop: 10,
@@ -5116,7 +5119,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
               const nextOn = !myOn;
               setUserAvailability(meId, nextOn, note);
               // force immediate UI refresh
-              setExpanded((v) => v);
+              setAvailTick((x) => x + 1);
             }}
             style={{ justifyContent: 'center' }}
           >
@@ -5788,10 +5791,10 @@ function setUserAvailability(userId, on, note) {
                 'Reset all local demo data? This clears posts, chats, saved searches, and points.'
               );
               if (!ok) return;
-              resetAppState();
-              window.location.reload();
               localStorage.removeItem(LS_CHECKINS);
               localStorage.removeItem(LS_AVAIL);
+              resetAppState();
+              window.location.reload();
             }}
             title="Clears localStorage demo data"
           >
