@@ -5024,6 +5024,11 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
 
   // Build list of available users (real toggle, auto-expiring)
   const availableUsers = useMemo(() => {
+    const otherAvailableUsers = useMemo(() => {
+  return (Array.isArray(availableUsers) ? availableUsers : []).filter(
+    (x) => x?.u?.id && x.u.id !== meId
+  );
+}, [availableUsers, meId]);
     const roster = Array.isArray(users) ? users : [];
     return roster
       .map((u) => {
@@ -5063,6 +5068,7 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
     border: '1px solid var(--border)',
     borderRadius: 999,
     background: 'rgba(255,255,255,.03)',
+    color: 'var(--text)',
     fontWeight: 900,
     fontSize: 12,
     cursor: 'pointer',
@@ -5093,9 +5099,9 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
           type="button"
           style={chipStyle}
           onClick={() => onOpenAvailable && onOpenAvailable()}
-          title="See who is available now"
+          title="See who else is available now"
         >
-          🟢 {availableUsers.length} available now
+          🟢 {otherAvailableUsers.length} available now
         </button>
 
         <span style={chipPassive}>
@@ -5115,6 +5121,10 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
             placeholder="Optional note (e.g., 'free until 3pm')"
             className="nb-input"
           />
+          <div className="nb-muted small" style={{ fontWeight: 850, opacity: 0.85 }}>
+  This note will show to neighbors in the “Available now” list.
+  {note ? ` Preview: “${note}”` : ''}
+</div>
 
           <button
             type="button"
@@ -5266,7 +5276,7 @@ function setUserAvailability(userId, on, note) {
             users={USERS_SEED}
             onOpenAvailable={() => {
               // simplest possible behavior for now
-              alert('Available now list coming next.');
+              setModal({ type: 'available_now' });
             }}
           />
         </div>
@@ -6879,6 +6889,93 @@ const [nearText, setNearText] = useState('');
     );
   }
 
+  function AvailableNowModal({ me, users, onClose, onOpenProfile }) {
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 15000);
+    return () => clearInterval(t);
+  }, []);
+
+  const meId = me?.id || 'me';
+  const loc = String(me?.location || '').trim();
+
+  const list = useMemo(() => {
+    const roster = Array.isArray(users) ? users : [];
+    return roster
+      .map((u) => {
+        const v = getUserAvailability(u?.id);
+        return { u, v, on: isAvailabilityActive(v) };
+      })
+      .filter((x) => x?.u?.id && x.on && x.u.id !== meId)
+      .sort((a, b) => (Number(b?.v?.ts || 0) - Number(a?.v?.ts || 0)));
+  }, [users, meId, tick]);
+
+  return (
+    <div className="nb-modal-backdrop" onClick={onClose}>
+      <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="nb-modal-head">
+          <div className="nb-modal-title">
+            Available now{loc ? ` near ${loc}` : ''}
+          </div>
+          <button className="nb-x" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+
+        <div style={{ padding: 14 }}>
+          <div className="nb-muted" style={{ fontWeight: 850, marginBottom: 10 }}>
+            Demo only: this reflects local availability toggles in your browser.
+          </div>
+
+          {list.length === 0 ? (
+            <div className="nb-muted" style={{ fontWeight: 850 }}>
+              No one else is available right now.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {list.map(({ u, v }) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  className="nb-listitem"
+                  onClick={() => onOpenProfile && onOpenProfile(u.id)}
+                  style={{ cursor: 'pointer', alignItems: 'center' }}
+                  title="View profile"
+                >
+                  <img className="nb-avatar sm" src={u.avatar} alt={u.name} />
+                  <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                    <div style={{ fontWeight: 980 }}>
+                      {u.name} <span className="nb-handle">{u.handle}</span>
+                    </div>
+                    <div className="nb-muted" style={{ fontWeight: 850, fontSize: 12 }}>
+                      {v?.note ? `“${v.note}” · ` : ''}
+                      {v?.ts ? timeAgo(v.ts) : ''}
+                      {u?.location ? ` · ${u.location}` : ''}
+                    </div>
+                  </div>
+                  <span className="nb-herolink-accent" style={{ fontWeight: 950 }}>
+                    View
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="nb-modal-foot">
+          <div className="nb-muted">Availability auto-expires after ~2 hours.</div>
+          <div className="nb-modal-actions">
+            <button className="nb-btn nb-btn-primary" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
   function ProfileTab() {
     const myFollowers = Array.isArray(followersByUser?.[me.id])
       ? followersByUser[me.id].length
@@ -7201,6 +7298,14 @@ onRefresh={refreshHome}
       {modal?.type === 'user_profile' ? (
         <UserProfileModal userId={modal.userId} />
       ) : null}
+      {modal?.type === 'available_now' ? (
+  <AvailableNowModal
+    me={me}
+    users={USERS_SEED}
+    onClose={() => setModal(null)}
+    onOpenProfile={(userId) => setModal({ type: 'user_profile', userId })}
+  />
+) : null}
 
       {/* Recommendation thread modal (separate state) */}
       {thread ? <RecThreadModal postId={thread.postId} replyId={thread.replyId} /> : null}
