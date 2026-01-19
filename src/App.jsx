@@ -5024,11 +5024,6 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
 
   // Build list of available users (real toggle, auto-expiring)
   const availableUsers = useMemo(() => {
-    const otherAvailableUsers = useMemo(() => {
-  return (Array.isArray(availableUsers) ? availableUsers : []).filter(
-    (x) => x?.u?.id && x.u.id !== meId
-  );
-}, [availableUsers, meId]);
     const roster = Array.isArray(users) ? users : [];
     return roster
       .map((u) => {
@@ -5037,6 +5032,12 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
       })
       .filter((x) => x?.u?.id && x.on);
   }, [users, availTick]);
+
+  const otherAvailableUsers = useMemo(() => {
+    return (Array.isArray(availableUsers) ? availableUsers : []).filter(
+      (x) => x?.u?.id && x.u.id !== meId
+    );
+  }, [availableUsers, meId]);
 
   const wrapStyle = {
     marginTop: 10,
