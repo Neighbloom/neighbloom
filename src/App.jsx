@@ -6099,7 +6099,7 @@ if (mentionsIndoor(combined)) {
       setErr('');
     }}
   >
-    {TOWN_KEYS.map((k) => (
+    {(typeof TOWN_KEYS !== 'undefined' && Array.isArray(TOWN_KEYS) ? TOWN_KEYS : []).map((k) => (
       <option key={k} value={k}>{k}</option>
     ))}
   </select>
@@ -6249,7 +6249,18 @@ if (mentionsIndoor(combined)) {
     const [recCategory, setRecCategory] = useState('Mechanic');
     const [customCategory, setCustomCategory] = useState('');
     const [area, setArea] = useState(me.location || '');
-    const [townKey, setTownKey] = useState(() => inferTownKeyFromText(me.location) || TOWN_KEYS[0] || '');
+    const [townKey, setTownKey] = useState(() => inferTownKeyFromText(me?.location) || '');
+    useEffect(() => {
+  setTownKey((prev) => {
+    if (prev) return prev;
+    const first =
+      typeof TOWN_KEYS !== 'undefined' && Array.isArray(TOWN_KEYS) && TOWN_KEYS[0]
+        ? TOWN_KEYS[0]
+        : '';
+    return first;
+  });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 const [nearText, setNearText] = useState('');
     const [question, setQuestion] = useState('');
     const [preferences, setPreferences] = useState('');
