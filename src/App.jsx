@@ -3151,6 +3151,26 @@ expandedOtherVols,
         const totalUnread = getTotalUnreadForUser(chats || chats, me.id, unreadCount);
 
     const unreadLabel = totalUnread > 9 ? '9+' : String(totalUnread);
+    const uid = me?.id || 'me';
+    const ci = getCheckInFor(uid);
+    const checkedInToday = ci.lastDate === todayKey();
+    const hasPosted = (Array.isArray(posts) ? posts : []).some(
+      (p) => p && p.ownerId === uid
+    );
+    const hasFollowed =
+      followingSet && typeof followingSet.size === 'number'
+        ? followingSet.size > 0
+        : false;
+
+    const onboardingDoneCount = [checkedInToday, hasPosted, hasFollowed].filter(Boolean).length;
+    const onboardingClaimed = hasOnboardingClaimed(uid);
+    const onboardingAllDone = checkedInToday && hasPosted && hasFollowed;
+
+    const onboardingPillText = onboardingClaimed
+      ? null
+      : onboardingAllDone
+      ? 'Claim +25'
+      : `Start ${onboardingDoneCount}/3`;
 
     return (
       <div className="nb-header">
@@ -3175,7 +3195,16 @@ expandedOtherVols,
             <span className="nb-pill-strong">{npPoints}</span>
           </button>
 
-          
+          {onboardingPillText ? (
+            <button
+              type="button"
+              className="nb-pill nb-pill-ghost nb-pillbtn"
+              title="Start here"
+              onClick={() => setModal({ type: 'onboarding' })}
+            >
+              <span className="nb-pill-text">{onboardingPillText}</span>
+            </button>
+          ) : null}
 
           <button
             className="nb-iconbtn"
@@ -4392,6 +4421,225 @@ post.status !== 'resolved' ? (
     </div>
   );
 }
+
+function OnboardingModal() {
+    const uid = me?.id || 'me';
+
+    // Step 1: check-in today
+    const ci = getCheckInFor(uid);
+    const checkedInToday = ci.lastDate === todayKey();
+
+    // Step 2: posted at least once
+    const hasPosted = (Array.isArray(posts) ? posts : []).some(
+      (p) => p && p.ownerId === uid
+    );
+
+    // Step 3: followed at least 1 person
+    const hasFollowed =
+      followingSet && typeof followingSet.size === 'number'
+        ? followingSet.size > 0
+        : false;
+
+    const doneCount = [checkedInToday, hasPosted, hasFollowed].filter(Boolean)
+      .length;
+
+    const claimed = hasOnboardingClaimed(uid);
+    const allDone = checkedInToday && hasPosted && hasFollowed;
+
+    const title = claimed
+      ? 'All set'
+      : allDone
+      ? 'Claim your bonus'
+      : 'Start here';
+
+    const sub = claimed
+      ? 'You already claimed your onboarding bonus.'
+      : allDone
+      ? 'Nice — you completed all 3 steps.'
+      : 'Do these 3 quick actions to unlock your first bonus.';
+
+    function goToPostHelp() {
+      setModal(null);
+      setActiveTab('post');
+      setPostFlow({ step: 'form', kind: 'help' });
+    }
+
+    function goToPostRec() {
+      setModal(null);
+      setActiveTab('post');
+      setPostFlow({ step: 'form', kind: 'rec' });
+    }
+
+    function goToProfile() {
+      setModal(null);
+      setActiveTab('profile');
+    }
+
+    function doCheckIn() {
+      if (checkedInToday) return;
+      dailyCheckIn();
+    }
+
+    return (
+      <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
+        <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="nb-modal-head">
+            <div className="nb-modal-title">{title}</div>
+            <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">
+              ✕
+            </button>
+          </div>
+
+          <div className="nb-modal-sub">
+            <div style={{ fontWeight: 980 }}>{sub}</div>
+            {!claimed ? (
+              <div style={{ marginTop: 6, color: 'var(--muted)', fontWeight: 850 }}>
+                Progress: {doneCount}/3 • Bonus: +25 NP
+              </div>
+            ) : null}
+          </div>
+
+          <div className="nb-modal-body-scroll" style={{ padding: 14 }}>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {/* Step 1 */}
+              <div
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 16,
+                  padding: 12,
+                  background: 'rgba(255,255,255,.03)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 950 }}>
+                    1) Daily check-in {checkedInToday ? '✅' : ''}
+                  </div>
+                  <div className="nb-muted small" style={{ fontWeight: 850, marginTop: 4 }}>
+                    Quick win to get you moving.
+                  </div>
+                </div>
+
+                <button
+                  className={checkedInToday ? 'nb-btn nb-btn-ghost nb-btn-sm' : 'nb-btn nb-btn-primary nb-btn-sm'}
+                  disabled={checkedInToday}
+                  onClick={doCheckIn}
+                  title={checkedInToday ? 'Done' : 'Check in'}
+                >
+                  {checkedInToday ? 'Done' : '+5 NP'}
+                </button>
+              </div>
+
+              {/* Step 2 */}
+              <div
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 16,
+                  padding: 12,
+                  background: 'rgba(255,255,255,.03)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 950 }}>
+                    2) Make your first post {hasPosted ? '✅' : ''}
+                  </div>
+                  <div className="nb-muted small" style={{ fontWeight: 850, marginTop: 4 }}>
+                    Ask for help or request a recommendation.
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <button
+                    className="nb-btn nb-btn-ghost nb-btn-sm"
+                    disabled={hasPosted}
+                    onClick={goToPostRec}
+                    title="Create a recommendation request"
+                  >
+                    Rec
+                  </button>
+                  <button
+                    className="nb-btn nb-btn-primary nb-btn-sm"
+                    disabled={hasPosted}
+                    onClick={goToPostHelp}
+                    title="Create a Need a hand post"
+                  >
+                    Help
+                  </button>
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 16,
+                  padding: 12,
+                  background: 'rgba(255,255,255,.03)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 950 }}>
+                    3) Follow 1 neighbor {hasFollowed ? '✅' : ''}
+                  </div>
+                  <div className="nb-muted small" style={{ fontWeight: 850, marginTop: 4 }}>
+                    Following makes your feed feel alive.
+                  </div>
+                </div>
+
+                <button
+                  className={hasFollowed ? 'nb-btn nb-btn-ghost nb-btn-sm' : 'nb-btn nb-btn-primary nb-btn-sm'}
+                  disabled={hasFollowed}
+                  onClick={goToProfile}
+                  title={hasFollowed ? 'Done' : 'Go follow someone'}
+                >
+                  {hasFollowed ? 'Done' : 'Go'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="nb-modal-foot">
+            <div className="nb-muted">
+              {claimed
+                ? 'You’re good. Now just use the app.'
+                : allDone
+                ? 'Claim your onboarding bonus now.'
+                : 'Finish all 3 steps to unlock the bonus.'}
+            </div>
+
+            <div className="nb-modal-actions">
+              <button className="nb-btn nb-btn-ghost" onClick={() => setModal(null)}>
+                Close
+              </button>
+
+              <button
+                className="nb-btn nb-btn-primary"
+                disabled={claimed || !allDone}
+                onClick={() => {
+                  claimOnboardingBonus();
+                  setModal(null);
+                }}
+                title={claimed ? 'Already claimed' : !allDone ? 'Complete all steps first' : 'Claim +25 NP'}
+              >
+                {claimed ? 'Claimed' : 'Claim +25'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   function SavedSearchManageModal({ searchId }) {
     const s = (Array.isArray(savedSearches) ? savedSearches : []).find(
@@ -7296,6 +7544,7 @@ onRefresh={refreshHome}
       ) : null}
 
       {modal?.type === 'points' ? <PointsModal /> : null}
+      {modal?.type === 'onboarding' ? <OnboardingModal /> : null}
 
       {modal?.type === 'home_setup' ? <HomeSetupModal /> : null}
 
