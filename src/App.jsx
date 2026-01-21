@@ -3203,7 +3203,7 @@ const onboardingTooltip =
           {onboardingPillMode !== 'hidden' ? (
   <button
     type="button"
-    className="nb-pill nb-pill-ghost nb-pillbtn qsPill"
+    className="nb-pill nb-pill-ghost nb-pillbtn nb-onbHeaderPill"
     title={onboardingTooltip}
     onClick={() => setModal({ type: 'onboarding' })}
   >
@@ -5456,6 +5456,25 @@ function setUserAvailability(userId, on, note) {
   function HomeHero() {
     const ci = getCheckInFor(me?.id || 'me');
     const checkedInToday = ci.lastDate === todayKey();
+    // --- Onboarding (for the mobile Start Something card nudge) ---
+const uid2 = me?.id || 'me';
+const ci2 = getCheckInFor(uid2);
+const checkedInToday2 = ci2.lastDate === todayKey();
+
+const hasPosted2 = (Array.isArray(posts) ? posts : []).some(
+  (p) => p && p.ownerId === uid2
+);
+
+const hasFollowed2 =
+  followingSet && typeof followingSet.size === 'number'
+    ? followingSet.size > 0
+    : false;
+
+const onboardingDoneCount2 = [checkedInToday2, hasPosted2, hasFollowed2].filter(Boolean).length;
+const onboardingClaimed2 = hasOnboardingClaimed(uid2);
+const onboardingAllDone2 = checkedInToday2 && hasPosted2 && hasFollowed2;
+
+const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
     return (
       <div className="nb-hero">
         {(typeof BUSINESS_MODE !== 'undefined' && BUSINESS_MODE) ? (
@@ -5481,6 +5500,23 @@ function setUserAvailability(userId, on, note) {
           <div className="nb-hero-card-title">Start something</div>
           <div className="nb-hero-card-sub">
             Ask for a quick hand or request a recommendation.
+            {showMobileOnboardingNudge ? (
+  <button
+    type="button"
+    className="nb-onbNudge"
+    onClick={() => setModal({ type: 'onboarding' })}
+    title="Complete 3 quick steps to earn +25 NP"
+  >
+    <span className="nb-onbNudge-left">
+      <span className="nb-onbNudge-emoji" aria-hidden="true">✨</span>
+      <span className="nb-onbNudge-text">Quick start</span>
+    </span>
+    <span className="nb-onbNudge-right">
+      <span className="nb-onbNudge-steps">Steps {onboardingDoneCount2}/3</span>
+      <span className="nb-onbNudge-reward">+25</span>
+    </span>
+  </button>
+) : null}
           </div>
 
           <div className="nb-hero-actions">

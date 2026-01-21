@@ -1662,4 +1662,49 @@ details.nb-details summary::-webkit-details-marker {
     display: none;
   }
 }
+@media (max-width: 520px){
+  /* Keep the header clean: onboarding does NOT belong up here on mobile */
+  .nb-onbHeaderPill{
+    display: none;
+  }
+}
+/* Mobile onboarding nudge inside Start Something card */
+.nb-onbNudge{
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.09);
+}
+
+.nb-onbNudge-left{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.nb-onbNudge-text{
+  font-weight: 800;
+}
+
+.nb-onbNudge-right{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  font-weight: 800;
+  opacity: 0.95;
+}
+
+/* Desktop/tablet: hide this row (desktop already has room for the header pill if you want it) */
+@media (min-width: 521px){
+  .nb-onbNudge{ display: none; }
+}
 
