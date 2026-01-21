@@ -3215,7 +3215,8 @@ const onboardingTooltip =
     ) : (
       <span className="nb-pill-text qsWrap">
         <span className="qsIcon" aria-hidden="true">✨</span>
-        <span className="qsLabel">Quick start</span>
+        <span className="qsLabel qsLabelLong">Quick start</span>
+<span className="qsLabel qsLabelShort">Steps</span>
         <span className="qsProg">{onboardingDoneCount}/3</span>
         <span className="qsReward">+25</span>
       </span>
@@ -3224,7 +3225,7 @@ const onboardingTooltip =
 ) : null}
 
           <button
-            className="nb-iconbtn"
+            className="nb-iconbtn nb-bellbtn"
             aria-label="Activity"
             title="Activity"
             onClick={() => navTo('activity')}

@@ -651,9 +651,7 @@ backdrop-filter: blur(10px);
   .nb-card-struct{ grid-template-columns: 1fr; }
 }
 @media (max-width: 520px){
-  .nb-header-right .nb-pill-text{
-    display: none; /* hides “NP” label, keeps the number */
-  }
+
   .nb-search-input,
   .nb-input,
   .nb-app input:not(.nb-input):not(.nb-search-input),
@@ -1627,6 +1625,41 @@ details.nb-details summary::-webkit-details-marker {
 
   .qsPill .qsWrap{
     gap: 6px;
+  }
+}
+/* ---------- Header declutter (mobile) ---------- */
+
+/* Default: hide the short label on larger screens */
+.qsPill .qsLabelShort{
+  display: none;
+}
+
+@media (max-width: 520px){
+
+  /* Give the title more breathing room */
+  .nb-subtitle{
+    display: none;
+  }
+
+  /* Shrink header button padding ONLY in the header */
+  .nb-header-right .nb-pillbtn{
+    padding: 6px 10px;
+  }
+
+  /* Kill the redundant bell in the header (Activity tab already exists) */
+  .nb-bellbtn{
+    display: none;
+  }
+
+  /* Onboarding pill: shorter label + hide reward to reduce width */
+  .qsPill .qsLabelLong{
+    display: none;
+  }
+  .qsPill .qsLabelShort{
+    display: inline;
+  }
+  .qsPill .qsReward{
+    display: none;
   }
 }
 
