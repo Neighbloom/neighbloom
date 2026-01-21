@@ -651,6 +651,9 @@ backdrop-filter: blur(10px);
   .nb-card-struct{ grid-template-columns: 1fr; }
 }
 @media (max-width: 520px){
+  .nb-header-right .nb-pill-text{
+    display: none; /* hides “NP” label, keeps the number */
+  }
   .nb-search-input,
   .nb-input,
   .nb-app input:not(.nb-input):not(.nb-search-input),
@@ -1598,5 +1601,32 @@ details.nb-details summary::-webkit-details-marker {
   -webkit-text-fill-color: var(--text, #fff);
   appearance: none;
   -webkit-appearance: none;
+}
+/* ---------------- Quick Start pill (header) ---------------- */
+.qsPill .qsWrap{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.qsPill .qsProg{
+  font-weight: 800;
+}
+
+.qsPill .qsReward{
+  font-weight: 800;
+  opacity: 0.9;
+}
+
+/* Mobile: remove clutter so top bar doesn’t look crammed */
+@media (max-width: 520px){
+  .qsPill .qsLabel{
+    display: none; /* hides “Quick start” but keeps ✨ 0/3 +25 */
+  }
+
+  .qsPill .qsWrap{
+    gap: 6px;
+  }
 }
 

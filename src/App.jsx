@@ -3166,11 +3166,16 @@ expandedOtherVols,
     const onboardingClaimed = hasOnboardingClaimed(uid);
     const onboardingAllDone = checkedInToday && hasPosted && hasFollowed;
 
-    const onboardingPillText = onboardingClaimed
-      ? null
-      : onboardingAllDone
-      ? 'Claim +25'
-      : `Start ${onboardingDoneCount}/3`;
+    const onboardingPillMode = onboardingClaimed
+  ? 'hidden'
+  : onboardingAllDone
+  ? 'claim'
+  : 'start';
+
+const onboardingTooltip =
+  onboardingPillMode === 'claim'
+    ? 'Claim your +25 NP bonus'
+    : 'Quick start checklist: complete 3 steps to earn +25 NP';
 
     return (
       <div className="nb-header">
@@ -3195,16 +3200,28 @@ expandedOtherVols,
             <span className="nb-pill-strong">{npPoints}</span>
           </button>
 
-          {onboardingPillText ? (
-            <button
-              type="button"
-              className="nb-pill nb-pill-ghost nb-pillbtn"
-              title="Start here"
-              onClick={() => setModal({ type: 'onboarding' })}
-            >
-              <span className="nb-pill-text">{onboardingPillText}</span>
-            </button>
-          ) : null}
+          {onboardingPillMode !== 'hidden' ? (
+  <button
+    type="button"
+    className="nb-pill nb-pill-ghost nb-pillbtn qsPill"
+    title={onboardingTooltip}
+    onClick={() => setModal({ type: 'onboarding' })}
+  >
+    {onboardingPillMode === 'claim' ? (
+      <span className="nb-pill-text qsWrap">
+        <span className="qsLabel">Claim</span>
+        <span className="qsReward">+25</span>
+      </span>
+    ) : (
+      <span className="nb-pill-text qsWrap">
+        <span className="qsIcon" aria-hidden="true">✨</span>
+        <span className="qsLabel">Quick start</span>
+        <span className="qsProg">{onboardingDoneCount}/3</span>
+        <span className="qsReward">+25</span>
+      </span>
+    )}
+  </button>
+) : null}
 
           <button
             className="nb-iconbtn"
