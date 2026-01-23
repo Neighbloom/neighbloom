@@ -3691,6 +3691,19 @@ const onboardingTooltip =
     setActivity((prev) => [evt, ...(Array.isArray(prev) ? prev : [])]);
   }
 
+  // Compatibility wrapper: older code calls pushActivity(...)
+// Supports either pushActivity("text") or pushActivity({eventObject})
+function pushActivity(arg, meta = {}) {
+  if (arg && typeof arg === 'object') {
+    return pushActivityEvent(arg);
+  }
+  return pushActivityEvent({
+    type: 'log',
+    text: String(arg || ''),
+    ...meta,
+  });
+}
+
   function notify(text, extra = {}) {
     pushActivityEvent({
       id: uid('a'),
@@ -7581,7 +7594,11 @@ onRefresh={refreshHome}
         activeTab={activeTab}
         onChange={(k) => {
           setActiveTab(k);
-          markSeen(me.id, k);
+          try {
+  if (typeof markSeen === 'function') markSeen(me.id, k);
+} catch (e) {
+  // swallow in demo mode so tab switching never breaks
+}
         }}
         badges={tabBadges}
       />
