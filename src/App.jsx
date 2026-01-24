@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
+import pkg from '../package.json';
 
 /* ---------- NB: show fatal errors on-screen (prod-friendly) ---------- */
 function nbFormatErr(err) {
@@ -6154,6 +6155,47 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="nb-section">
+          <div className="nb-section-title">App Health</div>
+          <div className="nb-section-sub">Version and debug info for troubleshooting.</div>
+
+          <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ color: 'var(--muted)' }}>Version</div>
+              <div style={{ fontWeight: 950 }}>{pkg?.version || 'unknown'}</div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ color: 'var(--muted)' }}>Mode</div>
+              <div style={{ fontWeight: 950 }}>{import.meta.env.DEV ? 'dev' : 'prod'}</div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="nb-btn nb-btn-ghost"
+                onClick={async () => {
+                  try {
+                    const info = {
+                      version: pkg?.version || 'unknown',
+                      mode: import.meta.env.DEV ? 'dev' : 'prod',
+                      time: new Date().toISOString(),
+                      user: me ? { id: me.id, name: me.name } : null,
+                    };
+                    const txt = JSON.stringify(info, null, 2);
+                    await navigator.clipboard.writeText(txt);
+                    setToastMsg('Copied debug info');
+                  } catch (e) {
+                    setToastMsg('Could not copy debug info');
+                  }
+                }}
+              >
+                Copy debug info
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
