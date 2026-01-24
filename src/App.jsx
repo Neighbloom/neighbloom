@@ -3188,6 +3188,77 @@ const onboardingTooltip =
             </div>
             <div className="nb-subtitle">{subtitle}</div>
           </div>
+          {onboardingPillMode !== 'hidden' ? (
+            <div
+              style={{
+                marginLeft: 12,
+                marginTop: 8,
+                display: 'flex',
+                gap: 10,
+                alignItems: 'center',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ fontWeight: 950, fontSize: 13 }}>Quick start</div>
+
+              <button
+                type="button"
+                className={`nb-btn nb-btn-ghost ${checkedInToday ? 'is-done' : ''}`}
+                onClick={() => {
+                  // Guide user to check-in area (home) and hint what to do
+                  navTo('home');
+                  try {
+                    showToast(checkedInToday ? 'Checked in today' : 'Tap the check-in button to earn NP');
+                  } catch (e) {}
+                }}
+                title="Daily check-in"
+              >
+                {checkedInToday ? 'Checked in' : 'Daily check-in'}
+              </button>
+
+              <button
+                type="button"
+                className={`nb-btn nb-btn-ghost ${hasPosted ? 'is-done' : ''}`}
+                onClick={() => {
+                  // Open post composer in Need-a-hand mode
+                  setActiveTab('post');
+                  setPostFlow({ step: 'chooser', kind: 'help' });
+                }}
+                title="Create a post (Need a hand)"
+              >
+                {hasPosted ? 'Posted' : 'Create a post'}
+              </button>
+
+              <button
+                type="button"
+                className={`nb-btn nb-btn-ghost ${hasFollowed ? 'is-done' : ''}`}
+                onClick={() => {
+                  // Take user to Profile/Discover where they can follow neighbors
+                  navTo('profile');
+                  try {
+                    showToast(hasFollowed ? 'Following someone' : 'Find someone to follow');
+                  } catch (e) {}
+                }}
+                title="Follow a neighbor"
+              >
+                {hasFollowed ? 'Following' : 'Follow someone'}
+              </button>
+
+              {onboardingAllDone && !onboardingClaimed ? (
+                <button
+                  type="button"
+                  className="nb-btn nb-btn-primary"
+                  onClick={() => {
+                    try {
+                      claimOnboardingBonus();
+                    } catch (e) {}
+                  }}
+                >
+                  Claim reward (+25 NP)
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="nb-header-right">
