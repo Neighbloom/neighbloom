@@ -3994,6 +3994,12 @@ function pushActivity(arg, meta = {}) {
           {post.kind === 'help' && post.photo ? (
             <img className="nb-card-photo" src={post.photo} alt="" />
           ) : null}
+          {post.kind === 'help' && post.completionPhoto ? (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontWeight: 950, marginBottom: 6, color: 'var(--good)' }}>Completed ✓</div>
+              <img className="nb-card-photo" src={post.completionPhoto} alt="Completion photo" />
+            </div>
+          ) : null}
 
           <div className="nb-meta-chips">
             {/* At-a-glance (no duplicates) */}
@@ -4155,9 +4161,9 @@ function pushActivity(arg, meta = {}) {
             ) : null}
 
             {!isOwner &&
-post.kind === 'help' &&
-selectedHelperIds.includes(me.id) &&
-post.status !== 'resolved' ? (
+        post.kind === 'help' &&
+        selectedHelperIds.includes(me.id) &&
+        post.status !== 'resolved' ? (
   <div className="nb-helpflow">
     <button
       className={`nb-mini ${post.stage === 'started' ? 'is-on' : ''}`}
@@ -4169,7 +4175,7 @@ post.status !== 'resolved' ? (
 
     <button
       className={`nb-mini ${post.stage === 'done' ? 'is-on' : ''}`}
-      onClick={() => advanceHelpStage(post.id, 'done')}
+              onClick={() => setModal({ type: 'completion_photo', postId: post.id })}
       title="Marks the job done so the requester can confirm and award NP"
     >
       Done
@@ -7650,6 +7656,68 @@ const blockedSet = getBlockedSet(me.id);
 
     return true;
   });
+  
+  function CompletionPhotoForm({ postId }) {
+    const [preview, setPreview] = useState(null);
+    const [loadingPhoto, setLoadingPhoto] = useState(false);
+
+    async function onPick(file) {
+      if (!file) return;
+      setLoadingPhoto(true);
+      try {
+        const { dataUrl } = await compressImageFileToDataUrl(file);
+        setPreview(dataUrl);
+      } catch (e) {
+        showToast('Couldn’t process that photo.');
+      } finally {
+        setLoadingPhoto(false);
+      }
+    }
+
+    return (
+      <div style={{ display: 'grid', gap: 10 }}>
+        {preview ? (
+          <img src={preview} alt="Preview" style={{ width: '100%', borderRadius: 12 }} />
+        ) : null}
+
+        <input
+          id="nb-completion-photo"
+          type="file"
+          accept="image/*"
+          style={{ display: 'block' }}
+          onChange={(e) => onPick(e.target.files && e.target.files[0])}
+        />
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            className="nb-btn nb-btn-primary"
+            disabled={loadingPhoto || !preview}
+            onClick={() => {
+              if (!preview) return;
+              // attach photo to post and mark done
+              setPosts((prev) =>
+                (prev || []).map((p) => (p && p.id === postId ? { ...p, completionPhoto: preview } : p))
+              );
+              advanceHelpStage(postId, 'done');
+              setModal(null);
+            }}
+          >
+            Attach & mark Done
+          </button>
+
+          <button
+            className="nb-btn nb-btn-ghost"
+            onClick={() => {
+              // allow retry: clear preview
+              setPreview(null);
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="nb-app">
       <Header />
@@ -7751,6 +7819,34 @@ onRefresh={refreshHome}
     onOpenProfile={(userId) => setModal({ type: 'user_profile', userId })}
   />
 ) : null}
+
+      {modal?.type === 'completion_photo' ? (
+        <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
+          <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="nb-modal-head">
+              <div className="nb-modal-title">Add a completion photo?</div>
+              <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">✕</button>
+            </div>
+
+            <div style={{ padding: 14 }}>
+              <div className="nb-muted" style={{ marginBottom: 8, fontWeight: 850 }}>
+                Optionally attach a photo showing the completed work (helps the requester verify).
+              </div>
+
+              <CompletionPhotoForm postId={modal.postId} />
+            </div>
+
+            <div className="nb-modal-foot">
+              <div className="nb-muted">You can skip and mark the job done without a photo.</div>
+              <div className="nb-modal-actions">
+                <button className="nb-btn nb-btn-ghost" onClick={() => { advanceHelpStage(modal.postId, 'done'); setModal(null); }}>
+                  Skip & mark Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Recommendation thread modal (separate state) */}
       {thread ? <RecThreadModal postId={thread.postId} replyId={thread.replyId} /> : null}
