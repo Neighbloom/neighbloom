@@ -1635,6 +1635,37 @@ details.nb-more-options summary {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Message-first composer styles */
+.nb-message {
+  min-height: 88px;
+  padding: 12px;
+  font-size: 15px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+}
+
+.nb-chip-suggest {
+  padding: 6px 8px;
+  font-size: 13px;
+  min-height: 36px;
+}
+
+.nb-chip-more { opacity: 0.85; }
+
+/* Sticky action area that does not overlap content */
+.nb-form { padding-bottom: 92px; }
+.nb-formactions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,0.02));
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+
 /* Mobile-first breakpoint adjustments */
 @media (min-width: 640px) {
   .nb-card {

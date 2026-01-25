@@ -5718,8 +5718,10 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
   const [what, setWhat] = useState('');
   const [area, setArea] = useState(me?.location || '');
   const [whenRange, setWhenRange] = useState('');
+  const [whenIsCustom, setWhenIsCustom] = useState(false);
   const [helpersNeeded, setHelpersNeeded] = useState(1);
   const [details, setDetails] = useState('');
+  const [message, setMessage] = useState('');
   const [prefTags, setPrefTags] = useState([]);
   const [photo, setPhoto] = useState('');
   const [photoBytes, setPhotoBytes] = useState(0);
@@ -5733,6 +5735,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
     setWhenRange('');
     setHelpersNeeded(1);
     setDetails('');
+    setMessage('');
     setPrefTags([]);
     setPhoto('');
     setPhotoBytes(0);
@@ -5763,20 +5766,49 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
   function fillHelpTemplate(t) {
     setErr('');
-    setWhat(
-      normalizeText(t?.title || '')
-        .replace(/^need help/i, '')
-        .replace(/^need /i, '')
-        .trim() || ''
-    );
+    const txt = normalizeText(t?.title || '') || '';
+    setWhat(txt.replace(/^need help/i, '').replace(/^need /i, '').trim());
     setDetails(t?.details || '');
     setWhenRange(t?.whenRange || '');
+    // keep `message` in sync for UI-first composer
+    setMessage(`${txt}${t?.details ? '\n' + t.details : ''}`.trim());
     // keep area as-is (user’s town often differs per post)
   }
 
   function fillRecQuick(cat) {
     setErr('');
     setWhat(cat);
+    setMessage((m) => (m ? `${m} ${cat}` : cat));
+  }
+
+  // UI submit wrapper: show inline hint and expand details if needed
+  const [autoOpenDetails, setAutoOpenDetails] = useState(false);
+  function uiSubmit() {
+    const msg = validate();
+    if (msg) {
+      setErr(msg);
+      setAutoOpenDetails(true);
+      return;
+    }
+    submit();
+  }
+
+  // When message changes, derive `what` (first line/sentence) and `details`
+  function handleMessageChange(v) {
+    setMessage(v);
+    setErr('');
+    const lines = v.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      setWhat('');
+      setDetails('');
+      return;
+    }
+    // first line as short phrase
+    const first = lines[0];
+    // rest joined as details
+    const rest = lines.slice(1).join('\n');
+    setWhat(first);
+    if (rest) setDetails(rest);
   }
 
   function validate() {
@@ -5953,92 +5985,52 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
           {quickRow}
 
-          {/* Section A: What you need + common chips */}
-          <div className="nb-card" style={{ marginTop: 12 }}>
-            <label className="nb-label">
-              {isHelp ? 'What do you need?' : 'What are you looking for?'}
-            </label>
+          {/* inline top error/hint */}
+          {err ? (
+            <div className="nb-error" style={{ marginTop: 10 }}>{err}</div>
+          ) : null}
 
-            <div className="nb-chips" style={{ marginTop: 8 }}>
-              {(isHelp ? helpExamples : recExamples).map((t) => (
+          {/* Primary composer: single message first */}
+          <div className="nb-card" style={{ marginTop: 12 }}>
+            <label className="nb-label">Message</label>
+            <textarea
+              className="nb-input nb-textarea nb-message"
+              value={message}
+              onChange={(e) => handleMessageChange(e.target.value)}
+              placeholder={"Hey neighbors — I need help with… (what + where + when)."}
+              rows={4}
+            />
+            <div className="nb-muted" style={{ marginTop: 8 }}>One or two sentences is enough.</div>
+
+            <div className="nb-chips" style={{ marginTop: 10 }}>
+              {(isHelp ? helpExamples : recExamples).slice(0,6).map((t) => (
                 <button
                   key={t}
                   type="button"
-                  className="nb-chip"
+                  className="nb-chip nb-chip-suggest"
                   onClick={() => {
-                    setWhat(t);
-                    setErr('');
+                    // append short phrase into message and derive fields
+                    setMessage((prev) => {
+                      const next = prev ? prev.trim() + ' — ' + t : t;
+                      handleMessageChange(next);
+                      return next;
+                    });
                   }}
                 >
                   {t}
                 </button>
               ))}
+              <button
+                type="button"
+                className="nb-chip nb-chip-more"
+                onClick={() => alert('More suggestions…')}
+              >
+                More
+              </button>
             </div>
-
-            <input
-              className="nb-input nb-input-lg"
-              value={what}
-              onChange={(e) => {
-                setWhat(e.target.value);
-                setErr('');
-              }}
-              placeholder={isHelp ? 'e.g., shovel driveway' : 'e.g., plumber'}
-            />
-
-            {!what.trim() ? (
-              <div className="nb-inline-hint">Start with one short phrase describing what you need.</div>
-            ) : null}
           </div>
 
-          {/* Section B: Where + When */}
-          <div className="nb-card" style={{ marginTop: 12 }}>
-            <label className="nb-label">Where</label>
-            <input
-              className="nb-input"
-              value={area}
-              onChange={(e) => {
-                setArea(e.target.value);
-                setErr('');
-              }}
-              placeholder="Town / neighborhood (e.g., Tinley Park)"
-            />
-
-            {!area.trim() ? (
-              <div className="nb-inline-hint">Add an area so neighbors know where to help.</div>
-            ) : null}
-
-            {isHelp ? (
-              <>
-                <div className="nb-when-presets" style={{ marginTop: 10 }}>
-                  {['Anytime', 'Today', 'This week', 'Custom'].map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      className="nb-chip nb-when-btn"
-                      onClick={() => {
-                        if (p === 'Custom') setWhenRange('');
-                        else setWhenRange(p);
-                        setErr('');
-                      }}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
-
-                <label className="nb-label" style={{ marginTop: 10 }}>When</label>
-                <input
-                  className="nb-input"
-                  value={whenRange}
-                  onChange={(e) => {
-                    setWhenRange(e.target.value);
-                    setErr('');
-                  }}
-                  placeholder="Example: Today 6–8pm"
-                />
-              </>
-            ) : null}
-          </div>
+          {/* (composer above replaces the older segmented inputs to keep UI simple) */}
 
           {/* Section C: Details */}
           <div className="nb-card" style={{ marginTop: 12 }}>
@@ -6104,7 +6096,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
           <div className="nb-formactions" style={{ marginTop: 12 }}>
             <button className="nb-btn nb-btn-ghost" onClick={onBack}>Cancel</button>
-            <button className="nb-btn nb-btn-primary" onClick={submit} disabled={busy || !what.trim() || !area.trim() || !details.trim()}>{busy ? 'Working…' : 'Post'}</button>
+            <button className="nb-btn nb-btn-primary" onClick={uiSubmit} disabled={busy || !what.trim() || !area.trim() || !details.trim()}>{busy ? 'Working…' : 'Post'}</button>
           </div>
 
           
