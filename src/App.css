@@ -1527,24 +1527,6 @@ img, svg, video, canvas {
   }
 }
 /* --- PostFormV2 UX --- */
-
-/* Three-card guided form layout */
-.nb-form-head-compact{display:flex;gap:12px;align-items:center;margin-bottom:12px}
-.nb-form-grid{display:grid;grid-template-columns:320px 1fr 280px;gap:14px;align-items:start}
-.nb-card{border:1px solid var(--border);border-radius:14px;padding:12px;background:rgba(255,255,255,.02)}
-.nb-card-head{font-weight:900;margin-bottom:8px}
-.nb-card-body{display:flex;flex-direction:column;gap:8px}
-.nb-card-left .nb-input,.nb-card-mid .nb-textarea{width:100%}
-.nb-card-right .nb-more-accordion summary{cursor:pointer;font-weight:800;padding:6px 0}
-.nb-more-accordion{margin-top:6px}
-
-/* Sticky bottom bar */
-.nb-sticky-bar{position:fixed;left:0;right:0;bottom:12px;display:flex;justify-content:center;pointer-events:none}
-.nb-sticky-inner{width:100%;max-width:980px;background:transparent;padding:8px 14px;display:flex;gap:10px;pointer-events:auto}
-.nb-sticky-inner .nb-btn{min-width:120px}
-
-/* Make the mid card textarea a bit taller for comfortable editing */
-.nb-card-mid .nb-textarea{min-height:120px}
 .nb-form-card {
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.03);
@@ -1593,6 +1575,72 @@ img, svg, video, canvas {
 .nb-suggest.is-on {
   background: rgba(255, 145, 90, 0.12);
   border-color: rgba(255, 145, 90, 0.35);
+}
+
+/* New: compact stacked cards and mobile-first controls for the Need-a-hand form */
+.nb-card {
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.nb-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.nb-chip,
+.nb-when-btn {
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+  font-weight: 900;
+  font-size: 13px;
+  min-height: 44px; /* touch target */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nb-input-lg {
+  padding: 12px 12px;
+  font-size: 15px;
+  margin-top: 8px;
+}
+
+.nb-inline-hint {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+details.nb-more-options summary {
+  cursor: pointer;
+  font-weight: 900;
+  user-select: none;
+}
+
+.nb-photorow .nb-filebtn {
+  min-height: 44px;
+}
+
+/* Ensure chips never cause horizontal overflow on small screens */
+.nb-chips,
+.nb-suggest-row {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Mobile-first breakpoint adjustments */
+@media (min-width: 640px) {
+  .nb-card {
+    padding: 14px;
+  }
+  .nb-input-lg { font-size: 16px; }
 }
 
 details.nb-details {

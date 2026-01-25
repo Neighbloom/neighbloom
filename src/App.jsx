@@ -5931,112 +5931,183 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
     </div>
   );
 
-  // Guided three-card layout: left=brief, middle=details, right=more (accordion).
-  const blocking = validate();
-
   return (
     <div className="nb-page">
-      <div className="nb-form-head-compact">
-        <button className="nb-link" onClick={onBack}>← Back</button>
-        <div>
-          <div className="nb-form-title">{headerTitle}</div>
-          <div className="nb-form-sub">{sub}</div>
-        </div>
-      </div>
+      <div className="nb-section">
+        <div className="nb-form-card">
+          <div className="nb-form-head">
+            <div>
+              <div className="nb-form-title">{headerTitle}</div>
+              <div className="nb-form-sub">{sub}</div>
+            </div>
 
-      <div className="nb-form-grid">
-        <div className="nb-card nb-card-left">
-          <div className="nb-card-head">Quick details</div>
-          <div className="nb-card-body">
-            <label className="nb-label">What</label>
+            <button
+              type="button"
+              className="nb-btn nb-btn-ghost nb-btn-sm"
+              onClick={onBack}
+              title="Back"
+            >
+              ← Back
+            </button>
+          </div>
+
+          {quickRow}
+
+          {/* Section A: What you need + common chips */}
+          <div className="nb-card" style={{ marginTop: 12 }}>
+            <label className="nb-label">
+              {isHelp ? 'What do you need?' : 'What are you looking for?'}
+            </label>
+
+            <div className="nb-chips" style={{ marginTop: 8 }}>
+              {(isHelp ? helpExamples : recExamples).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className="nb-chip"
+                  onClick={() => {
+                    setWhat(t);
+                    setErr('');
+                  }}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
             <input
-              className="nb-input"
+              className="nb-input nb-input-lg"
               value={what}
-              onChange={(e) => { setWhat(e.target.value); setErr(''); }}
+              onChange={(e) => {
+                setWhat(e.target.value);
+                setErr('');
+              }}
               placeholder={isHelp ? 'e.g., shovel driveway' : 'e.g., plumber'}
             />
 
-            <label className="nb-label" style={{ marginTop: 10 }}>Area</label>
+            {!what.trim() ? (
+              <div className="nb-inline-hint">Start with one short phrase describing what you need.</div>
+            ) : null}
+          </div>
+
+          {/* Section B: Where + When */}
+          <div className="nb-card" style={{ marginTop: 12 }}>
+            <label className="nb-label">Where</label>
             <input
               className="nb-input"
               value={area}
-              onChange={(e) => { setArea(e.target.value); setErr(''); }}
+              onChange={(e) => {
+                setArea(e.target.value);
+                setErr('');
+              }}
+              placeholder="Town / neighborhood (e.g., Tinley Park)"
             />
+
+            {!area.trim() ? (
+              <div className="nb-inline-hint">Add an area so neighbors know where to help.</div>
+            ) : null}
 
             {isHelp ? (
               <>
+                <div className="nb-when-presets" style={{ marginTop: 10 }}>
+                  {['Anytime', 'Today', 'This week', 'Custom'].map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className="nb-chip nb-when-btn"
+                      onClick={() => {
+                        if (p === 'Custom') setWhenRange('');
+                        else setWhenRange(p);
+                        setErr('');
+                      }}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+
                 <label className="nb-label" style={{ marginTop: 10 }}>When</label>
                 <input
                   className="nb-input"
                   value={whenRange}
-                  onChange={(e) => { setWhenRange(e.target.value); setErr(''); }}
-                  placeholder="Today 6–8pm / This weekend"
+                  onChange={(e) => {
+                    setWhenRange(e.target.value);
+                    setErr('');
+                  }}
+                  placeholder="Example: Today 6–8pm"
                 />
               </>
             ) : null}
           </div>
-        </div>
 
-        <div className="nb-card nb-card-mid">
-          <div className="nb-card-head">Details (required)</div>
-          <div className="nb-card-body">
-            {quickRow}
-
+          {/* Section C: Details */}
+          <div className="nb-card" style={{ marginTop: 12 }}>
+            <label className="nb-label">Details</label>
+            <div className="nb-muted" style={{ marginTop: 6 }}>Tip: 1) Where exactly 2) Timing 3) Tools/size</div>
             <textarea
               className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
               value={details}
-              onChange={(e) => { setDetails(e.target.value); setErr(''); }}
-              placeholder={isHelp ? 'Add 1–2 specifics: porch/curb, timing, heavy items, tools' : 'Add who/why — one concise sentence'}
+              onChange={(e) => {
+                setDetails(e.target.value);
+                setErr('');
+              }}
+              placeholder={isHelp ? 'Add 1–2 specifics: porch/curb, timing, heavy items, tools' : 'Add a short reason or detail'}
             />
 
-            {err ? <div className="nb-error" style={{ marginTop: 8 }}>{err}</div> : null}
-          </div>
-        </div>
+            {!details.trim() ? (
+              <div className="nb-inline-hint">Add a short detail so helpers know what to expect.</div>
+            ) : null}
 
-        <div className="nb-card nb-card-right">
-          <div className="nb-card-head">More (optional)</div>
-          <div className="nb-card-body">
-            <details className="nb-more-accordion">
-              <summary>Show optional fields</summary>
+            <details className="nb-more-options" style={{ marginTop: 10 }}>
+              <summary>More options</summary>
 
               {isHelp ? (
-                <>
-                  <label className="nb-label" style={{ marginTop: 8 }}>How many helpers?</label>
-                  <div className="nb-stepper">
-                    <button type="button" onClick={() => setHelpersNeeded((n) => Math.max(1, (Number(n) || 1) - 1))}>−</button>
-                    <div className="nb-stepper-num">{helpersNeeded}</div>
-                    <button type="button" onClick={() => setHelpersNeeded((n) => Math.min(6, (Number(n) || 1) + 1))}>+</button>
+                <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
+                  <div>
+                    <label className="nb-label">How many helpers?</label>
+                    <div className="nb-stepper" style={{ marginTop: 8 }}>
+                      <button type="button" onClick={() => setHelpersNeeded((n) => Math.max(1, (Number(n) || 1) - 1))}>−</button>
+                      <div className="nb-stepper-num">{helpersNeeded}</div>
+                      <button type="button" onClick={() => setHelpersNeeded((n) => Math.min(6, (Number(n) || 1) + 1))}>+</button>
+                    </div>
                   </div>
 
-                  <label className="nb-label" style={{ marginTop: 8 }}>Attach photo</label>
-                  <input type="file" accept="image/*" onChange={(e) => onPickPhoto(e.target.files?.[0])} />
-                </>
-              ) : (
-                <>
-                  <label className="nb-label">Preferences</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {(typeof REC_PREF_TAGS !== 'undefined' && Array.isArray(REC_PREF_TAGS) ? REC_PREF_TAGS : []).map((t) => (
-                      <button key={t} type="button" className={`nb-suggest ${prefTags.includes(t) ? 'is-on' : ''}`} onClick={() => togglePref(t)}>{t}</button>
-                    ))}
+                  <div>
+                    <label className="nb-label">Attach photo (optional)</label>
+                    <div className="nb-photorow" style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center' }}>
+                      {photo ? <img className="nb-photo-thumb" src={photo} alt="" /> : <div className="nb-muted">Photo helps with clarity</div>}
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input id="nb_post_photo" type="file" accept="image/*" onChange={(e) => onPickPhoto(e.target.files?.[0])} style={{ display: 'none' }} />
+                        <label htmlFor="nb_post_photo" className="nb-btn nb-btn-ghost nb-filebtn">{photo ? 'Change photo' : 'Add photo'}</label>
+                        {photo ? <span className="nb-muted" style={{ fontSize: 12 }}>{photoBytes ? prettyBytes(photoBytes) : 'Attached'}</span> : null}
+                      </div>
+                    </div>
                   </div>
-                </>
+                </div>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <label className="nb-label">Preference chips (optional)</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                    {(typeof REC_PREF_TAGS !== 'undefined' && Array.isArray(REC_PREF_TAGS) ? REC_PREF_TAGS : []).map((t) => {
+                      const on = prefTags.includes(t);
+                      return (
+                        <button key={t} type="button" className={`nb-suggest ${on ? 'is-on' : ''}`} onClick={() => togglePref(t)}>{t}</button>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </details>
           </div>
-        </div>
-      </div>
 
-      <div className="nb-sticky-bar">
-        <div className="nb-sticky-inner">
-          <button className="nb-btn nb-btn-ghost" onClick={onBack}>Cancel</button>
-          <div style={{ flex: 1 }} />
-          <button
-            className="nb-btn nb-btn-primary"
-            onClick={submit}
-            disabled={!!blocking || busy}
-          >
-            {busy ? 'Working…' : blocking ? blocking : 'Post'}
-          </button>
+          {err ? <div className="nb-error" style={{ marginTop: 10 }}>{err}</div> : null}
+
+          <div className="nb-formactions" style={{ marginTop: 12 }}>
+            <button className="nb-btn nb-btn-ghost" onClick={onBack}>Cancel</button>
+            <button className="nb-btn nb-btn-primary" onClick={submit} disabled={busy || !what.trim() || !area.trim() || !details.trim()}>{busy ? 'Working…' : 'Post'}</button>
+          </div>
+
+          
         </div>
       </div>
     </div>
