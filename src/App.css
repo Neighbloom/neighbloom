@@ -264,17 +264,17 @@ backdrop-filter: blur(10px);
 }
 
 /* Cards */
-.nb-feed{ display:flex; flex-direction:column; gap: 14px; }
+.nb-feed{ display:flex; flex-direction:column; gap: 20px; }
 
 .nb-card{
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--soft);
+  border-radius: 18px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.32);
   overflow:hidden;
 }
 
-.nb-card-main{ padding: 14px 14px 16px; }
+.nb-card-main{ padding: 18px 18px 20px; }
 
 .nb-card-meta{
   padding: 14px 14px 0;
@@ -411,10 +411,12 @@ backdrop-filter: blur(10px);
 }
 
 .nb-btn-primary{
-  border-color: rgba(255,106,61,.45);
-  background: linear-gradient(180deg, rgba(255,145,90,.95), rgba(255,106,61,.95));
+  border-color: rgba(255,106,61,.55);
+  background: linear-gradient(180deg, rgba(255,145,90,1), rgba(255,106,61,1));
   color: #0B1220;
-  box-shadow: 0 14px 28px rgba(255,106,61,.18);
+  box-shadow: 0 18px 34px rgba(255,106,61,.20);
+  padding: 12px 18px;
+  font-size: 15px;
 }
 
 .nb-btn-ghost{
@@ -443,6 +445,46 @@ backdrop-filter: blur(10px);
 .nb-mini.is-on{
   border-color: rgba(255,106,61,.40);
   background: rgba(255,106,61,.14);
+}
+
+/* Overflow menu for owner actions */
+.nb-overflow-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 140px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.4);
+  padding: 6px;
+}
+
+.nb-overflow-item {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-weight: 850;
+  text-align: left;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.nb-overflow-item:hover {
+  background: rgba(255,255,255,.06);
+}
+
+.nb-overflow-item.danger {
+  color: var(--bad);
+}
+
+.nb-thread-summary{
+  color: var(--muted);
+  font-weight: 900;
+  font-size: 13px;
+  margin-bottom: 8px;
 }
 
 .nb-reply-actions{
@@ -1485,6 +1527,24 @@ img, svg, video, canvas {
   }
 }
 /* --- PostFormV2 UX --- */
+
+/* Three-card guided form layout */
+.nb-form-head-compact{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+.nb-form-grid{display:grid;grid-template-columns:320px 1fr 280px;gap:14px;align-items:start}
+.nb-card{border:1px solid var(--border);border-radius:14px;padding:12px;background:rgba(255,255,255,.02)}
+.nb-card-head{font-weight:900;margin-bottom:8px}
+.nb-card-body{display:flex;flex-direction:column;gap:8px}
+.nb-card-left .nb-input,.nb-card-mid .nb-textarea{width:100%}
+.nb-card-right .nb-more-accordion summary{cursor:pointer;font-weight:800;padding:6px 0}
+.nb-more-accordion{margin-top:6px}
+
+/* Sticky bottom bar */
+.nb-sticky-bar{position:fixed;left:0;right:0;bottom:12px;display:flex;justify-content:center;pointer-events:none}
+.nb-sticky-inner{width:100%;max-width:980px;background:transparent;padding:8px 14px;display:flex;gap:10px;pointer-events:auto}
+.nb-sticky-inner .nb-btn{min-width:120px}
+
+/* Make the mid card textarea a bit taller for comfortable editing */
+.nb-card-mid .nb-textarea{min-height:120px}
 .nb-form-card {
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.03);

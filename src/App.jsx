@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import './App.css';
 import pkg from '../package.json';
 
@@ -32,6 +33,117 @@ function nbShowFatalOverlay(err) {
     box.innerText = 'NeighBloom crashed:\n\n' + nbFormatErr(err);
     if (!existing) document.body.appendChild(box);
   } catch (_) {}
+}
+
+function ClickAwayHandler({ onAway, targetRefs = [] }) {
+  useEffect(() => {
+    function handleDown(e) {
+      const path = e.composedPath ? e.composedPath() : (e.path || []);
+      // If any of the target refs contain the event target, ignore
+      for (const r of targetRefs) {
+        const el = r?.current || null;
+        if (!el) continue;
+        if (el.contains(e.target) || path.includes(el)) return;
+      }
+      onAway && onAway();
+    }
+
+    document.addEventListener('mousedown', handleDown);
+    document.addEventListener('touchstart', handleDown);
+    return () => {
+      document.removeEventListener('mousedown', handleDown);
+      document.removeEventListener('touchstart', handleDown);
+    };
+  }, [onAway, targetRefs]);
+
+  return null;
+}
+
+function PostOverflowMenu({ anchorRef, open, onClose, items = [] }) {
+  const elRef = useRef(null);
+  const [style, setStyle] = useState({ left: 0, top: 0, visibility: 'hidden' });
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const btn = anchorRef?.current;
+    const menu = elRef?.current;
+    if (!btn || !menu) return;
+
+    const r = btn.getBoundingClientRect();
+    // default positioning below the button, left-aligned
+    const margin = 6;
+    const menuW = menu.offsetWidth || 160;
+    const menuH = menu.offsetHeight || 120;
+    let left = Math.round(r.left);
+    let top = Math.round(r.bottom + margin);
+
+    // flip horizontally if overflowing
+    if (left + menuW > window.innerWidth - 8) {
+      left = Math.max(8, Math.round(r.right - menuW));
+    }
+    // flip vertically if overflowing bottom
+    if (top + menuH > window.innerHeight - 8) {
+      top = Math.max(8, Math.round(r.top - menuH - margin));
+    }
+
+    setStyle({ left, top, visibility: 'visible' });
+  }, [open, anchorRef]);
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') onClose && onClose();
+    }
+    if (open) document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  useEffect(() => {
+    function onDown(e) {
+      const menu = elRef.current;
+      const btn = anchorRef?.current;
+      if (!menu) return;
+      if (menu.contains(e.target) || (btn && btn.contains(e.target))) return;
+      onClose && onClose();
+    }
+    if (open) {
+      document.addEventListener('mousedown', onDown);
+      document.addEventListener('touchstart', onDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+    };
+  }, [open, anchorRef, onClose]);
+
+  if (!open) return null;
+
+  const menu = (
+    <div
+      ref={elRef}
+      className="nb-overflow-menu"
+      style={{ position: 'fixed', left: style.left + 'px', top: style.top + 'px', visibility: style.visibility }}
+      role="menu"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {items.map((it, i) => (
+        <button
+          key={i}
+          className={`nb-overflow-item${it.danger ? ' danger' : ''}`}
+          onClick={() => {
+            try {
+              it.onClick && it.onClick();
+            } finally {
+              onClose && onClose();
+            }
+          }}
+        >
+          {it.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  return createPortal(menu, document.body);
 }
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined' && !window.__NB_ERR_HOOKED__) {
@@ -1203,9 +1315,7 @@ function App() {
     () => saved?.homeFollowOnly ?? false
   ); // Following mode
 
-  const [expandedThreads, setExpandedThreads] = useState(
-    () => saved?.expandedThreads ?? {}
-  ); // postId -> bool
+  const [expandedThreads, setExpandedThreads] = useState(() => ({})); // postId -> bool (start collapsed)
   const [expandedOtherVols, setExpandedOtherVols] = useState(
   () => saved?.expandedOtherVols ?? {}
 ); // postId -> bool
@@ -3188,77 +3298,7 @@ const onboardingTooltip =
             </div>
             <div className="nb-subtitle">{subtitle}</div>
           </div>
-          {onboardingPillMode !== 'hidden' ? (
-            <div
-              style={{
-                marginLeft: 12,
-                marginTop: 8,
-                display: 'flex',
-                gap: 10,
-                alignItems: 'center',
-                flexWrap: 'wrap',
-              }}
-            >
-              <div style={{ fontWeight: 950, fontSize: 13 }}>Quick start</div>
-
-              <button
-                type="button"
-                className={`nb-btn nb-btn-ghost ${checkedInToday ? 'is-done' : ''}`}
-                onClick={() => {
-                  // Guide user to check-in area (home) and hint what to do
-                  navTo('home');
-                  try {
-                    showToast(checkedInToday ? 'Checked in today' : 'Tap the check-in button to earn NP');
-                  } catch (e) {}
-                }}
-                title="Daily check-in"
-              >
-                {checkedInToday ? 'Checked in' : 'Daily check-in'}
-              </button>
-
-              <button
-                type="button"
-                className={`nb-btn nb-btn-ghost ${hasPosted ? 'is-done' : ''}`}
-                onClick={() => {
-                  // Open post composer in Need-a-hand mode
-                  setActiveTab('post');
-                  setPostFlow({ step: 'chooser', kind: 'help' });
-                }}
-                title="Create a post (Need a hand)"
-              >
-                {hasPosted ? 'Posted' : 'Create a post'}
-              </button>
-
-              <button
-                type="button"
-                className={`nb-btn nb-btn-ghost ${hasFollowed ? 'is-done' : ''}`}
-                onClick={() => {
-                  // Take user to Profile/Discover where they can follow neighbors
-                  navTo('profile');
-                  try {
-                    showToast(hasFollowed ? 'Following someone' : 'Find someone to follow');
-                  } catch (e) {}
-                }}
-                title="Follow a neighbor"
-              >
-                {hasFollowed ? 'Following' : 'Follow someone'}
-              </button>
-
-              {onboardingAllDone && !onboardingClaimed ? (
-                <button
-                  type="button"
-                  className="nb-btn nb-btn-primary"
-                  onClick={() => {
-                    try {
-                      claimOnboardingBonus();
-                    } catch (e) {}
-                  }}
-                >
-                  Claim reward (+25 NP)
-                </button>
-              ) : null}
-            </div>
-          ) : null}
+          {/* Onboarding moved to HomeHero — keep header compact */}
         </div>
 
         <div className="nb-header-right">
@@ -3272,29 +3312,7 @@ const onboardingTooltip =
             <span className="nb-pill-strong">{npPoints}</span>
           </button>
 
-          {onboardingPillMode !== 'hidden' ? (
-  <button
-    type="button"
-    className="nb-pill nb-pill-ghost nb-pillbtn nb-onbHeaderPill"
-    title={onboardingTooltip}
-    onClick={() => setModal({ type: 'onboarding' })}
-  >
-    {onboardingPillMode === 'claim' ? (
-      <span className="nb-pill-text qsWrap">
-        <span className="qsLabel">Claim</span>
-        <span className="qsReward">+25</span>
-      </span>
-    ) : (
-      <span className="nb-pill-text qsWrap">
-        <span className="qsIcon" aria-hidden="true">✨</span>
-        <span className="qsLabel qsLabelLong">Quick start</span>
-<span className="qsLabel qsLabelShort">Steps</span>
-        <span className="qsProg">{onboardingDoneCount}/3</span>
-        <span className="qsReward">+25</span>
-      </span>
-    )}
-  </button>
-) : null}
+          {/* Onboarding pill removed from header — use HomeHero/modal instead */}
 
           <button
             className="nb-iconbtn nb-bellbtn"
@@ -3500,12 +3518,21 @@ const onboardingTooltip =
     const visibleReplies = (post.replies || []).filter(
       (r) => !r.hidden && !isBlockedUser(r.authorId)
     );
-
-    
+    const isHelp = post.kind === 'help';
+    const helpersNeeded = isHelp ? getHelpersNeeded(post) : 1;
+    const selectedIds = isHelp ? getSelectedHelperIds(post) : [];
+    const replyCount = visibleReplies.length;
 
     if (!visibleReplies.length) {
       return (
         <div className="nb-thread-empty">
+          {/* Helpers summary lives in the thread area now */}
+          {isHelp ? (
+            <div className="nb-thread-summary">
+              Helpers now: {selectedIds.length}/{helpersNeeded} selected · {replyCount} volunteered
+            </div>
+          ) : null}
+
           {post.kind === 'rec' ? (
             <>
               <div className="nb-thread-empty-title">
@@ -3527,10 +3554,7 @@ const onboardingTooltip =
       );
     }
 
-    const isHelp = post.kind === 'help';
-
-    const helpersNeeded = isHelp ? getHelpersNeeded(post) : 1;
-    const selectedIds = isHelp ? getSelectedHelperIds(post) : [];
+    
 
     const hasChosen = isHelp && selectedIds.length > 0;
     const slotsFull = isHelp && selectedIds.length >= helpersNeeded;
@@ -3925,6 +3949,9 @@ function pushActivity(arg, meta = {}) {
 
   function PostCard({ post }) {
     const isOwner = post.ownerId === me.id;
+    const [overflowOpen, setOverflowOpen] = useState(false);
+    const overflowRef = useRef(null);
+    const overflowBtnRef = useRef(null);
     const lifecycle = inferLifecycle(post);
     const open = !!expandedThreads[post.id];
     const repliesVisible = (post.replies || []).filter((r) => !r.hidden);
@@ -4002,50 +4029,21 @@ function pushActivity(arg, meta = {}) {
           ) : null}
 
           <div className="nb-meta-chips">
-            {/* At-a-glance (no duplicates) */}
+            {/* Simplified chips: category, location, time */}
             {post.kind === 'help' ? (
-  <>
-                <span
-                  className={`nb-meta-chip ${
-                    post.helpType === 'need' ? 'accent' : ''
-                  }`}
-                >
-                  {post.helpType === 'need' ? 'Need' : 'Offer'}
-                </span>
+              <>
                 <span className="nb-meta-chip">{post.category}</span>
                 <span className="nb-meta-chip">{post.area}</span>
                 {post.whenRange ? (
                   <span className="nb-meta-chip">{post.whenRange}</span>
                 ) : null}
-                <span className="nb-meta-chip">
-  Helpers now: {selectedHelperIds.length}/{helpersNeeded} selected · {replyCount}{' '}
-  volunteered
-</span>
               </>
             ) : null}
 
             {post.kind === 'rec' ? (
               <>
-                <div className="nb-meta-chips">
-                  <span className="nb-meta-chip accent">Recommendation</span>
-                  <span className="nb-meta-chip">{post.recCategory}</span>
-                  <span className="nb-meta-chip">{post.area}</span>
-
-                  {effectiveRecPrefTags(post)
-                    .slice(0, 2)
-                    .map((t) => (
-                      <span key={t} className="nb-meta-chip accent">
-                        {t}
-                      </span>
-                    ))}
-                </div>
-
-                {post.preferences || post.constraints ? (
-                  <div className="nb-constraints">
-                    <span className="nb-constraints-label">Preferences:</span>{' '}
-                    {post.preferences || post.constraints}
-                  </div>
-                ) : null}
+                <span className="nb-meta-chip accent">{post.recCategory || 'Recommendation'}</span>
+                <span className="nb-meta-chip">{post.area}</span>
               </>
             ) : null}
           </div>
@@ -4085,34 +4083,31 @@ function pushActivity(arg, meta = {}) {
             ) : null}
 
             {isOwner ? (
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative' }} ref={overflowRef}>
                 <button
+                  ref={overflowBtnRef}
                   className="nb-btn nb-btn-ghost nb-btn-sm"
-                  onClick={() => setModal({ type: 'edit_post', postId: post.id })}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOverflowOpen((s) => !s);
+                  }}
+                  aria-haspopup="true"
+                  aria-expanded={overflowOpen}
+                  title="More"
                 >
-                  Edit
+                  ⋯
                 </button>
 
-                <button
-                  className="nb-btn nb-btn-ghost nb-btn-sm"
-                  onClick={() => deletePost(post.id)}
-                >
-                  Delete
-                </button>
-
-                <button
-                  className="nb-btn nb-btn-ghost nb-btn-sm"
-                  onClick={() => setPostLifecycle(post.id, nextLifecycle(lifecycle))}
-                  title="Open → In progress → Completed → Archived"
-                >
-                  {lifecycle === 'open'
-                    ? 'Start'
-                    : lifecycle === 'in_progress'
-                    ? 'Complete'
-                    : lifecycle === 'completed'
-                    ? 'Archive'
-                    : 'Restore'}
-                </button>
+                <PostOverflowMenu
+                  anchorRef={overflowBtnRef}
+                  open={overflowOpen}
+                  onClose={() => setOverflowOpen(false)}
+                  items={[
+                    { label: 'Edit', onClick: () => setModal({ type: 'edit_post', postId: post.id }) },
+                    { label: 'Delete', danger: true, onClick: () => deletePost(post.id) },
+                    { label: lifecycle === 'open' ? 'Start' : lifecycle === 'in_progress' ? 'Complete' : lifecycle === 'completed' ? 'Archive' : 'Restore', onClick: () => setPostLifecycle(post.id, nextLifecycle(lifecycle)) },
+                  ]}
+                />
               </div>
             ) : null}
 
@@ -4188,7 +4183,7 @@ function pushActivity(arg, meta = {}) {
     ) : null}
   </div>
 ) : null}
-<button
+            <button
               type="button"
               className="nb-btn nb-btn-ghost nb-btn-sm"
               onClick={(e) => {
@@ -4199,13 +4194,16 @@ function pushActivity(arg, meta = {}) {
             >
               Share
             </button>
-            <button
-              type="button"
-              className="nb-btn nb-btn-ghost nb-btn-sm"
-              onClick={() => toggleThread(post.id)}
-            >
-              {open ? 'Hide' : 'Show'} {threadLabel}
-            </button>
+
+            {replyCount > 0 ? (
+              <button
+                type="button"
+                className="nb-link"
+                onClick={() => toggleThread(post.id)}
+              >
+                {open ? 'Hide' : 'Show'} {threadLabel}
+              </button>
+            ) : null}
           </div>
 
           {open ? <ReplyList post={post} /> : null}
@@ -5882,12 +5880,11 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
     setPosts((prev) => [post, ...(Array.isArray(prev) ? prev : [])]);
 
-    // Make it feel instant: go home, focus the relevant chip, and auto-expand the new post.
+    // Make it feel instant: go home and focus the relevant chip. Do not auto-expand threads.
     setHomeChip(isHelp ? 'help' : 'rec');
     setHomeShowAll(false);
     setHomeQuery('');
     setActiveSavedSearchId(null);
-    setExpandedThreads((prev) => ({ ...(prev || {}), [post.id]: true }));
 
     notify('Post created.', { type: 'post_create', postId: post.id });
 
@@ -5934,200 +5931,112 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
     </div>
   );
 
+  // Guided three-card layout: left=brief, middle=details, right=more (accordion).
+  const blocking = validate();
+
   return (
     <div className="nb-page">
-      <div className="nb-section">
-        <div className="nb-form-card">
-          <div className="nb-form-head">
-            <div>
-              <div className="nb-form-title">{headerTitle}</div>
-              <div className="nb-form-sub">{sub}</div>
-            </div>
+      <div className="nb-form-head-compact">
+        <button className="nb-link" onClick={onBack}>← Back</button>
+        <div>
+          <div className="nb-form-title">{headerTitle}</div>
+          <div className="nb-form-sub">{sub}</div>
+        </div>
+      </div>
 
-            <button
-              type="button"
-              className="nb-btn nb-btn-ghost nb-btn-sm"
-              onClick={onBack}
-              title="Back"
-            >
-              ← Back
-            </button>
-          </div>
-
-          {quickRow}
-
-          <div className="nb-row" style={{ marginTop: 12 }}>
-            <label className="nb-label">
-              {isHelp ? 'What do you need?' : 'What are you looking for?'}
-            </label>
+      <div className="nb-form-grid">
+        <div className="nb-card nb-card-left">
+          <div className="nb-card-head">Quick details</div>
+          <div className="nb-card-body">
+            <label className="nb-label">What</label>
             <input
               className="nb-input"
               value={what}
-              onChange={(e) => {
-                setWhat(e.target.value);
-                setErr('');
-              }}
-              placeholder={
-  isHelp
-    ? 'e.g., shovel driveway, move couch to curb, bring bins to curb'
-    : 'e.g., plumber, mechanic, barber, dentist'
-}
+              onChange={(e) => { setWhat(e.target.value); setErr(''); }}
+              placeholder={isHelp ? 'e.g., shovel driveway' : 'e.g., plumber'}
             />
-          </div>
 
-          <div className="nb-row">
-            <label className="nb-label">Area</label>
+            <label className="nb-label" style={{ marginTop: 10 }}>Area</label>
             <input
               className="nb-input"
               value={area}
-              onChange={(e) => {
-                setArea(e.target.value);
-                setErr('');
-              }}
-              placeholder="Example: Tinley Park near 183rd"
+              onChange={(e) => { setArea(e.target.value); setErr(''); }}
             />
-          </div>
-
-          {isHelp ? (
-            <div className="nb-row">
-              <label className="nb-label">When</label>
-              <input
-                className="nb-input"
-                value={whenRange}
-                onChange={(e) => {
-                  setWhenRange(e.target.value);
-                  setErr('');
-                }}
-                placeholder="Example: Today 6–8pm"
-              />
-            </div>
-          ) : null}
-
-          <div className="nb-row">
-            <label className="nb-label">Details (required)</label>
-            <textarea
-              className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
-              value={details}
-              onChange={(e) => {
-                setDetails(e.target.value);
-                setErr('');
-              }}
-              placeholder={
-  isHelp
-    ? 'Add 1–2 specifics: what/where (porch/curb), timing, anything heavy, tools needed'
-    : 'Add a name + why they’re good (price, turnaround time, warranty, experience)'
-}
-            />
-          </div>
-
-          <details className="nb-details" style={{ marginTop: 10 }}>
-            <summary>Optional details</summary>
 
             {isHelp ? (
               <>
-                <div className="nb-row" style={{ marginTop: 10 }}>
-                  <label className="nb-label">How many helpers?</label>
-                  <div className="nb-stepper">
-                    <button
-                      type="button"
-                      onClick={() => setHelpersNeeded((n) => Math.max(1, (Number(n) || 1) - 1))}
-                    >
-                      −
-                    </button>
-                    <div className="nb-stepper-num">{helpersNeeded}</div>
-                    <button
-                      type="button"
-                      onClick={() => setHelpersNeeded((n) => Math.min(6, (Number(n) || 1) + 1))}
-                    >
-                      +
-                    </button>
-                    <div className="nb-muted" style={{ fontWeight: 850 }}>
-                      (max 6)
-                    </div>
-                  </div>
-                </div>
-
-                <div className="nb-row">
-                  <label className="nb-label">Attach photo (optional)</label>
-                  <div className="nb-photo-row">
-                    {photo ? (
-                      <img className="nb-photo-thumb" src={photo} alt="" />
-                    ) : (
-                      <div className="nb-muted" style={{ fontWeight: 850 }}>
-                        Helps with clarity (driveway, item, etc.)
-                      </div>
-                    )}
-
-                    <div style={{ display: 'grid', gap: 8 }}>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => onPickPhoto(e.target.files?.[0])}
-                        disabled={busy}
-                      />
-                      {photo ? (
-                        <button
-                          type="button"
-                          className="nb-btn nb-btn-ghost nb-btn-sm"
-                          onClick={() => {
-                            setPhoto('');
-                            setPhotoBytes(0);
-                          }}
-                        >
-                          Remove photo {photoBytes ? `(${prettyBytes(photoBytes)})` : ''}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
+                <label className="nb-label" style={{ marginTop: 10 }}>When</label>
+                <input
+                  className="nb-input"
+                  value={whenRange}
+                  onChange={(e) => { setWhenRange(e.target.value); setErr(''); }}
+                  placeholder="Today 6–8pm / This weekend"
+                />
               </>
-            ) : (
-              <>
-                <div className="nb-row" style={{ marginTop: 10 }}>
-                  <label className="nb-label">Preference chips (optional)</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {(typeof REC_PREF_TAGS !== 'undefined' && Array.isArray(REC_PREF_TAGS) ? REC_PREF_TAGS : []).map((t) => {
-                      const on = prefTags.includes(t);
-                      return (
-                        <button
-                          key={t}
-                          type="button"
-                          className={`nb-suggest ${on ? 'is-on' : ''}`}
-                          onClick={() => togglePref(t)}
-                        >
-                          {t}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-          </details>
-
-          {err ? <div className="nb-error" style={{ marginTop: 10 }}>{err}</div> : null}
-
-          <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-            <button
-              type="button"
-              className="nb-btn nb-btn-ghost"
-              onClick={onBack}
-            >
-              Cancel
-            </button>
-
-            <button
-              type="button"
-              className="nb-btn nb-btn-primary"
-              onClick={submit}
-              disabled={busy}
-              style={{ flex: 1, justifyContent: 'center' }}
-            >
-              {busy ? 'Working…' : 'Post'}
-            </button>
+            ) : null}
           </div>
+        </div>
 
-          
+        <div className="nb-card nb-card-mid">
+          <div className="nb-card-head">Details (required)</div>
+          <div className="nb-card-body">
+            {quickRow}
+
+            <textarea
+              className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
+              value={details}
+              onChange={(e) => { setDetails(e.target.value); setErr(''); }}
+              placeholder={isHelp ? 'Add 1–2 specifics: porch/curb, timing, heavy items, tools' : 'Add who/why — one concise sentence'}
+            />
+
+            {err ? <div className="nb-error" style={{ marginTop: 8 }}>{err}</div> : null}
+          </div>
+        </div>
+
+        <div className="nb-card nb-card-right">
+          <div className="nb-card-head">More (optional)</div>
+          <div className="nb-card-body">
+            <details className="nb-more-accordion">
+              <summary>Show optional fields</summary>
+
+              {isHelp ? (
+                <>
+                  <label className="nb-label" style={{ marginTop: 8 }}>How many helpers?</label>
+                  <div className="nb-stepper">
+                    <button type="button" onClick={() => setHelpersNeeded((n) => Math.max(1, (Number(n) || 1) - 1))}>−</button>
+                    <div className="nb-stepper-num">{helpersNeeded}</div>
+                    <button type="button" onClick={() => setHelpersNeeded((n) => Math.min(6, (Number(n) || 1) + 1))}>+</button>
+                  </div>
+
+                  <label className="nb-label" style={{ marginTop: 8 }}>Attach photo</label>
+                  <input type="file" accept="image/*" onChange={(e) => onPickPhoto(e.target.files?.[0])} />
+                </>
+              ) : (
+                <>
+                  <label className="nb-label">Preferences</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {(typeof REC_PREF_TAGS !== 'undefined' && Array.isArray(REC_PREF_TAGS) ? REC_PREF_TAGS : []).map((t) => (
+                      <button key={t} type="button" className={`nb-suggest ${prefTags.includes(t) ? 'is-on' : ''}`} onClick={() => togglePref(t)}>{t}</button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <div className="nb-sticky-bar">
+        <div className="nb-sticky-inner">
+          <button className="nb-btn nb-btn-ghost" onClick={onBack}>Cancel</button>
+          <div style={{ flex: 1 }} />
+          <button
+            className="nb-btn nb-btn-primary"
+            onClick={submit}
+            disabled={!!blocking || busy}
+          >
+            {busy ? 'Working…' : blocking ? blocking : 'Post'}
+          </button>
         </div>
       </div>
     </div>
