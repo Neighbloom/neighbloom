@@ -1434,6 +1434,23 @@ function App() {
   const [reports, setReports] = useLocalStorageJsonState('nb_reports', []);
   // recommendation comment thread (per recommendation reply)
   const [thread, setThread] = useState(null); // { postId, replyId } | null
+  // Inline composer: postId for which the small inline composer is open
+  const [inlineComposerFor, setInlineComposerFor] = useState(null);
+  // Track when we programmatically opened a thread to show the inline composer
+  const [composerOpenedFor, setComposerOpenedFor] = useState(null);
+  function closeInlineComposer(postId) {
+    setInlineComposerFor(null);
+    if (postId && composerOpenedFor === postId) {
+      setExpandedThreads((prev) => {
+        const next = { ...(prev || {}) };
+        delete next[postId];
+        return next;
+      });
+      setComposerOpenedFor(null);
+    } else {
+      setComposerOpenedFor(null);
+    }
+  }
   // chat drawer
   const [chat, setChat] = useState(null); // {postId, otherUserId}
   const didAutoOpenChatOnActivity = useRef(false);
@@ -3522,6 +3539,61 @@ const onboardingTooltip =
     const helpersNeeded = isHelp ? getHelpersNeeded(post) : 1;
     const selectedIds = isHelp ? getSelectedHelperIds(post) : [];
     const replyCount = visibleReplies.length;
+      const [composerText, setComposerText] = useState('');
+      const [composerErr, setComposerErr] = useState('');
+      const composerRef = useRef(null);
+      useEffect(() => {
+        if (inlineComposerFor === post.id && composerRef.current) {
+          try {
+            composerRef.current.focus();
+          } catch (e) {}
+        }
+      }, [inlineComposerFor, post.id]);
+
+      const renderInlineComposer = () => (
+        <div className="nb-inline-composer">
+          <textarea
+            ref={composerRef}
+            className={`nb-input nb-textarea ${composerErr ? 'has-error' : ''}`}
+            value={composerText}
+            onChange={(e) => {
+              setComposerText(e.target.value);
+              setComposerErr('');
+            }}
+            placeholder={'Example: "I can help at 7pm. I have a dolly and straps."'}
+          />
+
+          {composerErr ? <div className="nb-error">{composerErr}</div> : null}
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+            <button
+              className="nb-btn nb-btn-ghost"
+              onClick={() => {
+                setComposerText('');
+                setComposerErr('');
+                setInlineComposerFor(null);
+              }}
+            >
+              Cancel
+            </button>
+
+            <button
+              className="nb-btn nb-btn-primary"
+              onClick={() => {
+                const res = submitReply(post.id, 'volunteer', composerText);
+                if (!res.ok) setComposerErr(res.error);
+                else {
+                  setComposerText('');
+                  setComposerErr('');
+                  setInlineComposerFor(null);
+                }
+              }}
+            >
+              Send offer
+            </button>
+          </div>
+        </div>
+      );
 
     if (!visibleReplies.length) {
       return (
@@ -3550,6 +3622,9 @@ const onboardingTooltip =
               </div>
             </>
           )}
+
+          {inlineComposerFor === post.id && !isOwner && post.status !== 'resolved' ? renderInlineComposer() : null}
+
         </div>
       );
     }
@@ -3576,6 +3651,7 @@ const onboardingTooltip =
 
     return (
       <div className="nb-thread">
+        {inlineComposerFor === post.id && !isOwner && post.status !== 'resolved' ? renderInlineComposer() : null}
         {hasChosen ? (
           <div style={{ margin: '6px 0 10px' }}>
             {otherCount > 0 ? (
@@ -3978,6 +4054,10 @@ function pushActivity(arg, meta = {}) {
 
     const replyBtnLabel = post.kind === 'rec' ? 'Recommend' : 'Offer help';
 
+    const viewerAlreadyOffered = (post.replies || []).some(
+      (r) => r && r.authorId === me.id && r.type === 'volunteer'
+    );
+
     const remaining = remainingRepliesToday(post.kind);
 
     const selectedHelperIds =
@@ -4060,16 +4140,25 @@ function pushActivity(arg, meta = {}) {
           <div className="nb-card-actions">
             {canReply ? (
               <button
-                className="nb-btn nb-btn-primary"
-                onClick={() =>
-                  setModal({
-                    type: 'reply',
-                    postId: post.id,
-                    mode: post.kind === 'rec' ? 'suggest' : 'volunteer',
-                  })
-                }
+                className={`nb-btn nb-btn-primary ${viewerAlreadyOffered ? 'is-disabled' : ''}`}
+                disabled={viewerAlreadyOffered}
+                onClick={() => {
+                  if (viewerAlreadyOffered) return;
+                  if (post.kind === 'help') {
+                    setExpandedThreads((prev) => {
+                      const next = { ...(prev || {}) };
+                      const wasOpen = !!next[post.id];
+                      next[post.id] = true;
+                      if (!wasOpen) setComposerOpenedFor(post.id);
+                      return next;
+                    });
+                    setInlineComposerFor(post.id);
+                  } else {
+                    setModal({ type: 'reply', postId: post.id, mode: 'suggest' });
+                  }
+                }}
               >
-                {replyBtnLabel}
+                {viewerAlreadyOffered ? 'Offer sent' : replyBtnLabel}
               </button>
             ) : null}
 
@@ -4956,6 +5045,15 @@ function OnboardingModal() {
     const post = posts.find((p) => p.id === postId);
     const [text, setText] = useState('');
     const [err, setErr] = useState('');
+    const replyTextareaRef = useRef(null);
+
+    useEffect(() => {
+      if (replyTextareaRef && replyTextareaRef.current) {
+        try {
+          replyTextareaRef.current.focus();
+        } catch (e) {}
+      }
+    }, []);
 
     if (!post) return null;
 
@@ -4993,6 +5091,7 @@ function OnboardingModal() {
           <div className="nb-modal-sub">{helperText}</div>
 
           <textarea
+            ref={replyTextareaRef}
             className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
             value={text}
             onChange={(e) => {
@@ -5718,6 +5817,10 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
   const [what, setWhat] = useState('');
   const [area, setArea] = useState(me?.location || '');
   const [whenRange, setWhenRange] = useState('');
+  const DRAFT_KEY = `nb_draft_post_v1:${kind}`;
+  const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+  const [draftAvailable, setDraftAvailable] = useState(false);
+  const autosaveRef = useRef(null);
   const [whenIsCustom, setWhenIsCustom] = useState(false);
   const [helpersNeeded, setHelpersNeeded] = useState(1);
   const [details, setDetails] = useState('');
@@ -5741,6 +5844,55 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
     setPhotoBytes(0);
     setErr('');
   }, [kind, me?.location]);
+
+  // Load draft if present for this kind
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return setDraftAvailable(false);
+      const obj = JSON.parse(raw);
+      if (!obj) return setDraftAvailable(false);
+      // TTL: ignore drafts older than 7 days
+      if (obj.savedAt && typeof obj.savedAt === 'number') {
+        if (Date.now() - obj.savedAt > DRAFT_TTL_MS) {
+          try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+          return setDraftAvailable(false);
+        }
+      }
+      setDraftAvailable(true);
+    } catch (e) {
+      setDraftAvailable(false);
+    }
+  }, [DRAFT_KEY]);
+
+  function saveDraft() {
+    try {
+      const payload = {
+        what: what || '',
+        area: area || '',
+        details: details || '',
+        savedAt: Date.now(),
+      };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+      setDraftAvailable(true);
+    } catch (e) {}
+  }
+
+  function clearDraft() {
+    try { localStorage.removeItem(DRAFT_KEY); setDraftAvailable(false); } catch (e) {}
+  }
+
+  // Autosave on changes (debounced)
+  useEffect(() => {
+    if (autosaveRef.current) clearTimeout(autosaveRef.current);
+    autosaveRef.current = setTimeout(() => {
+      if (what || details || area) saveDraft();
+    }, 800);
+    return () => {
+      if (autosaveRef.current) clearTimeout(autosaveRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [what, details, area]);
 
   const helpExamples = [
     'shovel my driveway',
@@ -5814,11 +5966,11 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
   function validate() {
   const w = normalizeText(what);
   const a = normalizeText(area);
+  // Details are optional now to reduce friction; encourage but don't block posting
   const d = normalizeText(details);
 
   if (!w) return 'Start with what you need (one short phrase).';
   if (!a) return 'Add an area (town / neighborhood).';
-  if (!d || d.length < 5) return 'Add a quick detail so people can help.';
 
   // No content blocking. Guidance lives in placeholders + hint text.
   return '';
@@ -5922,6 +6074,8 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
     setActiveTab('home');
     setPostFlow({ step: 'chooser', kind: null });
+    // Clear any saved draft for this kind on successful post
+    try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
   }
 
   const headerTitle = isHelp ? 'Need a hand' : 'Recommendations';
@@ -5985,6 +6139,31 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
           {quickRow}
 
+          {draftAvailable ? (
+            <div style={{ marginTop: 10 }}>
+              <div className="nb-draft-banner">
+                <div>
+                  <strong>Saved draft found</strong>
+                  <div className="nb-muted small">We saved your draft locally. Restore or discard.</div>
+                </div>
+                <div className="nb-draft-actions">
+                  <button className="nb-draft-cta restore" onClick={() => {
+                    try {
+                      const raw = localStorage.getItem(DRAFT_KEY);
+                      if (!raw) return clearDraft();
+                      const obj = JSON.parse(raw || '{}');
+                      setWhat(obj.what || '');
+                      setDetails(obj.details || '');
+                      setArea(obj.area || me?.location || '');
+                      setDraftAvailable(false);
+                    } catch (e) { clearDraft(); }
+                  }}>Restore</button>
+                  <button className="nb-draft-cta discard" onClick={() => { if (confirm('Discard saved draft?')) clearDraft(); }}>Discard</button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {/* inline top error/hint */}
           {err ? (
             <div className="nb-error" style={{ marginTop: 10 }}>{err}</div>
@@ -6034,8 +6213,8 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
           {/* Section C: Details */}
           <div className="nb-card" style={{ marginTop: 12 }}>
-            <label className="nb-label">Details</label>
-            <div className="nb-muted" style={{ marginTop: 6 }}>Tip: 1) Where exactly 2) Timing 3) Tools/size</div>
+            <label className="nb-label">Details <span className="nb-muted small">(optional)</span></label>
+            <div className="nb-muted" style={{ marginTop: 6 }}>Where exactly + timing + anything heavy/tools (optional but helpful)</div>
             <textarea
               className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
               value={details}
@@ -6096,7 +6275,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
           <div className="nb-formactions" style={{ marginTop: 12 }}>
             <button className="nb-btn nb-btn-ghost" onClick={onBack}>Cancel</button>
-            <button className="nb-btn nb-btn-primary" onClick={uiSubmit} disabled={busy || !what.trim() || !area.trim() || !details.trim()}>{busy ? 'Working…' : 'Post'}</button>
+            <button className="nb-btn nb-btn-primary" onClick={uiSubmit} disabled={busy || !what.trim() || !area.trim()}>{busy ? 'Working…' : 'Post'}</button>
           </div>
 
           
