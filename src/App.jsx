@@ -3577,12 +3577,36 @@ const onboardingTooltip =
           </div>
         </div>
 
-        <div
-          className={`nb-status ${
-            post.status === 'resolved' ? 'is-resolved' : ''
-          }`}
-        >
-          {statusLabel}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            className="nb-btn nb-btn-ghost nb-open-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              setChat(null);
+              setThread(null);
+              setModal(null);
+              setActiveTab('home');
+              setHomeChip('all');
+              setHomeQuery('');
+              setHomeFollowOnly(false);
+              if (post.status === 'resolved') setHomeShowAll(true);
+              setExpandedThreads((prev) => ({ ...(prev || {}), [post.id]: true }));
+              setTimeout(() => {
+                try {
+                  const el = document.querySelector(`[data-post-id="${post.id}"]`);
+                  if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } catch (__) {}
+              }, 60);
+            }}
+            title="Open post"
+          >
+            Open
+          </button>
+
+          <div className={`nb-status ${post.status === 'resolved' ? 'is-resolved' : ''}`}>
+            {statusLabel}
+          </div>
         </div>
       </div>
     );
@@ -4152,7 +4176,7 @@ function pushActivity(arg, meta = {}) {
     })();
 
     return (
-      <div className="nb-card">
+      <div className="nb-card" data-post-id={post.id}>
         <PostMetaLine post={post} />
 
         <div className="nb-card-main">
