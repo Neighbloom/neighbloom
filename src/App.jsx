@@ -494,7 +494,7 @@ const HELP_CATEGORIES = [
 const HELP_TEMPLATES = [
   {
     category: 'Snow shoveling (driveway/sidewalk)',
-    label: 'Quick driveway',
+    label: 'Shoveling',
     title: 'Need help shoveling my driveway/sidewalk',
     details:
       'Single driveway + sidewalk. Should be ~20–30 min. I have a shovel.',
@@ -5821,6 +5821,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
   const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
   const [draftAvailable, setDraftAvailable] = useState(false);
   const autosaveRef = useRef(null);
+  const suppressAutosaveRef = useRef(false);
   const [whenIsCustom, setWhenIsCustom] = useState(false);
   const [helpersNeeded, setHelpersNeeded] = useState(1);
   const [details, setDetails] = useState('');
@@ -5859,7 +5860,13 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
           return setDraftAvailable(false);
         }
       }
-      setDraftAvailable(true);
+      // Only consider drafts that have meaningful content (not just default area)
+      const hasContent = (obj.what && String(obj.what).trim()) || (obj.details && String(obj.details).trim());
+      if (hasContent) setDraftAvailable(true);
+      else {
+        try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+        setDraftAvailable(false);
+      }
     } catch (e) {
       setDraftAvailable(false);
     }
@@ -5867,12 +5874,13 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
   function saveDraft() {
     try {
-      const payload = {
-        what: what || '',
-        area: area || '',
-        details: details || '',
-        savedAt: Date.now(),
-      };
+      const hasContent = (what && String(what).trim()) || (details && String(details).trim());
+      if (!hasContent) {
+        try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+        setDraftAvailable(false);
+        return;
+      }
+      const payload = { what: what || '', area: area || '', details: details || '', savedAt: Date.now() };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
       setDraftAvailable(true);
     } catch (e) {}
@@ -5886,7 +5894,9 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
   useEffect(() => {
     if (autosaveRef.current) clearTimeout(autosaveRef.current);
     autosaveRef.current = setTimeout(() => {
-      if (what || details || area) saveDraft();
+      if (suppressAutosaveRef.current) { suppressAutosaveRef.current = false; return; }
+      const hasContent = (what && String(what).trim()) || (details && String(details).trim());
+      if (hasContent) saveDraft();
     }, 800);
     return () => {
       if (autosaveRef.current) clearTimeout(autosaveRef.current);
@@ -5918,19 +5928,42 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
   function fillHelpTemplate(t) {
     setErr('');
-    const txt = normalizeText(t?.title || '') || '';
-    setWhat(txt.replace(/^need help/i, '').replace(/^need /i, '').trim());
-    setDetails(t?.details || '');
-    setWhenRange(t?.whenRange || '');
-    // keep `message` in sync for UI-first composer
-    setMessage(`${txt}${t?.details ? '\n' + t.details : ''}`.trim());
-    // keep area as-is (user’s town often differs per post)
+    const raw = String(t?.label || t?.title || '').trim();
+    const n = normalizeText(raw || '');
+    let friendly = n;
+    const low = n.toLowerCase();
+    // remove restrictive phrases
+    friendly = friendly.replace(/curb[- ]to[- ]curb/gi, '').replace(/one item\.?/gi, '').trim();
+    if (/driveway/i.test(low)) {
+      friendly = 'Need help shoveling my driveway (snow).';
+    } else if (/rake|leaf|leaves/i.test(low)) {
+      friendly = 'Need help raking and bagging leaves.';
+    } else if (/couch|sofa|move/i.test(low)) {
+      friendly = 'Need help moving a couch.';
+    } else if (/\bbin\b|bins|trash/i.test(low)) {
+      friendly = 'Need help bringing trash bins to the curb.';
+    } else if (/pickup|drop|pickup\/drop|pick up|drop off/i.test(low)) {
+      friendly = 'Need help picking up or dropping off an item.';
+    } else if (!/[a-z]/i.test(friendly)) {
+      friendly = 'Need help with a task.';
+    } else {
+      if (!/need|help|looking/i.test(friendly)) friendly = 'Need help with ' + friendly.replace(/^:/, '').trim();
+      friendly = friendly.charAt(0).toUpperCase() + friendly.slice(1);
+      if (!/[.!?]$/.test(friendly)) friendly = friendly + '.';
+    }
+    // Replace the message to avoid accumulation
+    setMessage(friendly);
+    const first = String(friendly).split(/\.|\n/)[0].trim();
+    setWhat(first.replace(/^need help (with )?/i, '').trim());
+    try { if (t?.details && String(t.details).trim() && String(t.details).length < 120) setDetails(t.details); } catch (e) {}
+    try { if (t?.whenRange && String(t.whenRange).trim() && String(t.whenRange).length < 80) setWhenRange(t.whenRange); } catch (e) {}
   }
 
   function fillRecQuick(cat) {
     setErr('');
     setWhat(cat);
-    setMessage((m) => (m ? `${m} ${cat}` : cat));
+    const friendly = (typeof cat === 'string' && cat.trim()) ? `Looking for ${cat}.` : 'Looking for a recommendation.';
+    setMessage(friendly);
   }
 
   // UI submit wrapper: show inline hint and expand details if needed
@@ -5961,6 +5994,13 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
     const rest = lines.slice(1).join('\n');
     setWhat(first);
     if (rest) setDetails(rest);
+  }
+
+  function getMessagePlaceholder() {
+    // Only show structured placeholder when message is empty; placeholder only appears when textarea has no value.
+    if (message && String(message).trim()) return '';
+    if (isHelp) return 'Need help with [what] — [where/how], [when].';
+    return 'Looking for [what] in [area] — include timing if relevant.';
   }
 
   function validate() {
@@ -6086,34 +6126,36 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
   const quickRow = isHelp ? (
     <div className="nb-suggest-row" style={{ marginTop: 10 }}>
-      {(typeof HELP_TEMPLATES !== 'undefined' && Array.isArray(HELP_TEMPLATES) ? HELP_TEMPLATES : []).map((t) => (
-        <button
-          key={t.label}
-          type="button"
-          className="nb-suggest"
-          onClick={() => fillHelpTemplate(t)}
-          title="Fill a quick template"
-        >
-          {t.label}
-        </button>
-      ))}
+      <label style={{ display: 'none' }} htmlFor="nb_quick_select">Quick templates</label>
+      <select id="nb_quick_select" className="nb-quick-select" onChange={(e) => {
+        const idx = Number(e.target.value);
+        const arr = (typeof HELP_TEMPLATES !== 'undefined' && Array.isArray(HELP_TEMPLATES) ? HELP_TEMPLATES : []);
+        const item = arr[idx];
+        if (item) fillHelpTemplate(item);
+        e.target.selectedIndex = 0;
+      }}>
+        <option value="">Choose a quick template…</option>
+        {(typeof HELP_TEMPLATES !== 'undefined' && Array.isArray(HELP_TEMPLATES) ? HELP_TEMPLATES : []).map((t, i) => (
+          <option key={t.label || i} value={i}>{t.label || (`Template ${i+1}`)}</option>
+        ))}
+      </select>
     </div>
   ) : (
     <div className="nb-suggest-row" style={{ marginTop: 10 }}>
-      {(typeof REC_CATEGORIES !== 'undefined' && Array.isArray(REC_CATEGORIES) ? REC_CATEGORIES : [])
-  .filter((x) => x && x !== '__custom__')
-        .slice(0, 8)
-        .map((c) => (
-          <button
-            key={c}
-            type="button"
-            className="nb-suggest"
-            onClick={() => fillRecQuick(c)}
-            title="Use a common request"
-          >
-            {c}
-          </button>
-        ))}
+      <label style={{ display: 'none' }} htmlFor="nb_rec_select">Common requests</label>
+      <select id="nb_rec_select" className="nb-quick-select" onChange={(e) => {
+        const v = e.target.value;
+        if (v) fillRecQuick(v);
+        e.target.selectedIndex = 0;
+      }}>
+        <option value="">Choose a common request…</option>
+        {(typeof REC_CATEGORIES !== 'undefined' && Array.isArray(REC_CATEGORIES) ? REC_CATEGORIES : [])
+          .filter((x) => x && x !== '__custom__')
+          .slice(0, 8)
+          .map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+      </select>
     </div>
   );
 
@@ -6139,30 +6181,40 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
           {quickRow}
 
-          {draftAvailable ? (
-            <div style={{ marginTop: 10 }}>
-              <div className="nb-draft-banner">
-                <div>
-                  <strong>Saved draft found</strong>
-                  <div className="nb-muted small">We saved your draft locally. Restore or discard.</div>
-                </div>
-                <div className="nb-draft-actions">
-                  <button className="nb-draft-cta restore" onClick={() => {
-                    try {
-                      const raw = localStorage.getItem(DRAFT_KEY);
-                      if (!raw) return clearDraft();
-                      const obj = JSON.parse(raw || '{}');
-                      setWhat(obj.what || '');
-                      setDetails(obj.details || '');
-                      setArea(obj.area || me?.location || '');
-                      setDraftAvailable(false);
-                    } catch (e) { clearDraft(); }
-                  }}>Restore</button>
-                  <button className="nb-draft-cta discard" onClick={() => { if (confirm('Discard saved draft?')) clearDraft(); }}>Discard</button>
+          {(() => {
+            const isPristine = !String(what || '').trim() && !String(details || '').trim() && !String(area || '').trim();
+            const showBanner = draftAvailable && isPristine;
+            return showBanner ? (
+              <div style={{ marginTop: 10 }}>
+                <div className="nb-draft-banner">
+                  <div>
+                    <strong>Saved draft found</strong>
+                    <div className="nb-muted small">We saved your draft locally. Restore or discard.</div>
+                  </div>
+                  <div className="nb-draft-actions">
+                    <button className="nb-draft-cta restore" onClick={() => {
+                      try {
+                        const raw = localStorage.getItem(DRAFT_KEY);
+                        if (!raw) return clearDraft();
+                        const obj = JSON.parse(raw || '{}');
+                        setWhat(obj.what || '');
+                        setDetails(obj.details || '');
+                        setArea(obj.area || me?.location || '');
+                        setDraftAvailable(false);
+                      } catch (e) { clearDraft(); }
+                    }}>Restore</button>
+                    <button className="nb-draft-cta discard" onClick={() => {
+                      if (!confirm('Discard saved draft?')) return;
+                      try { clearDraft(); } catch (e) {}
+                      try { if (autosaveRef.current) clearTimeout(autosaveRef.current); } catch (e) {}
+                      suppressAutosaveRef.current = true;
+                      try { setWhat(''); setDetails(''); setArea(''); } catch (e) {}
+                    }}>Discard</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : null}
+            ) : null;
+          })()}
 
           {/* inline top error/hint */}
           {err ? (
@@ -6176,37 +6228,15 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
               className="nb-input nb-textarea nb-message"
               value={message}
               onChange={(e) => handleMessageChange(e.target.value)}
-              placeholder={"Hey neighbors — I need help with… (what + where + when)."}
+              placeholder={getMessagePlaceholder()}
               rows={4}
             />
-            <div className="nb-muted" style={{ marginTop: 8 }}>One or two sentences is enough.</div>
+            <div className="nb-muted" style={{ marginTop: 8 }}>Include: what + where/how + when.</div>
 
-            <div className="nb-chips" style={{ marginTop: 10 }}>
-              {(isHelp ? helpExamples : recExamples).slice(0,6).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className="nb-chip nb-chip-suggest"
-                  onClick={() => {
-                    // append short phrase into message and derive fields
-                    setMessage((prev) => {
-                      const next = prev ? prev.trim() + ' — ' + t : t;
-                      handleMessageChange(next);
-                      return next;
-                    });
-                  }}
-                >
-                  {t}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="nb-chip nb-chip-more"
-                onClick={() => alert('More suggestions…')}
-              >
-                More
-              </button>
-            </div>
+            
+
+          {/* spacer so sticky CTA doesn't cover content on mobile */}
+          {/* Sticky CTA removed — use single action row */}
           </div>
 
           {/* (composer above replaces the older segmented inputs to keep UI simple) */}
