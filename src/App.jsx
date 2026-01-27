@@ -6383,98 +6383,70 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
   return (
     <div className="nb-page">
       <div className="nb-section">
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <img className="nb-avatar" src={me.avatar} alt={me.name} />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 980, fontSize: 18 }}>
+        <div className="nb-profile-header">
+          <img className="nb-avatar lg" src={me.avatar} alt={me.name} />
+          <div className="nb-profile-meta">
+            <div className="nb-profile-name">
               {me.name} <UserBadge userId={me.id} showText />
             </div>
-            <div className="nb-muted" style={{ fontWeight: 850 }}>
-              {me.handle} · {me.location}
+            <div className="nb-muted nb-profile-sub">{me.handle} · {me.location}</div>
+            {me.tagline ? <div className="nb-profile-tagline">{me.tagline}</div> : null}
+          </div>
+          <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+            <div className="nb-pill" style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+              <span className="nb-pill-text">NP</span>
+              <span className="nb-pill-strong" style={{ fontSize: 18 }}>{npPoints}</span>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <button className="nb-btn nb-btn-primary" onClick={() => setModal({ type: 'points' })}>Badges & points</button>
             </div>
           </div>
         </div>
 
-        {me.tagline ? (
-          <div style={{ marginTop: 10, fontWeight: 850 }}>{me.tagline}</div>
-        ) : null}
-
-        <div
-          style={{
-            marginTop: 14,
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: 10,
-          }}
-        >
-          <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
-            <div style={{ fontWeight: 980, fontSize: 18 }}>{npPoints}</div>
-            <div className="nb-muted" style={{ fontWeight: 850, fontSize: 12 }}>NP</div>
+        <div className="nb-profile-stats">
+          <div className="nb-stat">
+            <div className="nb-stat-num">{myPostCount}</div>
+            <div className="nb-muted nb-stat-label">Posts</div>
           </div>
-
-          <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
-            <div style={{ fontWeight: 980, fontSize: 18 }}>{myPostCount}</div>
-            <div className="nb-muted" style={{ fontWeight: 850, fontSize: 12 }}>Posts</div>
+          <div className="nb-stat">
+            <div className="nb-stat-num">{helpfulRepliesCount}</div>
+            <div className="nb-muted nb-stat-label">Helpful</div>
           </div>
-
-          <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
-            <div style={{ fontWeight: 980, fontSize: 18 }}>{helpfulRepliesCount}</div>
-            <div className="nb-muted" style={{ fontWeight: 850, fontSize: 12 }}>Helpful</div>
+          <div className="nb-stat">
+            <div className="nb-stat-num">{following}</div>
+            <div className="nb-muted nb-stat-label">Following</div>
           </div>
         </div>
 
-        <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <div className="nb-pill">
-            <span className="nb-pill-text">Following</span>
-            <span className="nb-pill-strong">{following}</span>
+        <div className="nb-profile-actions">
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button className="nb-btn nb-btn-ghost" onClick={() => setModal({ type: 'points' })}>View badges & points</button>
+            <button
+              className="nb-btn nb-btn-ghost"
+              onClick={() => {
+                const ok = window.confirm('Reset all local demo data? This clears posts, chats, saved searches, and points.');
+                if (!ok) return;
+                localStorage.removeItem(LS_CHECKINS);
+                localStorage.removeItem(LS_AVAIL);
+                resetAppState();
+                window.location.reload();
+              }}
+            >
+              Reset demo data
+            </button>
           </div>
-          <div className="nb-pill">
-            <span className="nb-pill-text">Followers</span>
-            <span className="nb-pill-strong">{followers}</span>
+
+          <div style={{ marginTop: 12 }}>
+            <div className="nb-muted small" style={{ fontWeight: 850, marginBottom: 8 }}>Demo user</div>
+            <select className="nb-input nb-profile-select" value={meId} onChange={(e) => setMeId(e.target.value)}>
+              {USERS_SEED.map((u) => (
+                <option key={u.id} value={u.id}>{u.name} ({u.location})</option>
+              ))}
+            </select>
           </div>
         </div>
 
-        <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
-          <button className="nb-btn nb-btn-ghost" onClick={() => setModal({ type: 'points' })}>
-            View badges & points
-          </button>
-
-          <button
-            className="nb-btn nb-btn-ghost"
-            onClick={() => {
-              const ok = window.confirm(
-                'Reset all local demo data? This clears posts, chats, saved searches, and points.'
-              );
-              if (!ok) return;
-              localStorage.removeItem(LS_CHECKINS);
-              localStorage.removeItem(LS_AVAIL);
-              resetAppState();
-              window.location.reload();
-            }}
-            title="Clears localStorage demo data"
-          >
-            Reset demo data
-          </button>
-        </div>
-
-        <div style={{ marginTop: 16 }}>
-          <div className="nb-muted small" style={{ fontWeight: 850, marginBottom: 8 }}>
-            Demo user
-          </div>
-          <select
-            className="nb-input"
-            value={meId}
-            onChange={(e) => setMeId(e.target.value)}
-          >
-            {USERS_SEED.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} ({u.location})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="nb-section">
+        <div className="nb-section nb-debug-card">
           <div className="nb-section-title">App Health</div>
           <div className="nb-section-sub">Version and debug info for troubleshooting.</div>
 
@@ -6492,7 +6464,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 type="button"
-                className="nb-btn nb-btn-ghost"
+                className="nb-btn nb-btn-primary"
                 onClick={async () => {
                   try {
                     const info = {
