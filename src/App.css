@@ -632,19 +632,28 @@ backdrop-filter: blur(10px);
   flex: 1 1 auto;
   min-height: 0;
 }
+.nb-modal-body-scroll {
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* Mobile-first modal button sizing and spacing */
+.nb-modal .nb-btn{
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 12px;
+  font-size: 16px;
+}
+.nb-modal .nb-btn + .nb-btn{ margin-top: 8px; }
+
+@media (min-width: 720px){
+  .nb-modal .nb-btn{ width: auto; padding: 10px 14px; font-size: 15px; }
+  .nb-modal .nb-btn + .nb-btn{ margin-top: 0; margin-left: 8px; }
+  .nb-modal .nb-btn-group{ display:flex; }
+}
 .nb-muted{ color: var(--muted); font-weight: 800; }
 .nb-muted.small{ font-size: 12px; }
-
-/* Share modal grid + buttons */
-.nb-share-grid{
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-}
-@media (max-width:720px){ .nb-share-grid{ grid-template-columns: repeat(2, 1fr); } }
-.nb-share-btn{ padding: 10px 12px; border-radius: 12px; font-weight: 900; display: inline-flex; gap: 8px; align-items:center; justify-content:center; }
-.nb-share-btn.nb-btn-primary{ padding: 12px 14px; }
-.nb-btn[disabled], .nb-share-btn[disabled]{ opacity: .5; cursor: not-allowed; }
 
 /* Chat */
 .nb-chat{
