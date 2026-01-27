@@ -1456,6 +1456,7 @@ function App() {
   const didAutoOpenChatOnActivity = useRef(false);
   // Lightweight toast + deep-link guards (share / referrals / post links)
   const [toastMsg, setToastMsg] = useState(null);
+  const [shareDialog, setShareDialog] = useState(null); // { title, text, url } when open
   const toastTimerRef = useRef(null);
   const deepLinkHandledRef = useRef(false);
   const referralHandledRef = useRef(false);
@@ -1822,7 +1823,12 @@ const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
     if (deepLinkHandledRef.current) return;
 
     const params = new URLSearchParams(window.location.search);
-    const postId = params.get('p');
+    let postId = params.get('p');
+    // also support path-style deep link: /p/<postId>
+    if (!postId) {
+      const m = window.location.pathname.match(/\/p\/(.+)$/);
+      if (m) postId = decodeURIComponent(m[1]);
+    }
     if (postId) {
       deepLinkHandledRef.current = true;
       // small delay so the feed DOM exists before we scroll
@@ -1834,7 +1840,12 @@ const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
     if (referralHandledRef.current) return;
 
     const params = new URLSearchParams(window.location.search);
-    const ref = params.get('ref');
+    let ref = params.get('ref');
+    // also support path-style invite: /ref/<userId>
+    if (!ref) {
+      const m = window.location.pathname.match(/\/ref\/(.+)$/);
+      if (m) ref = decodeURIComponent(m[1]);
+    }
     if (!ref) return;
     if (ref === meId) return;
 
@@ -2106,12 +2117,13 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     return `${window.location.origin}${window.location.pathname}`;
   }
 
+  // Use path-style deep links so shared links look like /p/<postId> and /ref/<userId>
   function postUrl(postId) {
-    return `${baseUrl()}?p=${encodeURIComponent(postId)}`;
+    return `${window.location.origin}/p/${encodeURIComponent(postId)}`;
   }
 
   function inviteUrl(userId) {
-    return `${baseUrl()}?ref=${encodeURIComponent(userId)}`;
+    return `${window.location.origin}/ref/${encodeURIComponent(userId)}`;
   }
 
   async function copyText(text) {
@@ -2146,8 +2158,8 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
       // user cancelled share sheet — ignore
     }
     const copied = await copyText(url);
-    if (copied) showToast('Link copied');
-    else showToast('Could not copy link');
+    // open a small share confirmation modal so the user can retry share or pick a social option
+    setShareDialog({ title, text, url, copied });
     return copied;
   }
 
@@ -8023,6 +8035,109 @@ onRefresh={refreshHome}
                 <button className="nb-btn nb-btn-ghost" onClick={() => { advanceHelpStage(modal.postId, 'done'); setModal(null); }}>
                   Skip & mark Done
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {shareDialog ? (
+        <div className="nb-modal-backdrop" onClick={() => setShareDialog(null)}>
+          <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="nb-modal-head">
+              <div className="nb-modal-title">Share</div>
+              <button className="nb-x" onClick={() => setShareDialog(null)} aria-label="Close">✕</button>
+            </div>
+
+            <div style={{ padding: 14 }}>
+              <div className="nb-muted" style={{ marginBottom: 8 }}>Share this post</div>
+
+              <div style={{ display: 'flex', gap: 10, marginBottom: 12, alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 8, flex: 1 }}>
+                  <input className="nb-input" value={shareDialog.url} readOnly style={{ flex: 1 }} />
+                  <button
+                    className="nb-btn nb-btn-ghost"
+                    onClick={async () => {
+                      const ok = await copyText(shareDialog.url);
+                      setShareDialog((s) => ({ ...(s || {}), copied: !!ok }));
+                      if (ok) showToast('Link copied');
+                    }}
+                  >
+                    {shareDialog.copied ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+
+                <button
+                  className="nb-btn nb-btn-ghost"
+                  onClick={() => window.open(shareDialog.url, '_blank')}
+                  title="Open link in a new tab"
+                >
+                  Open
+                </button>
+              </div>
+
+              <div className="nb-share-grid">
+                <button
+                  className="nb-share-btn nb-btn-ghost"
+                  onClick={() => {
+                    const text = `${shareDialog.title || ''} ${shareDialog.url}`.trim();
+                    const tw = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+                    window.open(tw, '_blank');
+                  }}
+                >
+                  🐦 Twitter
+                </button>
+
+                <button
+                  className="nb-share-btn nb-btn-ghost"
+                  onClick={() => {
+                    const fb = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareDialog.url)}`;
+                    window.open(fb, '_blank');
+                  }}
+                >
+                  📘 Facebook
+                </button>
+
+                <button
+                  className="nb-share-btn nb-btn-ghost"
+                  onClick={() => {
+                    const wa = `https://api.whatsapp.com/send?text=${encodeURIComponent(
+                      (shareDialog.title || '') + ' ' + shareDialog.url
+                    )}`;
+                    window.open(wa, '_blank');
+                  }}
+                >
+                  💬 WhatsApp
+                </button>
+
+                <button
+                  className="nb-share-btn nb-btn-ghost"
+                  onClick={() => {
+                    const mail = `mailto:?subject=${encodeURIComponent(shareDialog.title || 'Neighbloom')}&body=${encodeURIComponent(
+                      (shareDialog.text || '') + '\n\n' + (shareDialog.url || '')
+                    )}`;
+                    window.location.href = mail;
+                  }}
+                >
+                  ✉️ Email
+                </button>
+
+                <button
+                  className="nb-share-btn nb-btn-ghost"
+                  onClick={() => {
+                    const sms = `sms:?body=${encodeURIComponent((shareDialog.title || '') + ' ' + shareDialog.url)}`;
+                    window.location.href = sms;
+                  }}
+                >
+                  📱 SMS
+                </button>
+              </div>
+            </div>
+
+            <div className="nb-modal-foot">
+              <div className="nb-muted">Share options</div>
+              <div className="nb-modal-actions">
+                <button className="nb-btn nb-btn-ghost" onClick={() => setShareDialog(null)}>Close</button>
               </div>
             </div>
           </div>

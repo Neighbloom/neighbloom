@@ -241,6 +241,18 @@ backdrop-filter: blur(10px);
   font-weight: 800;
 }
 
+/* Compact quick-select for templates / categories */
+.nb-quick-select{ width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,.03); color: var(--text); font-weight: 900; }
+@media (max-width:640px){ .nb-quick-select{ font-size: 15px; padding: 12px 14px; } }
+
+/* Mobile tweaks for existing action row */
+@media (max-width: 640px) {
+  .nb-formactions { display:flex; flex-direction:column; gap:10px; align-items:stretch; }
+  .nb-formactions > .nb-btn { width: 100%; padding: 14px 16px; border-radius: 12px; }
+  .nb-formactions > .nb-btn.nb-btn-ghost { order: -1; background: transparent; padding: 12px 16px; }
+  .nb-formactions > .nb-btn.nb-btn-primary { font-size: 16px; font-weight: 900; }
+}
+
 .nb-search-clear{
   border: 1px solid var(--border);
   background: rgba(255,255,255,.06);
@@ -622,6 +634,17 @@ backdrop-filter: blur(10px);
 }
 .nb-muted{ color: var(--muted); font-weight: 800; }
 .nb-muted.small{ font-size: 12px; }
+
+/* Share modal grid + buttons */
+.nb-share-grid{
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+@media (max-width:720px){ .nb-share-grid{ grid-template-columns: repeat(2, 1fr); } }
+.nb-share-btn{ padding: 10px 12px; border-radius: 12px; font-weight: 900; display: inline-flex; gap: 8px; align-items:center; justify-content:center; }
+.nb-share-btn.nb-btn-primary{ padding: 12px 14px; }
+.nb-btn[disabled], .nb-share-btn[disabled]{ opacity: .5; cursor: not-allowed; }
 
 /* Chat */
 .nb-chat{
