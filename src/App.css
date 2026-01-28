@@ -245,33 +245,6 @@ backdrop-filter: blur(10px);
 .nb-quick-select{ width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,.03); color: var(--text); font-weight: 900; }
 @media (max-width:640px){ .nb-quick-select{ font-size: 15px; padding: 12px 14px; } }
 
-/* Profile improvements */
-.nb-profile-header{
-  display:flex;
-  gap:14px;
-  align-items:center;
-}
-.nb-profile-header .nb-avatar.lg{ width:72px; height:72px; border-radius:18px; }
-.nb-profile-meta{ min-width:0; }
-.nb-profile-name{ font-weight:980; font-size:20px; }
-.nb-profile-sub{ margin-top:4px; color:var(--muted); font-weight:850; }
-.nb-profile-tagline{ margin-top:8px; font-weight:850; color:var(--text); }
-
-.nb-profile-stats{ display:flex; gap:10px; margin-top:14px; }
-.nb-stat{ flex:1; border:1px solid var(--border); border-radius:12px; padding:12px; text-align:center; }
-.nb-stat-num{ font-weight:980; font-size:18px; }
-.nb-stat-label{ font-size:12px; font-weight:850; color:var(--muted); }
-
-.nb-profile-actions{ margin-top:12px; }
-.nb-profile-select{ width:100%; }
-
-.nb-debug-card{ margin-top:16px; padding:12px; border-radius:14px; border:1px solid var(--border); background: rgba(255,255,255,.02); }
-
-@media (max-width:640px){
-  .nb-profile-header{ align-items:flex-start; }
-  .nb-profile-header .nb-avatar.lg{ width:64px; height:64px; }
-}
-
 /* Mobile tweaks for existing action row */
 @media (max-width: 640px) {
   .nb-formactions { display:flex; flex-direction:column; gap:10px; align-items:stretch; }
@@ -356,8 +329,8 @@ backdrop-filter: blur(10px);
 
 .nb-card-title{
   margin-top: 8px;
-  font-size: 22px;
-  font-weight: 980;
+  font-size: 20px;
+  font-weight: 950;
   letter-spacing: -.02em;
 
   display: -webkit-box;
@@ -659,12 +632,6 @@ backdrop-filter: blur(10px);
   flex: 1 1 auto;
   min-height: 0;
 }
-.nb-modal-body-scroll {
-  overflow: auto;
-  -webkit-overflow-scrolling: touch;
-  flex: 1 1 auto;
-  min-height: 0;
-}
 /* Mobile-first modal button sizing and spacing */
 .nb-modal .nb-btn{
   width: 100%;
@@ -738,7 +705,7 @@ backdrop-filter: blur(10px);
 
 /* Sections / chooser / forms */
 .nb-section{ margin-bottom: 12px; }
-.nb-section-title{ font-size: 20px; font-weight: 980; color: var(--text); }
+.nb-section-title{ font-size: 18px; font-weight: 980; }
 .nb-section-sub{ margin-top: 4px; color: var(--muted); font-weight: 850; }
 
 .nb-grid3{
@@ -800,18 +767,6 @@ backdrop-filter: blur(10px);
   border-radius: 999px;
 }
 .nb-segbtn{
-
-/* small open button used on post rows */
-.nb-open-btn{
-  padding: 8px 10px;
-  border-radius: 999px;
-  font-weight: 900;
-  background: rgba(255,255,255,.02);
-  border: 1px solid rgba(255,255,255,.06);
-}
-
-/* Slight brand tweak: emphasize accent color for interactive text */
-.nb-link{ color: var(--accent); }
   flex:1;
   border:0;
   background: transparent;
