@@ -6237,7 +6237,8 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
   function validate() {
   const w = normalizeText(what);
-  const a = normalizeText(area);
+  // allow falling back to the user's profile location to reduce friction
+  const a = normalizeText(area) || normalizeText(me?.location || '');
   // Details are optional now to reduce friction; encourage but don't block posting
   const d = normalizeText(details);
 
@@ -6250,7 +6251,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
   function buildHelpPost() {
     const w = normalizeText(what);
-    const a = normalizeText(area);
+    const a = normalizeText(area) || normalizeText(me?.location || '');
     const d = normalizeText(details);
     const when = normalizeText(whenRange);
 
@@ -6280,7 +6281,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
   function buildRecPost() {
     const w = normalizeText(what);
-    const a = normalizeText(area);
+    const a = normalizeText(area) || normalizeText(me?.location || '');
     const d = normalizeText(details);
 
     const prefs = Array.isArray(prefTags) && prefTags.length ? prefTags : [];
