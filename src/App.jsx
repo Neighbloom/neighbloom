@@ -2206,6 +2206,10 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
       const subject = encodeURIComponent(payload.title || 'Neighbloom');
       const body = encodeURIComponent(`${payload.text}\n\n${payload.url}`);
       const mailto = `mailto:?subject=${subject}&body=${body}`;
+      // Ensure the link is available if the mail composer fails: copy first.
+      try {
+        await copyText(payload.url);
+      } catch (e) {}
       setShareModalOpen(false);
       setShareTargetPost(null);
       window.location.href = mailto;
@@ -2214,7 +2218,14 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     }
     if (action === 'sms') {
       const body = encodeURIComponent(`${payload.text} ${payload.url}`);
-      const sms = `sms:?&body=${body}`;
+      // Platform variations exist for sms URI schemes. Try to make a best-effort and
+      // copy the link first so the user can paste if the composer doesn't open.
+      try {
+        await copyText(payload.url);
+      } catch (e) {}
+      const ua = (navigator.userAgent || '').toLowerCase();
+      const isiOS = /iphone|ipad|ipod/.test(ua);
+      const sms = isiOS ? `sms:&body=${body}` : `sms:?&body=${body}`;
       setShareModalOpen(false);
       setShareTargetPost(null);
       window.location.href = sms;
@@ -2223,6 +2234,8 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     }
     if (action === 'whatsapp') {
       const wa = `https://api.whatsapp.com/send?text=${encodeURIComponent(payload.text + ' ' + payload.url)}`;
+      // copy link as backup (web clients may not have WhatsApp app installed)
+      try { await copyText(payload.url); } catch (e) {}
       setShareModalOpen(false);
       setShareTargetPost(null);
       window.open(wa, '_blank');
