@@ -4466,17 +4466,17 @@ function pushActivity(arg, meta = {}) {
                 </button>
 
                 <button
-  className={`nb-mini ${post.stage === 'confirmed' ? 'is-on' : ''}`}
-  onClick={() => confirmHelp(post.id)}
-  disabled={post.stage !== 'done' && post.stage !== 'confirmed'}
-  title={
-    post.stage === 'done'
-      ? 'Confirm completion and award NP'
-      : 'Mark as Done first'
-  }
->
-  Confirm
-</button>
+                  className={`nb-btn nb-btn-primary ${post.stage === 'confirmed' ? 'is-on' : ''}`}
+                  onClick={() => confirmHelp(post.id)}
+                  disabled={post.stage !== 'done' && post.stage !== 'confirmed'}
+                  title={
+                    post.stage === 'done'
+                      ? 'Confirm completion and award NP'
+                      : 'Mark as Done first'
+                  }
+                >
+                  Confirm
+                </button>
               </div>
             ) : null}
 
