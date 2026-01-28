@@ -2650,8 +2650,12 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     const clean = normalizeText(text);
 
     if (!clean) return { ok: false, error: 'Reply can’t be empty.' };
-    if (clean.length < 8)
-      return { ok: false, error: 'Too short. Add one more detail.' };
+    // Allow shorter volunteer replies to reduce friction (support "I can" style replies).
+    if (mode === 'volunteer') {
+      if (clean.length < 4) return { ok: false, error: 'Too short. Add one more detail.' };
+    } else {
+      if (clean.length < 8) return { ok: false, error: 'Too short. Add one more detail.' };
+    }
     if (containsLink(clean))
       return {
         ok: false,
