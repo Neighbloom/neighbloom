@@ -3752,6 +3752,27 @@ const onboardingTooltip =
       const [composerText, setComposerText] = useState('');
       const [composerErr, setComposerErr] = useState('');
       const composerRef = useRef(null);
+      const draftKey = `nb_draft_reply_${post.id}`;
+      // Load draft when composer mounts for this post
+      useEffect(() => {
+        try {
+          const raw = localStorage.getItem(draftKey);
+          if (raw && !composerText) setComposerText(raw);
+        } catch (e) {}
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [inlineComposerFor, post.id]);
+
+      // Autosave draft with debounce
+      useEffect(() => {
+        const t = setTimeout(() => {
+          try {
+            if (composerText && composerText.trim().length > 0) localStorage.setItem(draftKey, composerText);
+            else localStorage.removeItem(draftKey);
+          } catch (e) {}
+        }, 700);
+        return () => clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [composerText]);
       useEffect(() => {
         if (inlineComposerFor === post.id && composerRef.current) {
           try {
@@ -3793,6 +3814,7 @@ const onboardingTooltip =
                 const res = submitReply(post.id, 'volunteer', composerText);
                 if (!res.ok) setComposerErr(res.error);
                 else {
+                  try { localStorage.removeItem(draftKey); } catch (e) {}
                   setComposerText('');
                   setComposerErr('');
                   setInlineComposerFor(null);
