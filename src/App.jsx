@@ -1428,6 +1428,119 @@ function App() {
   // share modal state (opened by sharePost)
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareTargetPost, setShareTargetPost] = useState(null);
+  // public post view (for /p/:id deep links that should open a read-only public page)
+  const [publicViewPostId, setPublicViewPostId] = useState(() => {
+    const m = window.location.pathname.match(/\/p\/(.+)$/);
+    return m ? decodeURIComponent(m[1]) : null;
+  });
+
+  // Analytics / tracking helper (lightweight)
+  function trackEvent(name, data = {}) {
+    try {
+      if (window.dataLayer && typeof window.dataLayer.push === 'function') {
+        window.dataLayer.push({ event: name, ...data });
+      } else {
+        console.log('[trackEvent]', name, data);
+      }
+    } catch (e) {
+      // swallow
+    }
+  }
+
+  // Focus management for share modal (accessibility)
+  const shareModalFirstBtnRef = useRef(null);
+  const shareModalRef = useRef(null);
+
+  useEffect(() => {
+    const modalEl = shareModalRef.current;
+    const appEl = document.querySelector('.nb-app');
+
+    if (shareModalOpen) {
+      const prevOverflow = document.body.style.overflow || '';
+      const prevAria = appEl ? appEl.getAttribute('aria-hidden') : null;
+
+      // prevent background scroll while modal open
+      document.body.style.overflow = 'hidden';
+      if (appEl) appEl.setAttribute('aria-hidden', 'true');
+
+      // focus first actionable control
+      setTimeout(() => {
+        try {
+          shareModalFirstBtnRef.current && shareModalFirstBtnRef.current.focus();
+        } catch (e) {}
+      }, 60);
+
+      function onKey(e) {
+        if (e.key === 'Escape') {
+          setShareModalOpen(false);
+          setShareTargetPost(null);
+          return;
+        }
+
+        if (e.key === 'Tab') {
+          if (!modalEl) return;
+          const nodes = modalEl.querySelectorAll(
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          );
+          const focusable = Array.prototype.slice.call(nodes).filter((n) => n.offsetParent !== null);
+          if (focusable.length === 0) return;
+          const idx = focusable.indexOf(document.activeElement);
+
+          if (e.shiftKey) {
+            if (idx === 0 || document.activeElement === modalEl) {
+              e.preventDefault();
+              focusable[focusable.length - 1].focus();
+            }
+          } else {
+            if (idx === focusable.length - 1) {
+              e.preventDefault();
+              focusable[0].focus();
+            }
+          }
+        }
+      }
+
+      // use capture so we get key events before inner handlers
+      document.addEventListener('keydown', onKey, true);
+
+      return () => {
+        document.removeEventListener('keydown', onKey, true);
+        document.body.style.overflow = prevOverflow;
+        if (appEl) {
+          if (prevAria === null) appEl.removeAttribute('aria-hidden');
+          else appEl.setAttribute('aria-hidden', prevAria);
+        }
+      };
+    }
+    return undefined;
+  }, [shareModalOpen]);
+
+  // When viewing a public post, update basic meta tags (client-side only).
+  function setMetaTag(name, content) {
+    try {
+      let el = document.querySelector(`meta[property="${name}"]`) || document.querySelector(`meta[name="${name}"]`);
+      if (!el) {
+        el = document.createElement('meta');
+        // prefer property for OpenGraph
+        el.setAttribute('property', name);
+        document.head.appendChild(el);
+      }
+      el.setAttribute('content', content || '');
+    } catch (e) {}
+  }
+
+  useEffect(() => {
+    if (!publicViewPostId) return;
+    const p = (posts || []).find((x) => x && x.id === publicViewPostId);
+    if (!p) return;
+    try {
+      document.title = p.title || 'Neighbloom';
+      setMetaTag('og:title', p.title || 'Neighbloom');
+      setMetaTag('og:description', p.details || '');
+      setMetaTag('og:url', postUrl(p.id));
+      if (p.photo) setMetaTag('og:image', p.photo);
+    } catch (e) {}
+  }, [publicViewPostId, posts]);
   // ---------------- BLOCK / REPORT (local MVP) ----------------
   const [blockedByUser, setBlockedByUser] = useLocalStorageJsonState(
     'nb_blockedByUser',
@@ -2166,7 +2279,13 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   }
 
   async function sharePost(post) {
-    // Prefer opening a lightweight share modal so we provide explicit fallbacks
+    // Prefer native share on supporting browsers; otherwise open modal
+    trackEvent('share_open', { postId: post?.id });
+    if (navigator.share) {
+      await performShareAction({ action: 'native', post });
+      return;
+    }
+    // open explicit modal with fallbacks
     setShareTargetPost(post);
     setShareModalOpen(true);
   }
@@ -7990,6 +8109,25 @@ const blockedSet = getBlockedSet(me.id);
       </div>
     );
   }
+  if (publicViewPostId) {
+    const p = (posts || []).find((x) => x && x.id === publicViewPostId);
+    return (
+      <div className="nb-app">
+        <Header />
+        <div className="nb-content nb-page-post">
+          <div style={{ maxWidth: 840, margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontWeight: 980, fontSize: 18 }}>{p?.title || 'Post'}</div>
+              <div>
+                <button className="nb-btn nb-btn-ghost" onClick={() => { history.back(); }}>Back</button>
+              </div>
+            </div>
+            {p ? <PostCard post={p} /> : <div className="nb-empty">Post not found</div>}
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="nb-app">
       <Header />
@@ -8131,7 +8269,7 @@ onRefresh={refreshHome}
               setShareTargetPost(null);
             }}
           >
-            <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="nb-modal" ref={shareModalRef} onClick={(e) => e.stopPropagation()}>
               <div className="nb-modal-head">
                 <div className="nb-modal-title">Share post</div>
                 <button
@@ -8155,32 +8293,41 @@ onRefresh={refreshHome}
                 </div>
 
                 <div style={{ display: 'grid', gap: 10 }}>
-                  <button
-                    className="nb-btn nb-btn-primary"
-                    onClick={() => performShareAction({ action: 'whatsapp', post: shareTargetPost })}
-                  >
-                    Share via WhatsApp
-                  </button>
+                  {/* Button ordering may be A/B tested via localStorage flag */}
+                  {(() => {
+                    const variant = localStorage.getItem('nb_share_variant') || (localStorage.setItem('nb_share_variant', Math.random() < 0.5 ? 'A' : 'B') || localStorage.getItem('nb_share_variant'));
+                    const A = [
+                      { k: 'whatsapp', label: 'Share via WhatsApp', cls: 'nb-btn nb-btn-primary' },
+                      { k: 'email', label: 'Share via Email', cls: 'nb-btn nb-btn-ghost' },
+                      { k: 'facebook', label: 'Share on Facebook', cls: 'nb-btn nb-btn-ghost' },
+                      { k: 'sms', label: 'Share via SMS', cls: 'nb-btn nb-btn-ghost' },
+                    ];
+                    const B = [
+                      { k: 'email', label: 'Share via Email', cls: 'nb-btn nb-btn-primary' },
+                      { k: 'whatsapp', label: 'Share via WhatsApp', cls: 'nb-btn nb-btn-ghost' },
+                      { k: 'facebook', label: 'Share on Facebook', cls: 'nb-btn nb-btn-ghost' },
+                      { k: 'sms', label: 'Share via SMS', cls: 'nb-btn nb-btn-ghost' },
+                    ];
+                    const list = variant === 'B' ? B : A;
+                    return list.map((it, idx) => (
+                      <button
+                        key={it.k}
+                        ref={idx === 0 ? shareModalFirstBtnRef : undefined}
+                        className={it.cls}
+                        aria-label={it.label}
+                        onClick={() => performShareAction({ action: it.k, post: shareTargetPost })}
+                      >
+                        {it.label}
+                      </button>
+                    ));
+                  })()}
 
                   <button
                     className="nb-btn nb-btn-ghost"
-                    onClick={() => performShareAction({ action: 'email', post: shareTargetPost })}
+                    aria-label="Copy link"
+                    onClick={() => performShareAction({ action: 'copy', post: shareTargetPost })}
                   >
-                    Share via Email
-                  </button>
-
-                  <button
-                    className="nb-btn nb-btn-ghost"
-                    onClick={() => performShareAction({ action: 'facebook', post: shareTargetPost })}
-                  >
-                    Share on Facebook
-                  </button>
-
-                  <button
-                    className="nb-btn nb-btn-ghost"
-                    onClick={() => performShareAction({ action: 'sms', post: shareTargetPost })}
-                  >
-                    Share via SMS
+                    Copy link
                   </button>
                 </div>
               </div>
