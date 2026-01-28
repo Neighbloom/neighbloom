@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Neighbloom — Shared post</title>
+
+    <!-- Generic/fallback Open Graph meta so social crawlers see something useful. -->
+    <meta property="og:site_name" content="Neighbloom" />
+    <meta property="og:title" content="Neighbloom post" />
+    <meta property="og:description" content="View this neighborhood post on Neighbloom." />
+    <meta property="og:image" content="/assets/og-fallback.png" />
+    <meta property="og:type" content="article" />
+
+    <!-- Canonical to the path-style link; bots that don't execute JS still get a useful canonical -->
+    <link rel="canonical" href="" id="canonical-link" />
+
+    <style>
+      body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; margin:0; padding:24px; background:#fff; color:#111 }
+      .wrap { max-width:700px; margin:48px auto; }
+      .title { font-size:20px; font-weight:800; margin-bottom:12px }
+      .desc { color:#555; margin-bottom:18px }
+      .open { display:inline-block; padding:10px 14px; border-radius:8px; background:#ff915a; color:#111; text-decoration:none; font-weight:800 }
+    </style>
+
+    <script>
+      // Set canonical and try to fill OG URL dynamically for clients that execute JS.
+      (function(){
+        try {
+          var url = location.protocol + '//' + location.host + location.pathname + (location.search||'');
+          var can = document.getElementById('canonical-link');
+          if (can) can.href = url;
+          var metas = document.head.querySelectorAll('meta[property^="og:"]');
+          metas.forEach(function(m){ if (m.getAttribute('property') === 'og:url') m.setAttribute('content', url); });
+        } catch(e){}
+      })();
+    </script>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="title">Neighbloom post</div>
+      <div class="desc">Open this post in the Neighbloom app or web client to see details and replies.</div>
+      <a id="open-link" class="open" href="/">Open Neighbloom</a>
+      <p style="margin-top:18px;color:#666">Tip: this is a lightweight fallback used when link previews or crawlers request the shared URL.</p>
+      <script>
+        // Make the Open link point at the exact path so users land on the post within the SPA.
+        try {
+          var path = location.pathname || '/p/';
+          document.getElementById('open-link').href = path;
+        } catch(e){}
+      </script>
+    </div>
+  </body>
+</html>
