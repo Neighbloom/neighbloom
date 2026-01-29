@@ -3768,7 +3768,6 @@ const onboardingTooltip =
 
   function ReplyList({ post }) {
     const isOwner = post.ownerId === me.id;
-    const [sortMode, setSortMode] = useState('trust');
     
     const visibleReplies = (post.replies || []).filter(
       (r) => !r.hidden && !isBlockedUser(r.authorId)
@@ -3898,76 +3897,19 @@ const onboardingTooltip =
       ? visibleReplies.filter((r) => selectedIds.includes(r.authorId))
       : [];
 
-    // Apply owner-visible sort to surface high-signal helpers
-    const sortedReplies = (() => {
-      if (!isOwner) return visibleReplies;
-      const arr = [...visibleReplies];
-      if (sortMode === 'trust') {
-        return arr.sort((a, b) => {
-          const pa = (npPointsByUser?.[a.authorId] || 0);
-          const pb = (npPointsByUser?.[b.authorId] || 0);
-          if (pb !== pa) return pb - pa;
-          return b.createdAt - a.createdAt;
-        });
-      }
-      if (sortMode === 'newest') return arr.sort((a, b) => b.createdAt - a.createdAt);
-      return arr;
-    })();
-
     const otherReplies = hasChosen
-      ? sortedReplies.filter((r) => !selectedIds.includes(r.authorId))
-      : sortedReplies;
+      ? visibleReplies.filter((r) => !selectedIds.includes(r.authorId))
+      : visibleReplies;
 
     const otherCount = hasChosen ? otherReplies.length : 0;
     const othersOpen = !!expandedOtherVols?.[post.id];
 
     const listToRender = hasChosen
       ? [...chosenReplies, ...(othersOpen ? otherReplies : [])]
-      : sortedReplies;
+      : visibleReplies;
 
     return (
       <div className="nb-thread">
-        {/* Suggested helpers strip for owners (top candidates) */}
-        {isOwner && isHelp && visibleReplies.length > 0 ? (
-          <div className="nb-suggest-wrap">
-            <div className="nb-suggest-strip">
-              {sortedReplies.slice(0, 3).map((r) => {
-                const u = usersById[r.authorId];
-                return (
-                  <div key={r.id} className="nb-suggest-item" onClick={(e) => e.stopPropagation()}>
-                    <img className="nb-avatar xs" src={u?.avatar} alt={u?.name} />
-                    <div style={{ minWidth: 0 }}>
-                      <div className="nb-suggest-name">
-                        {u?.name}
-                        <UserBadge userId={r.authorId} />
-                      </div>
-                      <div className="nb-muted small">{(npPointsByUser?.[r.authorId] || 0)} NP</div>
-                    </div>
-                    <div style={{ marginLeft: 8 }}>
-                      <button
-                        className="nb-link"
-                        onClick={() => setPendingSelection({ postId: post.id, userId: r.authorId, userName: usersById[r.authorId]?.name || 'Helper' })}
-                      >
-                        Invite
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-              <div className="nb-muted small" style={{ fontWeight: 900 }}>Sort:</div>
-              <select className="nb-stage-select" value={sortMode} onChange={(e) => setSortMode(e.target.value)}>
-                <option value="trust">Trust</option>
-                <option value="newest">Newest</option>
-                <option value="default">Default</option>
-              </select>
-              <button className="nb-link" onClick={() => toggleOtherVols(post.id)}>
-                Show all volunteers ({replyCount})
-              </button>
-            </div>
-          </div>
-        ) : null}
         {inlineComposerFor === post.id && !isOwner && post.status !== 'resolved' ? renderInlineComposer() : null}
         {hasChosen ? (
           <div style={{ margin: '6px 0 10px' }}>
