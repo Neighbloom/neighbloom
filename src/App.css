@@ -82,11 +82,140 @@ body{
 }
 
 .nb-content{
+/* Suggested helpers strip shown to owners to surface top candidates */
+.nb-suggest-wrap{ margin-bottom: 10px; }
+.nb-suggest-strip{ display:flex; gap:10px; align-items:center; overflow:auto; padding:6px 2px; }
+.nb-suggest-item{ display:flex; gap:8px; align-items:center; padding:8px; background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:12px; min-width:140px; }
+.nb-suggest-item .nb-avatar.xs{ width:36px; height:36px; border-radius:8px; }
+.nb-suggest-name{ font-weight:900; font-size:13px; color:var(--text); }
   flex:1;
   padding: 14px 14px calc(94px + env(safe-area-inset-bottom));
 }
 
 /* Small toast for "copied/share" feedback */
+
+/* Inferred area suggestion chip shown in PostFormV2 */
+.nb-infer-chip {
+  display: inline-block;
+  border: 1px solid rgba(255,145,90,0.25);
+  background: rgba(255,145,90,0.06);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.nb-infer-confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: rgba(10,14,22,0.02);
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.nb-infer-action {
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+@media (max-width: 480px) {
+  .nb-infer-confirm-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .nb-infer-action {
+    width: 100%;
+  }
+  .nb-infer-action + .nb-infer-action {
+    margin-top: 8px;
+  }
+}
+
+  /* Inline pending selection confirmation for owner */
+  .nb-pending-confirm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .nb-pending-confirm .nb-btn {
+    padding: 6px 10px;
+  }
+
+  /* ThankYouModal helper row styling */
+  .nb-thanks-row{
+    display:flex;
+    gap:12px;
+    align-items:center;
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:10px 12px;
+    background:rgba(255,255,255,0.03);
+  }
+  .nb-thanks-row .nb-avatar.sm{ width:48px; height:48px; border-radius:10px; }
+  .nb-thanks-main{ flex:1; min-width:0; }
+  .nb-thanks-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .nb-thanks-name{ font-weight:950; font-size:15px; color:var(--text); display:flex; align-items:center; gap:8px; }
+  .nb-thanks-np{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: linear-gradient(180deg,#ffb287,#ff6a3d);
+    color: #08121a;
+    font-weight:800;
+    padding:5px 10px;
+    border-radius:999px;
+    font-size:13px;
+    line-height:1;
+    box-shadow: 0 8px 18px rgba(255,106,61,0.10);
+    border: 1px solid rgba(255,106,61,0.12);
+    min-width: 48px;
+    transform: translateY(-1px);
+  }
+  .nb-thanks-sub{ color:var(--muted); font-weight:800; font-size:13px; margin-top:6px; }
+
+  /* Ensure NP chip is visible and action stacks on small screens */
+  @media (max-width: 520px) {
+    .nb-thanks-row {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .nb-thanks-top {
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .nb-thanks-main { margin-bottom: 8px; }
+    .nb-thanks-row > div:last-child { margin-top: 0; }
+    .nb-thanks-row .nb-btn { min-width: 0; width: 100%; }
+  }
+
+  /* Confetti pieces for celebration (larger and more intense) */
+  .nb-confetti-piece{
+    position:fixed;
+    top:6%;
+    width:12px;
+    height:18px;
+    border-radius:2px;
+    opacity:0.98;
+    left:50%;
+    z-index:2147483000;
+    animation: nb-confetti-fall 2.6s cubic-bezier(.2,.8,.2,1) forwards, nb-confetti-spin 1.6s linear infinite;
+  }
+
+  @keyframes nb-confetti-fall{
+    0%{ transform: translateY(0) rotate(0deg) scale(1); opacity:1 }
+    60%{ opacity:1 }
+    100%{ transform: translateY(700px) rotate(1080deg) scale(.98); opacity:0 }
+  }
+
+  @keyframes nb-confetti-spin{
+    0%{ transform: rotate(0deg) }
+    100%{ transform: rotate(360deg) }
+  }
 .nb-toast{
   position: fixed;
   left: 50%;
@@ -445,6 +574,16 @@ backdrop-filter: blur(10px);
 }
 
 .nb-helpflow{ display:flex; gap: 8px; margin-left:auto; }
+
+/* Compact stage selector used by owners and helpers */
+.nb-stage-select{
+  padding:8px 10px;
+  border-radius:10px;
+  border:1px solid var(--border);
+  background:transparent;
+  color:var(--text);
+  font-weight:800;
+}
 .nb-mini{
   border: 1px solid var(--border);
   background: rgba(255,255,255,.06);

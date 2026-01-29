@@ -534,7 +534,7 @@ const HELP_TEMPLATES = [
 const RADIUS_PRESETS = {
   near: { label: 'Near', miles: 1 },
   local: { label: 'Local', miles: 3 },
-  area: { label: 'Area', miles: 8 },
+  area: { label: 'Area', miles: 10 },
   all: { label: 'All', miles: Infinity }, // global feed (no effective distance limit)
 };
 
@@ -550,6 +550,17 @@ const TOWN_CENTERS = {
   'Palos Heights': { lat: 41.6686, lng: -87.7964 },
   'Palos Hills': { lat: 41.6967, lng: -87.8303 },
   'Palos Park': { lat: 41.6676, lng: -87.8342 },
+  /* Nearby suburbs added to broaden inference coverage */
+  'Hickory Hills': { lat: 41.6995, lng: -87.8074 },
+  'Oak Forest': { lat: 41.6206, lng: -87.8012 },
+  'Bridgeview': { lat: 41.7406, lng: -87.7839 },
+  'Alsip': { lat: 41.6645, lng: -87.6999 },
+  'Burbank': { lat: 41.7734, lng: -87.8063 },
+  'Justice': { lat: 41.7381, lng: -87.8198 },
+  'Orland Hills': { lat: 41.6631, lng: -87.8720 },
+  /* Slightly further suburbs */
+  'Mokena': { lat: 41.5456, lng: -87.8549 },
+  'New Lenox': { lat: 41.487, lng: -87.912 },
 };
 
 const TOWN_KEYS = Object.keys(TOWN_CENTERS);
@@ -573,9 +584,19 @@ function milesBetween(a, b) {
 }
 
 function inferTownKeyFromText(text) {
-  const t = String(text || '').toLowerCase();
+  const raw = String(text || '').toLowerCase();
+  const t = raw.replace(/[^a-z0-9\s]/g, ''); // strip punctuation for matching
+  const tCompacted = raw.replace(/[^a-z0-9]/g, ''); // compacted (no spaces)
   for (const k of TOWN_KEYS) {
-    if (t.includes(k.toLowerCase())) return k;
+    const kLower = k.toLowerCase();
+    const kCompacted = kLower.replace(/[^a-z0-9]/g, '');
+    // direct substring match (word-preserving)
+    if (t.includes(kLower)) return k;
+    // compacted match to catch tokens like 'oaklawn'
+    if (tCompacted.includes(kCompacted)) return k;
+    // all-words match: e.g., 'oak' and 'lawn' appear separately
+    const parts = kLower.split(/\s+/).filter(Boolean);
+    if (parts.length > 1 && parts.every((p) => t.indexOf(p) !== -1)) return k;
   }
   return null;
 }
@@ -1319,6 +1340,8 @@ function App() {
   const [expandedOtherVols, setExpandedOtherVols] = useState(
   () => saved?.expandedOtherVols ?? {}
 ); // postId -> bool
+  const [pendingSelection, setPendingSelection] = useState(null); // { postId, userId, userName }
+  const [replyOverflow, setReplyOverflow] = useState(null); // { postId, replyId, anchorRef }
   const [homeQuery, setHomeQuery] = useState(() => saved?.homeQuery ?? '');
   const [savedSearches, setSavedSearches] = useState(
     () => saved?.savedSearches ?? []
@@ -3745,6 +3768,7 @@ const onboardingTooltip =
 
   function ReplyList({ post }) {
     const isOwner = post.ownerId === me.id;
+    const [sortMode, setSortMode] = useState('trust');
     
     const visibleReplies = (post.replies || []).filter(
       (r) => !r.hidden && !isBlockedUser(r.authorId)
@@ -3874,19 +3898,76 @@ const onboardingTooltip =
       ? visibleReplies.filter((r) => selectedIds.includes(r.authorId))
       : [];
 
+    // Apply owner-visible sort to surface high-signal helpers
+    const sortedReplies = (() => {
+      if (!isOwner) return visibleReplies;
+      const arr = [...visibleReplies];
+      if (sortMode === 'trust') {
+        return arr.sort((a, b) => {
+          const pa = (npPointsByUser?.[a.authorId] || 0);
+          const pb = (npPointsByUser?.[b.authorId] || 0);
+          if (pb !== pa) return pb - pa;
+          return b.createdAt - a.createdAt;
+        });
+      }
+      if (sortMode === 'newest') return arr.sort((a, b) => b.createdAt - a.createdAt);
+      return arr;
+    })();
+
     const otherReplies = hasChosen
-      ? visibleReplies.filter((r) => !selectedIds.includes(r.authorId))
-      : visibleReplies;
+      ? sortedReplies.filter((r) => !selectedIds.includes(r.authorId))
+      : sortedReplies;
 
     const otherCount = hasChosen ? otherReplies.length : 0;
     const othersOpen = !!expandedOtherVols?.[post.id];
 
     const listToRender = hasChosen
       ? [...chosenReplies, ...(othersOpen ? otherReplies : [])]
-      : visibleReplies;
+      : sortedReplies;
 
     return (
       <div className="nb-thread">
+        {/* Suggested helpers strip for owners (top candidates) */}
+        {isOwner && isHelp && visibleReplies.length > 0 ? (
+          <div className="nb-suggest-wrap">
+            <div className="nb-suggest-strip">
+              {sortedReplies.slice(0, 3).map((r) => {
+                const u = usersById[r.authorId];
+                return (
+                  <div key={r.id} className="nb-suggest-item" onClick={(e) => e.stopPropagation()}>
+                    <img className="nb-avatar xs" src={u?.avatar} alt={u?.name} />
+                    <div style={{ minWidth: 0 }}>
+                      <div className="nb-suggest-name">
+                        {u?.name}
+                        <UserBadge userId={r.authorId} />
+                      </div>
+                      <div className="nb-muted small">{(npPointsByUser?.[r.authorId] || 0)} NP</div>
+                    </div>
+                    <div style={{ marginLeft: 8 }}>
+                      <button
+                        className="nb-link"
+                        onClick={() => setPendingSelection({ postId: post.id, userId: r.authorId, userName: usersById[r.authorId]?.name || 'Helper' })}
+                      >
+                        Invite
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+              <div className="nb-muted small" style={{ fontWeight: 900 }}>Sort:</div>
+              <select className="nb-stage-select" value={sortMode} onChange={(e) => setSortMode(e.target.value)}>
+                <option value="trust">Trust</option>
+                <option value="newest">Newest</option>
+                <option value="default">Default</option>
+              </select>
+              <button className="nb-link" onClick={() => toggleOtherVols(post.id)}>
+                Show all volunteers ({replyCount})
+              </button>
+            </div>
+          </div>
+        ) : null}
         {inlineComposerFor === post.id && !isOwner && post.status !== 'resolved' ? renderInlineComposer() : null}
         {hasChosen ? (
           <div style={{ margin: '6px 0 10px' }}>
@@ -4054,15 +4135,37 @@ const onboardingTooltip =
                   {isHelp ? (
                     <>
                       {canChooseThis ? (
-                        <button
-                          className="nb-link"
-                          onClick={() => chooseOneForChat(post.id, r.authorId)}
-                          title="Select this helper"
-                        >
-                          {helpersNeeded > 1
-                            ? `Choose helper (${selectedIds.length}/${helpersNeeded})`
-                            : 'Choose helper'}
-                        </button>
+                        <>
+                          <button
+                            className="nb-link"
+                            onClick={() => setPendingSelection({ postId: post.id, userId: r.authorId, userName: usersById[r.authorId]?.name || 'Helper' })}
+                            title="Select this helper"
+                          >
+                            {helpersNeeded > 1
+                              ? `Choose helper (${selectedIds.length}/${helpersNeeded})`
+                              : 'Choose helper'}
+                          </button>
+
+                          {/* Inline pending-confirm row for owner to confirm selection */}
+                          {pendingSelection && pendingSelection.postId === post.id && pendingSelection.userId === r.authorId ? (
+                            <div className="nb-pending-confirm" style={{ marginTop: 8 }}>
+                              <span style={{ marginRight: 10 }}>Pick {pendingSelection.userName} as helper?</span>
+                              <button
+                                className="nb-btn nb-btn-primary"
+                                onClick={() => { chooseOneForChat(post.id, r.authorId); setPendingSelection(null); }}
+                              >
+                                Select helper
+                              </button>
+                              <button
+                                className="nb-btn nb-btn-ghost"
+                                style={{ marginLeft: 8 }}
+                                onClick={() => setPendingSelection(null)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : null}
+                        </>
                       ) : null}
 
                       {canChatThis ? (
@@ -4398,72 +4501,60 @@ function pushActivity(arg, meta = {}) {
               </button>
             ) : null}
 
-            {showChatButton ? (
+            {/* Overflow menu: consolidate secondary actions (Open chat, Share, Thread) into one menu for all users; owner items remain */}
+            <div style={{ position: 'relative' }} ref={overflowRef}>
               <button
-                className="nb-btn nb-btn-ghost"
-                onClick={() => openChat(post.id, chatOtherUserId)}
+                ref={overflowBtnRef}
+                className="nb-btn nb-btn-ghost nb-btn-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOverflowOpen((s) => !s);
+                }}
+                aria-haspopup="true"
+                aria-expanded={overflowOpen}
+                title="More"
               >
-                Open chat
+                ⋯
               </button>
-            ) : null}
 
-            {isOwner ? (
-              <div style={{ position: 'relative' }} ref={overflowRef}>
-                <button
-                  ref={overflowBtnRef}
-                  className="nb-btn nb-btn-ghost nb-btn-sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setOverflowOpen((s) => !s);
-                  }}
-                  aria-haspopup="true"
-                  aria-expanded={overflowOpen}
-                  title="More"
-                >
-                  ⋯
-                </button>
-
-                <PostOverflowMenu
-                  anchorRef={overflowBtnRef}
-                  open={overflowOpen}
-                  onClose={() => setOverflowOpen(false)}
-                  items={[
-                    { label: 'Edit', onClick: () => setModal({ type: 'edit_post', postId: post.id }) },
-                    { label: 'Delete', danger: true, onClick: () => deletePost(post.id) },
-                    { label: lifecycle === 'open' ? 'Start' : lifecycle === 'in_progress' ? 'Complete' : lifecycle === 'completed' ? 'Archive' : 'Restore', onClick: () => setPostLifecycle(post.id, nextLifecycle(lifecycle)) },
-                  ]}
-                />
-              </div>
-            ) : null}
+              <PostOverflowMenu
+                anchorRef={overflowBtnRef}
+                open={overflowOpen}
+                onClose={() => setOverflowOpen(false)}
+                items={(() => {
+                  const items = [];
+                  if (showChatButton) items.push({ label: 'Open chat', onClick: () => openChat(post.id, chatOtherUserId) });
+                  items.push({ label: 'Share', onClick: () => sharePost(post) });
+                  if (replyCount > 0) items.push({ label: open ? `Hide ${threadLabel}` : `Show ${threadLabel}`, onClick: () => toggleThread(post.id) });
+                  if (isOwner) {
+                    items.push({ label: 'Edit', onClick: () => setModal({ type: 'edit_post', postId: post.id }) });
+                    items.push({ label: 'Delete', danger: true, onClick: () => deletePost(post.id) });
+                    items.push({ label: lifecycle === 'open' ? 'Start' : lifecycle === 'in_progress' ? 'Complete' : lifecycle === 'completed' ? 'Archive' : 'Restore', onClick: () => setPostLifecycle(post.id, nextLifecycle(lifecycle)) });
+                  } else {
+                    items.push({ label: 'Report', onClick: () => reportUser(post.ownerId) });
+                  }
+                  return items;
+                })()}
+              />
+            </div>
 
             {isOwner &&
             post.kind === 'help' &&
             (selectedHelperIds.length > 0) ? (
               <div className="nb-helpflow">
-                <button
-                  className={`nb-mini ${
-                    post.stage === 'booked' ? 'is-on' : ''
-                  }`}
-                  onClick={() => advanceHelpStage(post.id, 'booked')}
+                <label style={{ display: 'none' }} htmlFor={`nb_stage_select_${post.id}`}>Stage</label>
+                <select
+                  id={`nb_stage_select_${post.id}`}
+                  className="nb-stage-select"
+                  value={post.stage || 'open'}
+                  onChange={(e) => advanceHelpStage(post.id, e.target.value)}
+                  title="Set help stage"
                 >
-                  Booked
-                </button>
-
-                <button
-                  className={`nb-mini ${
-                    post.stage === 'started' ? 'is-on' : ''
-                  }`}
-                  onClick={() => advanceHelpStage(post.id, 'started')}
-                >
-                  Started
-                </button>
-
-                <button
-                  className={`nb-mini ${post.stage === 'done' ? 'is-on' : ''}`}
-                  onClick={() => advanceHelpStage(post.id, 'done')}
-                >
-                  Done
-                </button>
+                  <option value="open">Open</option>
+                  <option value="booked">Booked</option>
+                  <option value="started">Started</option>
+                  <option value="done">Done</option>
+                </select>
 
                 <button
                   className={`nb-btn nb-btn-primary ${post.stage === 'confirmed' ? 'is-on' : ''}`}
@@ -4471,11 +4562,11 @@ function pushActivity(arg, meta = {}) {
                   disabled={post.stage !== 'done' && post.stage !== 'confirmed'}
                   title={
                     post.stage === 'done'
-                      ? 'Confirm completion and award NP'
+                      ? 'Award +20 NP to selected helper(s)'
                       : 'Mark as Done first'
                   }
                 >
-                  Confirm
+                  Award NP
                 </button>
               </div>
             ) : null}
@@ -4485,21 +4576,17 @@ function pushActivity(arg, meta = {}) {
         selectedHelperIds.includes(me.id) &&
         post.status !== 'resolved' ? (
   <div className="nb-helpflow">
-    <button
-      className={`nb-mini ${post.stage === 'started' ? 'is-on' : ''}`}
-      onClick={() => advanceHelpStage(post.id, 'started')}
-      title="Let the requester know you’ve started"
+    <label style={{ display: 'none' }} htmlFor={`nb_stage_select_helper_${post.id}`}>Stage</label>
+    <select
+      id={`nb_stage_select_helper_${post.id}`}
+      className="nb-stage-select"
+      value={post.stage || 'open'}
+      onChange={(e) => advanceHelpStage(post.id, e.target.value)}
+      title="Update your progress"
     >
-      Started
-    </button>
-
-    <button
-      className={`nb-mini ${post.stage === 'done' ? 'is-on' : ''}`}
-              onClick={() => setModal({ type: 'completion_photo', postId: post.id })}
-      title="Marks the job done so the requester can confirm and award NP"
-    >
-      Done
-    </button>
+      <option value="started">Started</option>
+      <option value="done">Done</option>
+    </select>
 
     {post.stage === 'done' ? (
       <span className="nb-muted small" style={{ fontWeight: 900 }}>
@@ -4788,53 +4875,43 @@ function pushActivity(arg, meta = {}) {
               return (
                 <div
                   key={h.id}
-                  style={{
-                    display: 'flex',
-                    gap: 10,
-                    alignItems: 'center',
-                    border: '1px solid var(--border)',
-                    borderRadius: 14,
-                    padding: '10px 12px',
-                    background: 'rgba(255,255,255,.03)',
-                  }}
+                  className="nb-thanks-row"
                 >
                   <img className="nb-avatar sm" src={h.avatar} alt={h.name} />
 
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 950, fontSize: 13 }}>
-                      {h.name}
-                      <UserBadge userId={h.id} />
-                      <span className="nb-handle">{h.handle}</span>
+                  <div className="nb-thanks-main">
+                    <div className="nb-thanks-top">
+                      <div className="nb-thanks-name">
+                        {h.name}
+                        <span style={{ marginLeft: 8 }}><UserBadge userId={h.id} /></span>
+                      </div>
+                      <div className="nb-thanks-np">🎉 +20 NP 🙌</div>
                     </div>
-                    <div className="nb-muted" style={{ fontWeight: 850, fontSize: 12 }}>
-                      +20 NP awarded
-                    </div>
+                    <div className="nb-thanks-sub">{h.handle} • Thank you</div>
                   </div>
 
-                  <button
-                    className="nb-btn nb-btn-ghost nb-btn-sm"
-                    disabled={!canChat}
-                    onClick={() => openChat(postId, h.id)}
-                    title={canChat ? 'Open chat' : 'Chat is locked'}
-                  >
-                    Chat
-                  </button>
-
-                  <button
-                    className="nb-btn nb-btn-primary nb-btn-sm"
-                    disabled={!canChat}
-                    onClick={() => {
-                      sendChatMessage(
-                        postId,
-                        h.id,
-                        'Thanks again — confirmed. Appreciate you.'
-                      );
-                      openChat(postId, h.id);
-                    }}
-                    title={canChat ? 'Send a quick thank-you' : 'Chat is locked'}
-                  >
-                    Send thanks
-                  </button>
+                      <div style={{ marginLeft: 10 }}>
+                    <button
+                      className="nb-btn nb-btn-primary nb-btn-sm"
+                      disabled={!canChat}
+                      style={{ minWidth: 140 }}
+                      onClick={() => {
+                        try { launchConfetti(48); } catch (e) {}
+                        try { setModal(null); } catch (e) {}
+                        setTimeout(() => {
+                          sendChatMessage(
+                            postId,
+                            h.id,
+                            'Thanks again — confirmed. Appreciate you.'
+                          );
+                          openChat(postId, h.id);
+                        }, 80);
+                      }}
+                      title={canChat ? 'Send a quick thank-you' : 'Chat is locked'}
+                    >
+                      Send thanks
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -4852,6 +4929,37 @@ function pushActivity(arg, meta = {}) {
       </div>
     </div>
   );
+}
+
+function launchConfetti(count = 36) {
+  try {
+    const root = document.body;
+    const pieces = [];
+    const colors = ['#ff915a', '#ffd166', '#7bd389', '#70c1b3', '#9ec1ff', '#ffd6a5', '#a0f0d6'];
+    for (let i = 0; i < count; i++) {
+      const el = document.createElement('div');
+      el.className = 'nb-confetti-piece';
+      // randomize color and position
+      el.style.background = colors[Math.floor(Math.random() * colors.length)];
+      el.style.left = Math.round(Math.random() * 80 + 10) + '%';
+      el.style.transform = `rotate(${Math.round(Math.random() * 360)}deg)`;
+      // small size variation
+      const w = 10 + Math.round(Math.random() * 10);
+      const h = 14 + Math.round(Math.random() * 12);
+      el.style.width = w + 'px';
+      el.style.height = h + 'px';
+      // vary animation durations slightly per piece
+      const fall = 1.8 + Math.random() * 1.4; // seconds
+      const spin = 1 + Math.random() * 1.2;
+      el.style.animationDuration = `${fall}s, ${spin}s`;
+      root.appendChild(el);
+      pieces.push(el);
+      // remove after animation
+      setTimeout(() => {
+        try { el.remove(); } catch (e) {}
+      }, (fall * 1000) + 600 + Math.round(Math.random() * 600));
+    }
+  } catch (e) {}
 }
 
 function OnboardingModal() {
@@ -6067,6 +6175,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
   const [photoBytes, setPhotoBytes] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [showInferConfirm, setShowInferConfirm] = useState(false);
 
   useEffect(() => {
     // Reset when switching kinds
@@ -6468,6 +6577,46 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
               placeholder={getMessagePlaceholder()}
               rows={4}
             />
+            {/* Suggested location micro-confirmation (tappable, non-destructive) */}
+            {(() => {
+              const inferredTown = (() => {
+                try { return inferTownKeyFromText(message || '') || null; } catch (e) { return null; }
+              })();
+              if (!inferredTown || (String(normalizeText(area) || '').toLowerCase() === String(inferredTown || '').toLowerCase())) return null;
+              return (
+                <div style={{ marginTop: 8 }}>
+                  {!showInferConfirm ? (
+                    <button
+                      type="button"
+                      className="nb-meta-chip nb-infer-chip"
+                      onClick={() => setShowInferConfirm(true)}
+                    >
+                      Suggested location: {inferredTown}
+                    </button>
+                  ) : (
+                    <div className="nb-infer-confirm-row">
+                      <span>Set location to {inferredTown}?</span>
+                      <div style={{ display: 'inline-flex', gap: 8, marginLeft: 8 }}>
+                        <button
+                          type="button"
+                          className="nb-btn nb-btn-primary nb-infer-action"
+                          onClick={() => { setArea(inferredTown); setShowInferConfirm(false); }}
+                        >
+                          Set Location
+                        </button>
+                        <button
+                          type="button"
+                          className="nb-btn nb-infer-action"
+                          onClick={() => setShowInferConfirm(false)}
+                        >
+                          Keep mine
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <div className="nb-muted" style={{ marginTop: 8 }}>Include: what + where/how + when.</div>
 
             
