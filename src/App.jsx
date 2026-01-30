@@ -202,6 +202,20 @@ function normalizeText(t) {
   return (t || '').trim().replace(/\s+/g, ' ');
 }
 
+// Conservative urgency inference (used for suggestion only)
+function inferUrgency(text) {
+  if (!text) return { match: false };
+  const s = String(text).toLowerCase();
+  const patterns = [
+    /\burgent\b/, /\basap\b/, /\bright now\b/, /\btoday\b/, /\btonight\b/, /\bemergency\b/, /\bimmediately\b/, /\bneed (help|someone).*tonight\b/, /\bneed (help|someone)\b/, /\bthis (evening|morning|afternoon)\b/, /\bblocked\b/, /\blocked out\b/
+  ];
+  for (const re of patterns) {
+    const m = s.match(re);
+    if (m) return { match: true, phrase: m[0] };
+  }
+  return { match: false };
+}
+
 function buildRecTitle(recCategory, area) {
   const cat = normalizeText(recCategory);
   const loc = normalizeText(area);
@@ -3468,6 +3482,45 @@ expandedOtherVols,
     );
   }
 
+  // Compact trust snapshot for reply rows: confirmed helps, success %, avg response
+  function getUserTrustSummary(userId) {
+    try {
+      const list = Array.isArray(posts) ? posts : [];
+      let confirmations = 0;
+      let appearances = 0;
+      const responseDeltas = [];
+      const recentConfirms = [];
+
+      for (const p of list) {
+        if (!p || !Array.isArray(p.replies)) continue;
+        // count confirmed selections where this user was chosen
+        const sel = getSelectedHelperIds(p || {});
+        if (sel.includes(userId)) {
+          confirmations++;
+          // collect a short sample for hover/card
+          recentConfirms.push({ postId: p.id, preview: (p.title || (p.text || '')).slice(0, 120), ts: p.createdAt || 0 });
+        }
+
+        for (const r of p.replies) {
+          if (!r || r.authorId !== userId) continue;
+          appearances++;
+          if (p.createdAt && r.createdAt) {
+            const deltaMin = Math.max(0, Math.round((r.createdAt - p.createdAt) / 60000));
+            responseDeltas.push(deltaMin);
+          }
+        }
+      }
+
+      const successPct = appearances > 0 ? Math.round((confirmations / Math.max(1, appearances)) * 100) : null;
+      const avgResponseMins = responseDeltas.length ? Math.round(responseDeltas.reduce((a, b) => a + b, 0) / responseDeltas.length) : null;
+
+      recentConfirms.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      return { confirmations, successPct, avgResponseMins, sampleCount: appearances, recentConfirms: recentConfirms.slice(0, 3) };
+    } catch (e) {
+      return { confirmations: 0, successPct: null, avgResponseMins: null };
+    }
+  }
+
   function navTo(tab) {
     // kill overlays that can make it FEEL like tabs don't work
     setChat(null);
@@ -3762,6 +3815,11 @@ const onboardingTooltip =
         >
           {statusLabel}
         </div>
+        {post.urgent ? (
+          <div style={{ marginLeft: 12 }}>
+            <span className="nb-urgent-pill" title={post.urgentReason || 'Marked urgent'}>Urgent</span>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -3778,6 +3836,8 @@ const onboardingTooltip =
     const replyCount = visibleReplies.length;
       const [composerText, setComposerText] = useState('');
       const [composerErr, setComposerErr] = useState('');
+      const [inlineUrgent, setInlineUrgent] = useState(false);
+      const [inlineUrgentReason, setInlineUrgentReason] = useState('');
       const composerRef = useRef(null);
       const draftKey = `nb_draft_reply_${post.id}`;
       // Load draft when composer mounts for this post
@@ -3808,7 +3868,9 @@ const onboardingTooltip =
         }
       }, [inlineComposerFor, post.id]);
 
-      const renderInlineComposer = () => (
+      const renderInlineComposer = () => {
+        const suggestedInlineUrgency = inferUrgency(composerText || '');
+        return (
         <div className="nb-inline-composer">
           <textarea
             ref={composerRef}
@@ -3822,6 +3884,30 @@ const onboardingTooltip =
           />
 
           {composerErr ? <div className="nb-error">{composerErr}</div> : null}
+
+          <div style={{ marginTop: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input type="checkbox" checked={inlineUrgent} onChange={(e) => setInlineUrgent(!!e.target.checked)} />
+              <span style={{ fontWeight: 700, fontSize: 13 }}>Mark as urgent</span>
+            </label>
+            {inlineUrgent ? (
+              <input placeholder="Optional reason (e.g. tonight)" value={inlineUrgentReason} onChange={(e) => setInlineUrgentReason(e.target.value)} style={{ width: '100%', marginTop: 8, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)' }} />
+            ) : null}
+
+            {suggestedInlineUrgency?.match && !inlineUrgent ? (
+              <div className="nb-infer-confirm-row" style={{ marginTop: 8 }}>
+                <div className="nb-infer-chip">Suggested: urgent ({suggestedInlineUrgency.phrase})</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="nb-btn nb-btn-ghost nb-infer-action" onClick={() => setInlineUrgent(true)}>
+                    Use suggestion
+                  </button>
+                  <button className="nb-btn nb-btn-ghost nb-infer-action" onClick={() => { /* ignore */ }}>
+                    Ignore
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
 
           <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
             <button
@@ -3853,6 +3939,7 @@ const onboardingTooltip =
           </div>
         </div>
       );
+      }
 
     if (!visibleReplies.length) {
       return (
@@ -3988,6 +4075,37 @@ const onboardingTooltip =
                     {u?.name}
                     <UserBadge userId={r.authorId} />
                     <span className="nb-handle">{u?.handle}</span>
+                  </div>
+                  {/* Trust snapshot: small, read-only signals to help owners decide */}
+                  <div style={{ marginLeft: 64, marginTop: 6 }}>
+                    {(() => {
+                      const s = getUserTrustSummary(r.authorId);
+                      if (!s || s.confirmations === 0) {
+                        // hide entirely when no confirmed helps
+                        return null;
+                      }
+
+                      return (
+                        <div className="nb-trust-snapshot">
+                          <div className="nb-trust-container" tabIndex={0}>
+                            <span className={`nb-trust-pill ${s.confirmations >= 3 ? 'high-trust' : ''}`} title={`${s.confirmations} confirmed`}>{s.confirmations} confirmed</span>
+                            <div className="nb-trust-card">
+                              <div className="nb-trust-card-title">Recent confirmations</div>
+                              {s.recentConfirms && s.recentConfirms.length ? (
+                                s.recentConfirms.map((c, i) => (
+                                  <div key={i} className="nb-trust-sample">
+                                    <div className="nb-trust-sample-text">{c.preview || '(no title)'}</div>
+                                    <div className="nb-trust-sample-time">{timeAgo(c.ts || 0)}</div>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="nb-trust-sample">No recent confirmations</div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div className="nb-reply-time">{timeAgo(r.createdAt)}</div>
                 </div>
@@ -6111,6 +6229,8 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
   const [whenIsCustom, setWhenIsCustom] = useState(false);
   const [helpersNeeded, setHelpersNeeded] = useState(1);
   const [details, setDetails] = useState('');
+  const [urgent, setUrgent] = useState(false);
+  const [urgentReason, setUrgentReason] = useState('');
   const [message, setMessage] = useState('');
   const [prefTags, setPrefTags] = useState([]);
   const [photo, setPhoto] = useState('');
@@ -6172,6 +6292,13 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
       setDraftAvailable(true);
     } catch (e) {}
   }
+
+  const suggestedUrgency = useMemo(() => {
+    try {
+      const combined = `${what || ''} ${details || ''}`;
+      return inferUrgency(combined || '');
+    } catch (e) { return { match: false }; }
+  }, [what, details]);
 
   function clearDraft() {
     try { localStorage.removeItem(DRAFT_KEY); setDraftAvailable(false); } catch (e) {}
@@ -6943,6 +7070,8 @@ if (mentionsIndoor(combined)) {
         createdAt: NOW(),
         replies: [],
         selectedUserId: null,
+        urgent: urgent === true ? true : false,
+        urgentReason: urgent ? (urgentReason || suggestedUrgency?.phrase || '') : '',
       };
 
       setPosts((prev) => [p, ...(Array.isArray(prev) ? prev : [])]);
@@ -7017,6 +7146,34 @@ if (mentionsIndoor(combined)) {
               </select>
             ) : null}
           </div>
+
+          <div className="nb-row" style={{ marginTop: 8 }}>
+            <label className="nb-label">Priority</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input type="checkbox" checked={urgent} onChange={(e) => setUrgent(!!e.target.checked)} />
+                <span style={{ fontWeight: 800 }}>Mark as urgent</span>
+              </label>
+              {urgent ? (
+                <input placeholder="Optional reason (e.g. tonight)" value={urgentReason} onChange={(e) => setUrgentReason(e.target.value)} style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)' }} />
+              ) : null}
+            </div>
+          </div>
+
+          {/* Auto-suggestion (non-destructive) */}
+          {suggestedUrgency?.match && !urgent ? (
+            <div className="nb-infer-confirm-row" style={{ marginTop: 8 }}>
+              <div className="nb-infer-chip">Suggested: urgent ({suggestedUrgency.phrase})</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="nb-btn nb-btn-ghost nb-infer-action" onClick={() => setUrgent(true)}>
+                  Use suggestion
+                </button>
+                <button className="nb-btn nb-infer-action" onClick={() => { /* dismiss */ }}>
+                  Ignore
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {/* Title */}
 <div className="nb-row">
