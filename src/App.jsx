@@ -6986,6 +6986,14 @@ const [nearText, setNearText] = useState('');
     const [photo, setPhoto] = useState(null); // dataURL (local demo only)
     const [err, setErr] = useState('');
     const [photoErr, setPhotoErr] = useState('');
+      const [urgent, setUrgent] = useState(false);
+      const [urgentReason, setUrgentReason] = useState('');
+      const suggestedUrgency = useMemo(() => {
+        try {
+          const combined = `${title || ''} ${details || ''}`;
+          return inferUrgency(combined || '');
+        } catch (e) { return { match: false }; }
+      }, [title, details]);
 
     function clearPhoto() {
       setPhoto(null);
