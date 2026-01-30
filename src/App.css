@@ -99,6 +99,20 @@ body{
   font-weight: 700;
 }
 
+/* Urgent pill (post header) */
+.nb-urgent-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 10px;
+  border-radius:999px;
+  background: linear-gradient(180deg,#ffb3aa,#ff6a3d);
+  color:#08121a;
+  font-weight:900;
+  font-size:12px;
+  border:1px solid rgba(255,106,61,0.18);
+}
+
 .nb-infer-confirm-row {
   display: flex;
   align-items: center;
@@ -692,6 +706,52 @@ backdrop-filter: blur(10px);
 }
 .nb-tag.top{ background: rgba(255,106,61,.14); color: var(--text); border-color: rgba(255,106,61,.35); }
 .nb-tag.warn{ background: rgba(245,158,11,.16); border-color: rgba(245,158,11,.35); color: rgba(245,158,11,.95); }
+
+/* Trust snapshot microcard for reply rows */
+.nb-trust-snapshot{ display:flex; gap:8px; align-items:center; flex-wrap:nowrap; }
+.nb-trust-container{ position:relative; display:inline-block; }
+.nb-trust-pill{ display:inline-flex; align-items:center; justify-content:center; min-width:62px; height:30px; background: linear-gradient(180deg,#fff6f0,#ffe8dc); color: #6b280f; border: 1px solid rgba(255,106,61,0.12); padding: 0 12px; border-radius: 999px; font-weight:900; font-size:13px; line-height:1; text-align:center; box-shadow: 0 6px 14px rgba(255,106,61,0.06); }
+.nb-trust-card{ display:none; position:absolute; top:40px; left:0; min-width:260px; max-width:420px; background: var(--card); border:1px solid var(--soft); padding:12px; border-radius:12px; box-shadow:var(--shadow); z-index:1200; }
+.nb-trust-container:hover .nb-trust-card{ display:block; }
+.nb-trust-container:focus-within .nb-trust-card{ display:block; }
+.nb-trust-pill.high-trust{ background: linear-gradient(180deg,#ECFFEF,#C6F6E8); color:#064e3b; border: 1px solid rgba(34,197,94,0.15); box-shadow: 0 6px 16px rgba(34,197,94,0.06); }
+.nb-trust-card-title{ font-weight:900; margin-bottom:8px; color:var(--text); }
+.nb-trust-sample{ display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-top:1px solid rgba(255,255,255,0.02); }
+.nb-trust-sample:first-of-type{ border-top:0; }
+.nb-trust-sample-text{ color:var(--muted); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nb-trust-sample-time{ color:var(--muted); font-weight:800; font-size:12px; }
+@media (max-width:520px){
+  .nb-trust-snapshot{ gap:6px; }
+  .nb-trust-pill{ min-width:48px; height:28px; padding: 0 10px; font-size:12px; }
+  /* Mobile: position card fixed and centered so it's fully visible */
+  .nb-trust-card{
+    position:fixed;
+    left:50%;
+    transform:translateX(-50%);
+    top:72px; /* below header */
+    width: min(94vw, 560px);
+    max-width: 94vw;
+    min-width: 220px;
+    border-radius:12px;
+    padding:14px;
+    box-shadow: 0 22px 48px rgba(0,0,0,0.48);
+    display:none;
+    z-index:2147483001;
+    max-height: calc(100vh - 110px);
+    overflow:auto;
+  }
+  .nb-trust-container:focus-within .nb-trust-card{ display:block; }
+  /* mobile-only dim backdrop to emphasize the card */
+  .nb-trust-container:focus-within::before,
+  .nb-trust-container:hover::before{
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 2147483000;
+    pointer-events: none;
+  }
+}
 
 /* Modals */
 .nb-modal-backdrop{
@@ -1834,6 +1894,48 @@ details.nb-more-options summary {
   .nb-inline-composer .nb-btn { width: 100%; font-size: 16px; padding: 14px 16px; border-radius: 12px; }
   .nb-inline-composer .nb-btn + .nb-btn { margin-top: 8px; }
 }
+
+  /* Priority (urgent) styling */
+  .nb-priority-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+  .nb-priority-checkbox {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    appearance: none;
+  }
+  .nb-priority-checkbox:checked {
+    background: linear-gradient(180deg,var(--accent),#c75);
+    border-color: transparent;
+  }
+  .nb-priority-label {
+    font-weight: 800;
+    color: var(--text);
+    font-size: 14px;
+  }
+  .nb-priority-reason {
+    width: 100%;
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.02);
+    color: var(--text);
+    font-size: 14px;
+  }
+  .nb-priority-reason::placeholder { color: rgba(255,255,255,0.45); }
+
+  @media (max-width: 640px) {
+    .nb-priority-row { gap: 12px; }
+    .nb-priority-checkbox { width: 20px; height: 20px; }
+    .nb-priority-label { font-size: 15px; }
+  }
 
 .nb-chip-suggest {
   padding: 6px 8px;

@@ -3886,12 +3886,12 @@ const onboardingTooltip =
           {composerErr ? <div className="nb-error">{composerErr}</div> : null}
 
           <div style={{ marginTop: 8 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <input type="checkbox" checked={inlineUrgent} onChange={(e) => setInlineUrgent(!!e.target.checked)} />
-              <span style={{ fontWeight: 700, fontSize: 13 }}>Mark as urgent</span>
+            <label className="nb-priority-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input className="nb-priority-checkbox" type="checkbox" checked={inlineUrgent} onChange={(e) => setInlineUrgent(!!e.target.checked)} />
+              <span className="nb-priority-label">Mark as urgent</span>
             </label>
             {inlineUrgent ? (
-              <input placeholder="Optional reason (e.g. tonight)" value={inlineUrgentReason} onChange={(e) => setInlineUrgentReason(e.target.value)} style={{ width: '100%', marginTop: 8, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)' }} />
+              <input className="nb-priority-reason" placeholder="Optional reason (e.g. tonight)" value={inlineUrgentReason} onChange={(e) => setInlineUrgentReason(e.target.value)} />
             ) : null}
 
             {suggestedInlineUrgency?.match && !inlineUrgent ? (
@@ -7171,12 +7171,12 @@ if (mentionsIndoor(combined)) {
           <div className="nb-row" style={{ marginTop: 8 }}>
             <label className="nb-label">Priority</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input type="checkbox" checked={urgent} onChange={(e) => setUrgent(!!e.target.checked)} />
-                <span style={{ fontWeight: 800 }}>Mark as urgent</span>
+              <label className="nb-priority-row" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input className="nb-priority-checkbox" type="checkbox" checked={urgent} onChange={(e) => setUrgent(!!e.target.checked)} />
+                <span className="nb-priority-label">Mark as urgent</span>
               </label>
               {urgent ? (
-                <input placeholder="Optional reason (e.g. tonight)" value={urgentReason} onChange={(e) => setUrgentReason(e.target.value)} style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)' }} />
+                <input className="nb-priority-reason" placeholder="Optional reason (e.g. tonight)" value={urgentReason} onChange={(e) => setUrgentReason(e.target.value)} />
               ) : null}
             </div>
           </div>
