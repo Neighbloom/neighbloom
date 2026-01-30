@@ -6714,6 +6714,19 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
               <div className="nb-inline-hint">Add a short detail so helpers know what to expect.</div>
             ) : null}
 
+            <div className="nb-row" style={{ marginTop: 8 }}>
+              <label className="nb-label">Priority</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={urgent} onChange={(e) => setUrgent(!!e.target.checked)} />
+                  <span style={{ fontWeight: 800 }}>Mark as urgent</span>
+                </label>
+                {urgent ? (
+                  <input placeholder="Optional reason (e.g. tonight)" value={urgentReason} onChange={(e) => setUrgentReason(e.target.value)} style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text)' }} />
+                ) : null}
+              </div>
+            </div>
+
             <details className="nb-more-options" style={{ marginTop: 10 }}>
               <summary>More options</summary>
 
