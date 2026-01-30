@@ -1816,23 +1816,48 @@ details.nb-more-options summary {
 .nb-inline-composer .nb-btn { min-height: 48px; padding: 12px 16px; }
 
 @media (max-width: 640px) {
-  /* make the inline composer a full-screen sheet on small devices */
+  /* make the inline composer a compact sheet on small devices (avoid full-screen) */
   .nb-inline-composer {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
-    top: 0;
-    padding: 18px;
+    /* intentionally avoid `top: 0` so it doesn't occupy the full viewport */
+    padding: 12px 12px calc(env(safe-area-inset-bottom, 12px) + 12px);
     background: linear-gradient(180deg, rgba(8,12,22,0.98), rgba(8,12,22,0.99));
     z-index: 120;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
+    align-items: stretch;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    max-height: 60vh;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
   }
-  .nb-inline-composer .nb-input.nb-textarea { flex: 1 1 auto; min-height: 60vh; font-size: 17px; padding: 14px; border-radius: 14px; }
-  .nb-inline-composer .nb-btn { width: 100%; font-size: 16px; padding: 14px 16px; border-radius: 12px; }
-  .nb-inline-composer .nb-btn + .nb-btn { margin-top: 8px; }
+
+  /* Keep textarea compact so the sheet stays above the keyboard */
+  .nb-inline-composer .nb-input.nb-textarea {
+    flex: 0 0 auto;
+    min-height: 88px;
+    max-height: calc(60vh - 120px);
+    font-size: 16px;
+    padding: 12px;
+    border-radius: 10px;
+    resize: none;
+  }
+
+  .nb-inline-composer .nb-btn {
+    width: 100%;
+    font-size: 15px;
+    padding: 12px 14px;
+    border-radius: 10px;
+  }
+
+  .nb-inline-composer .nb-btn + .nb-btn {
+    margin-top: 8px;
+  }
 }
 
 .nb-chip-suggest {
