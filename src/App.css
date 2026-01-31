@@ -1,9 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800;900&display=swap');
-
 :root{
-  /* color system */
   --bg0:#050A14;
   --bg1:#0B1220;
+
   --panel: rgba(12,18,33,.78);
   --card: rgba(10,16,30,.82);
 
@@ -22,33 +20,6 @@
 
   --shadow: 0 18px 46px rgba(0,0,0,.42);
   --radius: 22px;
-
-  /* typography */
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial;
-  --font-heading: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial;
-  --base-size: 16px;
-}
-
-.nb-btn{
-  border: 1px solid var(--border);
-  background: rgba(255,255,255,.04);
-  color: var(--text);
-  padding: 12px 14px;
-  border-radius: 14px;
-  font-weight: 600;
-  cursor:pointer;
-  transition: transform 120ms ease, box-shadow 160ms ease, background-color 120ms ease;
-}
-.nb-btn:active{ transform: translateY(1px); }
-.nb-btn-primary{
-  border-color: rgba(255,106,61,.65);
-  background: linear-gradient(180deg, rgba(255,165,120,1), rgba(255,116,76,1));
-  color: #0B1220;
-  box-shadow: 0 10px 28px rgba(255,106,61,.18);
-  padding: 12px 18px;
-  font-size: 15px;
-  font-weight: 700;
-  border-radius: 14px;
 }
 
 button, input, select, textarea { font: inherit; }
@@ -76,11 +47,9 @@ html{
 
 body{
   margin:0;
-  font-family: var(--font-sans);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   color:var(--text);
   background: transparent; /* prevents iOS/Chrome bounce showing white */
-  line-height: 1.45;
-  font-weight: 400;
 }
 
 /* Fallback: style ONLY truly unstyled form fields (do NOT affect custom inputs like search) */
@@ -100,13 +69,14 @@ body{
 /* Make sure custom search input stays clean even if future rules change */
 .nb-search-input{
   padding: 0;
-  font-family: var(--font-sans);
+  width: auto;
 }
+
 /* Layout */
 .nb-app{
   min-height:100%;
   max-width: 980px;
-    font-size: 20.5px;
+  margin: 0 auto;
   display:flex;
   flex-direction:column;
 }
@@ -117,6 +87,7 @@ body{
 }
 
 /* Small toast for "copied/share" feedback */
+
 /* Inferred area suggestion chip shown in PostFormV2 */
 .nb-infer-chip {
   display: inline-block;
@@ -126,7 +97,6 @@ body{
   padding: 6px 10px;
   border-radius: 999px;
   font-weight: 700;
-    font-weight: 700;
 }
 
 .nb-infer-confirm-row {
@@ -428,6 +398,19 @@ backdrop-filter: blur(10px);
   color: var(--text);
 }
 
+/* You Offered panel */
+.nb-offers-list { display: flex; flex-direction: column; gap: 12px; }
+.nb-offer-item { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px; border:1px solid var(--border); border-radius:12px; background: rgba(255,255,255,0.02); }
+.nb-offer-main { min-width:0; }
+.nb-offer-title { font-size: 14px; }
+.nb-offer-meta { font-size: 13px; color: var(--muted); margin-top:4px; }
+.nb-offer-actions { display:flex; align-items:center; gap:8px; }
+
+@media (max-width:640px) {
+  .nb-offer-item { flex-direction: column; align-items:stretch; }
+  .nb-offer-actions { justify-content: flex-end; margin-top:8px; }
+}
+
 /* Cards */
 .nb-feed{ display:flex; flex-direction:column; gap: 20px; }
 
@@ -482,9 +465,9 @@ backdrop-filter: blur(10px);
 
 .nb-card-title{
   margin-top: 8px;
-  font-size: 20.5px;
-  font-weight: 700;
-  letter-spacing: -.015em;
+  font-size: 20px;
+  font-weight: 950;
+  letter-spacing: -.02em;
 
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -723,6 +706,23 @@ backdrop-filter: blur(10px);
 .nb-tag.top{ background: rgba(255,106,61,.14); color: var(--text); border-color: rgba(255,106,61,.35); }
 .nb-tag.warn{ background: rgba(245,158,11,.16); border-color: rgba(245,158,11,.35); color: rgba(245,158,11,.95); }
 
+/* Helper status badge shown next to helper name */
+.nb-helper-status{
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 900;
+  font-size: 12px;
+}
+
+/* Compact helper controls row in post header */
+.nb-helpflow{ display:flex; align-items:center; gap:8px; }
+@media (max-width:640px){ .nb-helpflow{ flex-wrap:wrap; } }
+
 /* Modals */
 .nb-modal-backdrop{
   position: fixed;
@@ -751,7 +751,7 @@ backdrop-filter: blur(10px);
   align-items:center;
   border-bottom: 1px solid var(--border);
 }
-.nb-modal-title{ font-weight: 700; font-size: 18px; }
+.nb-modal-title{ font-weight: 980; font-size: 18px; }
 .nb-x{ border:0;background:transparent;font-size:20px;cursor:pointer;color:var(--text); }
 
 .nb-modal-sub{ padding: 12px 14px 0; color: var(--muted); font-weight: 800; }
@@ -1201,8 +1201,8 @@ backdrop-filter: blur(10px);
 }
 
 .nb-hero-bar-left{ min-width: 0; }
-.nb-hero-title{ font-weight: 800; font-size: 17px; letter-spacing: -.02em; }
-.nb-hero-sub{ margin-top: 4px; font-weight: 600; opacity: .88; font-size: 13.5px; }
+.nb-hero-title{ font-weight: 980; font-size: 16px; letter-spacing: -.01em; }
+.nb-hero-sub{ margin-top: 4px; font-weight: 850; opacity: .85; font-size: 13px; }
 
 .nb-hero-cta{
   border: 0;
@@ -1223,8 +1223,8 @@ backdrop-filter: blur(10px);
   padding: 14px;
 }
 
-.nb-hero-card-title{ font-weight: 800; font-size: 19px; }
-.nb-hero-card-sub{ margin-top: 6px; color: var(--muted); font-weight: 600; }
+.nb-hero-card-title{ font-weight: 980; font-size: 18px; }
+.nb-hero-card-sub{ margin-top: 6px; color: var(--muted); font-weight: 850; }
 
 .nb-hero-actions{
   margin-top: 12px;
@@ -2091,4 +2091,107 @@ details.nb-details summary::-webkit-details-marker {
 @media (min-width: 521px){
   .nb-onbNudge{ display: none; }
 }
+
+
+
+/* Highlight animation when a post is opened from the "You offered" panel */
+.nb-highlight {
+  animation: nb-highlight-fade 2200ms ease forwards;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(255,166,120,0.12);
+  position: relative;
+  z-index: 60;
+}
+
+@keyframes nb-highlight-fade {
+  0% {
+    background: rgba(255,236,210,0.98);
+    transform: translateY(-3px);
+  }
+  60% {
+    background: rgba(255,236,210,0.45);
+    transform: translateY(0);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* Activity grouping badge (small count next to grouped activity rows) */
+.nb-group-badge{
+  display: inline-block;
+  margin-left: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255,145,90,.12);
+  color: var(--muted);
+  font-weight: 900;
+  font-size: 12px;
+}
+
+/* Activity CTA strip */
+.nb-activity-ctas{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  margin-top:12px;
+}
+.nb-activity-ctas .nb-btn{ padding:10px 12px; font-size:14px; }
+
+/* Preview line for chat messages inside Activity rows */
+.nb-preview{ color: var(--muted); display:inline-block; max-width:60%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:800; }
+.nb-preview-sep{ color: rgba(242,246,255,.28); margin: 0 8px; }
+
+/* Small unread pill shown inline on list rows */
+.nb-unread-pill{ margin-left:10px; background: linear-gradient(180deg,#ffb287,#ff6a3d); color:#08121a; padding:4px 8px; border-radius:999px; font-weight:900; font-size:12px; }
+
+/* Tiny new-dot indicator for recently updated groups */
+.nb-new-dot{ display:inline-block; width:10px; height:10px; background: var(--accent); border-radius:999px; margin-left:8px; box-shadow: 0 4px 10px rgba(255,106,61,0.12); }
+
+@media (max-width:640px){
+  .nb-preview{ max-width:46%; font-size:13px; }
+  .nb-activity-ctas{ flex-wrap:wrap; }
+}
+
+/* Activity overhaul styles */
+.nb-activity-page { padding-bottom: 20px; }
+.nb-activity-header{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.nb-activity-controls{ display:flex; gap:10px; align-items:center; }
+.nb-activity-filter select{ padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:transparent; color:var(--text); }
+.nb-activity-list{ margin-top:14px; display:flex; flex-direction:column; gap:10px; }
+.nb-activity-row{ border:1px solid var(--soft); background: rgba(255,255,255,0.02); padding:10px; border-radius:12px; }
+.nb-activity-main{ display:flex; gap:12px; align-items:center; }
+.nb-activity-left{ flex:0 0 44px; }
+.nb-activity-avatar{ width:44px; height:44px; border-radius:10px; object-fit:cover; border:1px solid var(--border); }
+.nb-activity-avatar.sm{ width:34px; height:34px; border-radius:8px; }
+.nb-activity-mid{ flex:1; min-width:0; }
+.nb-activity-title{ font-weight:900; display:flex; align-items:center; gap:8px; }
+.nb-activity-sub{ color:var(--muted); font-weight:800; margin-top:4px; display:flex; gap:6px; align-items:center; }
+.nb-activity-right{ display:flex; gap:8px; align-items:center; }
+.nb-activity-expand{ margin-top:10px; border-top:1px dashed rgba(255,255,255,0.03); padding-top:10px; display:flex; flex-direction:column; gap:8px; }
+.nb-activity-expand-row{ display:flex; gap:8px; align-items:flex-start; }
+.nb-activity-expand-body{ min-width:0; }
+.nb-activity-expand-top{ color:var(--muted); font-weight:700; margin-bottom:6px; }
+.nb-activity-expand-text{ color:var(--text); font-weight:800; }
+
+@media (max-width:640px){
+  .nb-activity-header{ flex-direction:column; align-items:stretch; }
+  .nb-activity-controls{ flex-wrap:wrap; }
+  .nb-activity-left{ flex:0 0 40px; }
+  .nb-activity-avatar{ width:40px; height:40px; }
+}
+
+/* Inline preview button (looks like plain text but keyboard accessible) */
+.nb-preview-btn{
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.nb-preview-btn:focus-visible{ outline: 2px solid rgba(255,145,90,.4); border-radius:6px; }
+.nb-preview-btn .nb-preview{ text-decoration: none; }
+
 

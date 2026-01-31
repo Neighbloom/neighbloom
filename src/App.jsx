@@ -261,236 +261,175 @@ function imageFileToDataUrl(file, maxDim = 1280, quality = 0.82) {
 
         try {
           resolve(canvas.toDataURL('image/jpeg', quality));
-        } catch {
-          reject(new Error('Couldn’t process that photo.'));
-        }
-      };
+            // Redesigned ActivityTab: grouped threads, inline expansion, filters + search
+            const visibleActivity = useMemo(() => {
+              const list = Array.isArray(activity) ? activity : [];
+              return list.filter((a) => a && typeof a === 'object' && Array.isArray(a.audienceIds) && a.audienceIds.includes(me.id));
+            }, [activity, me.id]);
 
-      img.src = String(reader.result || '');
-    };
+            const [filter, setFilter] = useState('all'); // all | chats | replies
+            const [q, setQ] = useState('');
+            const [expandedGroups, setExpandedGroups] = useState({});
 
-    reader.readAsDataURL(file);
-  });
-}
+            function toggleGroup(key) {
+              setExpandedGroups((prev) => ({ ...(prev || {}), [key]: !prev?.[key] }));
+            }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsDataURL(file);
-  });
-}
+            // Build groups: threads by postId or single activity
+            const groups = useMemo(() => {
+              const by = {};
+              for (const a of visibleActivity) {
+                const key = a.postId ? `post:${a.postId}` : `act:${a.id}`;
+                if (!by[key]) by[key] = { key, post: a.postId ? posts.find((p) => p.id === a.postId) : null, items: [] };
+                by[key].items.push(a);
+              }
+              const out = Object.values(by).map((g) => {
+                g.items.sort((x, y) => (y.ts || 0) - (x.ts || 0));
+                g.most = g.items[0];
+                g.unread = 0;
+                // compute unread for the thread (sum of distinct chats)
+                const a = g.most;
+                const otherId = otherIdFromActivity(a, me.id);
+                if (g.post && otherId && canOpenChatForPost(g.post, otherId)) {
+                  const chatId = getChatId(g.post.id, me.id, otherId);
+                  g.unread = unreadCount(chatId, me.id);
+                  g.preview = getLastMessagePreview(chatId, me.id, 90);
+                } else {
+                  g.unread = g.items.filter((it) => (it.ts || 0) > (lastSeen.activityTs || 0)).length;
+                  g.preview = '';
+                }
+                return g;
+              }).sort((a, b) => (b.most.ts || 0) - (a.most.ts || 0));
 
-async function compressImageFileToDataUrl(
-  file,
-  { maxDim = 1600, quality = 0.82, mime = 'image/jpeg' } = {}
-) {
-  const src = await fileToDataUrl(file);
+              // apply filter + query
+              return out.filter((g) => {
+                if (filter === 'chats') {
+                  const a = g.most;
+                  const isChat = a?.type === 'chat_unlocked' || a?.type === 'chat_message';
+                  if (!isChat) return false;
+                }
+                if (filter === 'replies') {
+                  const a = g.most;
+                  if (a?.type !== 'reply_sent') return false;
+                }
+                if (!q) return true;
+                const lower = q.toLowerCase();
+                const a = g.most;
+                const text = (activityText(a, me.id) + ' ' + (g.preview || '')).toLowerCase();
+                return text.includes(lower);
+              });
+            }, [visibleActivity, filter, q, posts, me.id, lastSeen.activityTs]);
 
-  const img = new Image();
-  img.src = src;
+            function handleOpenNextUnread() {
+              for (const g of groups) {
+                if (g.unread && g.post) {
+                  const otherId = otherIdFromActivity(g.most, me.id);
+                  if (!otherId) continue;
+                  if (!canOpenChatForPost(g.post, otherId)) continue;
+                  openChat(g.post.id, otherId);
+                  const chatId = getChatId(g.post.id, me.id, otherId);
+                  markChatRead(chatId, me.id);
+                  return;
+                }
+              }
+            }
 
-  await new Promise((resolve, reject) => {
-    img.onload = resolve;
-    img.onerror = () => reject(new Error('Invalid image'));
-  });
+            return (
+              <div className="nb-page nb-activity-page">
+                <div className="nb-section nb-activity-header">
+                  <div>
+                    <div className="nb-section-title">Activity</div>
+                    <div className="nb-section-sub">Track replies, unlocked chats, and key updates.</div>
+                  </div>
 
-  const w = img.naturalWidth || img.width;
-  const h = img.naturalHeight || img.height;
+                  <div className="nb-activity-controls">
+                    <div className="nb-activity-filter">
+                      <select value={filter} onChange={(e) => setFilter(e.target.value)} className="nb-input">
+                        <option value="all">All</option>
+                        <option value="chats">Chats</option>
+                        <option value="replies">Replies</option>
+                      </select>
+                    </div>
 
-  const scale = Math.min(1, maxDim / Math.max(w, h));
-  const cw = Math.max(1, Math.round(w * scale));
-  const ch = Math.max(1, Math.round(h * scale));
+                    <input
+                      className="nb-input"
+                      placeholder="Search activity"
+                      value={q}
+                      onChange={(e) => setQ(e.target.value)}
+                      aria-label="Search activity"
+                    />
 
-  const canvas = document.createElement('canvas');
-  canvas.width = cw;
-  canvas.height = ch;
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <button className="nb-btn nb-btn-ghost" onClick={handleOpenNextUnread}>Open next unread</button>
+                      <button className="nb-btn nb-btn-ghost" onClick={() => markSeen(me.id, 'activity')}>Mark all read</button>
+                    </div>
+                  </div>
+                </div>
 
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas unsupported');
+                {groups.length === 0 ? (
+                  <EmptyState
+                    title="No activity yet"
+                    body="Activity will appear when people reply, open chats, or mark posts resolved."
+                    ctaLabel="Go to Feed"
+                    onCta={() => setActiveTab('home')}
+                  />
+                ) : (
+                  <div className="nb-activity-list">
+                    {groups.map((g) => {
+                      const a = g.most;
+                      const post = g.post;
+                      const otherId = otherIdFromActivity(a, me.id);
+                      const canChat = post && otherId && canOpenChatForPost(post, otherId);
+                      const unreadLabel = g.unread > 9 ? '9+' : String(g.unread || '');
+                      const isExpanded = !!expandedGroups[g.key];
 
-  ctx.drawImage(img, 0, 0, cw, ch);
+                      return (
+                        <div key={g.key} className="nb-activity-row" role="group" aria-labelledby={g.key}>
+                          <div className="nb-activity-main" onClick={() => toggleGroup(g.key)} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter') toggleGroup(g.key)}}>
+                            <div className="nb-activity-left">
+                              <img className="nb-activity-avatar" src={(post && usersById[post.ownerId]?.avatar) || AVATAR} alt="" />
+                            </div>
 
-  const blob = await new Promise((resolve) =>
-    canvas.toBlob(resolve, mime, quality)
-  );
-  if (!blob) throw new Error('Compression failed');
+                            <div className="nb-activity-mid">
+                              <div className="nb-activity-title">{activityText(a, me.id)} {g.items.length>1? <span className="nb-group-badge">{g.items.length}</span>:null}</div>
+                              <div className="nb-activity-sub">
+                                {g.preview ? <span className="nb-preview">{g.preview}</span> : null}
+                                {g.preview ? <span className="nb-preview-sep">·</span> : null}
+                                <span className="nb-time">{timeAgo(a.ts)}</span>
+                              </div>
+                            </div>
 
-  const out = await new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result || ''));
-    r.onerror = () => reject(new Error('Failed to read compressed image'));
-    r.readAsDataURL(blob);
-  });
+                            <div className="nb-activity-right">
+                              {g.unread ? <span className="nb-unread-pill" aria-hidden title={`${g.unread} unread`}>{unreadLabel}</span> : null}
+                              {canChat ? (
+                                <button className="nb-btn nb-btn-ghost nb-btn-sm" onClick={(e)=>{ e.stopPropagation(); openChat(post.id, otherId); }}>Open chat</button>
+                              ) : (
+                                <button className="nb-btn nb-btn-ghost nb-btn-sm" onClick={(e)=>{ e.stopPropagation(); jumpToPostFromActivity(a.postId); }}>View</button>
+                              )}
+                            </div>
+                          </div>
 
-  return { dataUrl: out, bytes: blob.size };
-}
-
-const BADGES = [
-  { min: 0, name: '🌱 Seedling' },
-  { min: 100, name: '🌿 Sprout' },
-  { min: 300, name: '🌸 Blossom' },
-  { min: 800, name: '🌳 Oak' },
-];
-
-const BADGE_DETAILS = {
-  Seedling: 'Getting started. Communicates clearly and respects the rules.',
-  Sprout:
-    'Dependable follow-through. Confirms details and completes what they commit to.',
-  Blossom:
-    'High-trust. Frequently chosen because plans stay clear and outcomes match expectations.',
-  Oak: 'Proven cornerstone. A long track record of confirmed help—consistent, calm, reliable.',
-};
-
-function badgeFor(points) {
-  let b = BADGES[0];
-  for (const x of BADGES) if (points >= x.min) b = x;
-  return b.name;
-}
-
-function badgeParts(label) {
-  const parts = String(label || '').split(' ');
-  return {
-    emoji: parts[0] || '🌱',
-    name: parts.slice(1).join(' ') || 'Seedling',
-  };
-}
-
-// -------------------- PERSISTENCE (V1) --------------------
-const STORAGE_KEY = 'neighbloom_v1';
-const STORAGE_VERSION = 1;
-const MAX_SAVED_SEARCHES = 5;
-
-function searchFingerprint({ query, homeChip, homeShowAll }) {
-  const q = normalizeText(query).toLowerCase();
-  const chip = homeChip || 'all';
-  const showAll = homeShowAll ? '1' : '0';
-  return `${chip}|${showAll}|${q}`;
-}
-
-function defaultSavedSearchName(query) {
-  const q = normalizeText(query);
-  if (!q) return 'Saved';
-  return q.length > 22 ? `${q.slice(0, 22)}…` : q;
-}
-
-function safeJsonParse(raw, fallback) {
-  try {
-    if (!raw) return fallback;
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-}
-
-function loadAppState() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  const data = safeJsonParse(raw, null);
-
-  if (!data || data.version !== STORAGE_VERSION) return null;
-
-  // Basic shape checks (keep it light, avoid brittle validation)
-  if (!Array.isArray(data.posts)) return null;
-  if (!Array.isArray(data.activity)) return null;
-  if (typeof data.npPointsByUser !== 'object') return null;
-  if (typeof data.replyStats !== 'object') return null;
-  if (typeof data.chats !== 'object') return null;
-
-  // Optional (newer versions). Keep backwards compatible.
-  if ('followsByUser' in data && typeof data.followsByUser !== 'object')
-    return null;
-  if ('homeFollowOnly' in data && typeof data.homeFollowOnly !== 'boolean')
-    return null;
-
-  return data;
-}
-
-function saveAppState(state) {
-  try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ version: STORAGE_VERSION, ...state })
-    );
-  } catch {
-    // ignore quota / private mode errors
-  }
-}
-
-function resetAppState() {
-  localStorage.removeItem(STORAGE_KEY);
-}
-
-function mentionsReward(text) {
-  const t = (text || '').toLowerCase();
-  return (
-    t.includes('reward') ||
-    t.includes('bounty') ||
-    /\$\s*\d+/.test(t) ||
-    t.includes('venmo') ||
-    t.includes('zelle') ||
-    t.includes('paypal') ||
-    t.includes('cashapp') ||
-    t.includes('cash app')
-  );
-}
-
-function mentionsIndoor(text) {
-  const t = (text || '').toLowerCase();
-  const terms = [
-    'inside',
-    'indoors',
-    'enter',
-    'come in',
-    'in my house',
-    'in the house',
-    'bedroom',
-    'bathroom',
-    'kitchen',
-    'basement',
-    'upstairs',
-    'downstairs',
-    'garage',
-  ];
-  return terms.some((w) => t.includes(w));
-}
-
-const REC_CATEGORIES = [
-  'Plumber',
-  'Electrician',
-  'Mechanic',
-  'Barber',
-  'Daycare',
-  'Pediatric PT',
-  'Dentist',
-  'CPA / Tax',
-  'Landscaper',
-  'Dog Groomer',
-  'Handyman',
-  '__custom__', // Custom…
-];
-
-const REC_PREF_TAGS = [
-  'Neighbor-owned',
-  'Honest pricing',
-  'No upsell',
-  'Fast turnaround',
-  'Warranty-backed',
-  'Great with kids',
-  'Accepts insurance',
-];
-
-const HELP_CATEGORIES = [
-  'Snow shoveling (driveway/sidewalk)',
-  'Yard help (raking/bagging)',
-  'Trash bins (to/from curb)',
-  'Curb-to-curb move',
-  'Porch pickup / drop (no valuables)',
-  'Outdoor quick pet assist',
-  'Litter pickup / block cleanup',
-  'Quick outside check (ice/porch/etc.)',
-];
-
+                          {isExpanded ? (
+                            <div className="nb-activity-expand">
+                              {g.items.slice(0,5).map((it) => (
+                                <div key={it.id} className="nb-activity-expand-row">
+                                  <div className="nb-activity-expand-left"><img className="nb-activity-avatar sm" src={usersById[it.actorId]?.avatar || AVATAR} alt="" /></div>
+                                  <div className="nb-activity-expand-body">
+                                    <div className="nb-activity-expand-top"><strong>{usersById[it.actorId]?.name || 'Someone'}</strong> · <span className="nb-time">{timeAgo(it.ts)}</span></div>
+                                    <div className="nb-activity-expand-text">{it.text || activityText(it, me.id)}</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
 const HELP_TEMPLATES = [
   {
     category: 'Snow shoveling (driveway/sidewalk)',
@@ -1775,6 +1714,78 @@ const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
     [posts, me.id]
   );
 
+  // Aggregated "You offered" panel state + computed offers
+  const [youOfferedOpen, setYouOfferedOpen] = useState(false);
+
+  const myOffers = useMemo(() => {
+    const out = [];
+    for (const p of posts || []) {
+      if (!p || !Array.isArray(p.replies)) continue;
+      for (const r of p.replies) {
+        if (!r || r.authorId !== me.id) continue;
+        // only show volunteer replies (help flow)
+        if (p.kind === 'help' && (r.type === 'volunteer' || !r.type)) {
+          out.push({
+            postId: p.id,
+            postTitle: p.title || p.details || 'Help request',
+            postArea: p.area,
+            postOwnerId: p.ownerId,
+            replyId: r.id,
+            helperStatus: r.helperStatus || 'offered',
+            postStage: p.stage || 'open',
+            selected: Array.isArray(p.selectedUserIds) && p.selectedUserIds.includes(me.id),
+            createdAt: r.createdAt || 0,
+          });
+        }
+      }
+    }
+    // sort by most recent offer first
+    out.sort((a, b) => b.createdAt - a.createdAt);
+    return out;
+  }, [posts, me.id]);
+
+  function cancelOffer(postId, replyId) {
+    if (!postId || !replyId) return;
+    setPosts((prev) =>
+      (prev || []).map((p) => {
+        if (!p || p.id !== postId) return p;
+        const nextReplies = (p.replies || []).filter((r) => r.id !== replyId);
+        return { ...p, replies: nextReplies };
+      })
+    );
+
+    pushActivity({
+      text: `${usersById[me.id]?.name || 'You'} cancelled an offer.`,
+      actorId: me.id,
+      postId,
+      postKind: 'help',
+      audienceIds: [me.id, posts.find((x) => x.id === postId)?.ownerId].filter(Boolean),
+    });
+    showToast('Offer cancelled');
+  }
+
+  function goToOfferPost(postId) {
+    if (!postId) return;
+    // Navigate to home and expand that post thread
+    setActiveTab('home');
+    setExpandedThreads((prev) => ({ ...(prev || {}), [postId]: true }));
+    setYouOfferedOpen(false);
+    // Scroll the post into view after UI updates (give React a tick)
+    setTimeout(() => {
+      try {
+        const el = document.getElementById(`post_card_${postId}`);
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          try { el.classList.add('nb-highlight'); } catch (e) {}
+          // Remove highlight after animation completes
+          setTimeout(() => {
+            try { el.classList.remove('nb-highlight'); } catch (e) {}
+          }, 2400);
+        }
+      } catch (e) {}
+    }, 60);
+  }
+
   // -------------------- SAVED SEARCHES (Enhancement #2) --------------------
   const mySavedSearches = useMemo(() => {
     const list = Array.isArray(savedSearches) ? savedSearches : [];
@@ -2439,6 +2450,25 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   return max;
 }
 
+  function getLastMessagePreview(chatId, viewerId, max = 64) {
+  const msgs = Array.isArray(chats?.[chatId]) ? chats[chatId] : [];
+  if (!msgs.length) return '';
+
+  // take last non-empty text message (prefer most recent)
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (!m) continue;
+    if (typeof m.text === 'string' && m.text.trim()) {
+      const t = maskPhones(m.text.trim());
+      if (t.length <= max) return t;
+      return t.slice(0, max - 1).trim() + '…';
+    }
+  }
+
+  // fallback: show indicator for non-text (image/attachment)
+  return 'Attachment';
+}
+
   function unreadCount(chatId, viewerId) {
   const msgs = Array.isArray(chats?.[chatId]) ? chats[chatId] : [];
 
@@ -2971,14 +3001,24 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     if (curStage === 'confirmed') return;
   }
 
+  // If the actor is a selected helper, update their own reply-level status
+  // instead of mutating the global post.stage. Owners still control the
+  // canonical lifecycle of the post.
+  if (!meIsOwner) {
+    const myReply = (post.replies || []).find((r) => r && r.authorId === me.id);
+    if (!myReply) return;
+    // Map nextStage to helperStatus (started/done)
+    setHelperStatus(postId, myReply.id, nextStage);
+    return;
+  }
+
+  // Owner: update global post stage
   setPosts((prev) =>
     prev.map((p) => (p.id === postId ? { ...p, stage: nextStage } : p))
   );
 
   // Activity breadcrumb visible to BOTH sides
-  const audience = Array.from(
-    new Set([post.ownerId, ...selected].filter(Boolean))
-  );
+  const audience = Array.from(new Set([post.ownerId, ...selected].filter(Boolean)));
   const actorName = usersById[me.id]?.name || 'Neighbor';
 
   pushActivity({
@@ -2990,6 +3030,37 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     audienceIds: audience,
   });
 }
+
+  // Helpers shouldn’t change the global post stage; they should update their
+  // own reply-level helperStatus (offered | started | done). This function
+  // lets a helper set their status on their reply.
+  function setHelperStatus(postId, replyId, status) {
+    if (!postId || !replyId) return;
+    const post = posts.find((p) => p && p.id === postId);
+    if (!post || post.kind !== 'help') return;
+
+    const reply = (post.replies || []).find((r) => r && r.id === replyId);
+    if (!reply || reply.authorId !== me.id) return; // only update own reply
+
+    setPosts((prev) =>
+      (prev || []).map((p) => {
+        if (!p || p.id !== postId) return p;
+        const replies = (p.replies || []).map((r) =>
+          r.id === replyId ? { ...r, helperStatus: status } : r
+        );
+        return { ...p, replies };
+      })
+    );
+
+    pushActivity({
+      text: `${usersById[me.id]?.name || 'You'} marked progress: ${status}.`,
+      actorId: me.id,
+      postId,
+      postOwnerId: post.ownerId,
+      postKind: 'help',
+      audienceIds: [me.id, post.ownerId],
+    });
+  }
 
   function confirmHelp(postId) {
   const post = posts.find((p) => p && p.id === postId);
@@ -3009,36 +3080,46 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     return;
   }
 
-  // Award NP to EVERY selected helper
-  setNpPointsByUser((prev) => {
-    const next = { ...prev };
-    for (const helperId of selectedIds) {
-      next[helperId] = (next[helperId] || 0) + 20;
-    }
-    return next;
-  });
+  // If there's no approved completion photo, surface the award guard modal.
+  if (!post.completionPhoto || !post.completionPhotoApproved) {
+    setModal({ type: 'award_guard', postId, helperIds: selectedIds });
+    return;
+  }
 
-  setPosts((prev) =>
-    prev.map((p) =>
-      p.id === postId ? { ...p, stage: 'confirmed', status: 'resolved' } : p
-    )
-  );
-
-  const names = selectedIds
-    .map((id) => usersById[id]?.name || 'Helper')
-    .join(', ');
-
-  pushActivity({
-    text: `Confirmed help. +20 NP to ${names}.`,
-    postId,
-    actorId: me.id,
-    postOwnerId: post.ownerId,
-    postKind: post.kind,
-    audienceIds: Array.from(new Set([post.ownerId, ...selectedIds].filter(Boolean))),
-  });
-
-  setModal({ type: 'thank_you', postId, helperIds: selectedIds });
+  // Award via helper to keep logic DRY
+  awardHelpers(postId, selectedIds);
 }
+
+  function awardHelpers(postId, selectedIds) {
+    setNpPointsByUser((prev) => {
+      const next = { ...prev };
+      for (const helperId of selectedIds) {
+        next[helperId] = (next[helperId] || 0) + 20;
+      }
+      return next;
+    });
+
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === postId ? { ...p, stage: 'confirmed', status: 'resolved' } : p
+      )
+    );
+
+    const names = selectedIds
+      .map((id) => usersById[id]?.name || 'Helper')
+      .join(', ');
+
+    pushActivity({
+      text: `Confirmed help. +20 NP to ${names}.`,
+      postId,
+      actorId: me.id,
+      postOwnerId: posts.find((p) => p.id === postId)?.ownerId,
+      postKind: 'help',
+      audienceIds: Array.from(new Set([posts.find((p) => p.id === postId)?.ownerId, ...selectedIds].filter(Boolean))),
+    });
+
+    setModal({ type: 'thank_you', postId, helperIds: selectedIds });
+  }
 
   const filteredFeed = useMemo(() => {
     let list = [...posts];
@@ -3565,6 +3646,19 @@ const onboardingTooltip =
             <span className="nb-pill-text">NP</span>
             <span className="nb-pill-strong">{npPoints}</span>
           </button>
+          <button
+            className="nb-iconbtn"
+            aria-label="Your offers"
+            title="Your offers"
+            onClick={() => setYouOfferedOpen(true)}
+          >
+            🤝
+            {myOffers && myOffers.length > 0 ? (
+              <span className="nb-iconbadge" aria-hidden="true">
+                {myOffers.length > 9 ? '9+' : String(myOffers.length)}
+              </span>
+            ) : null}
+          </button>
 
           {/* Onboarding pill removed from header — use HomeHero/modal instead */}
 
@@ -3590,6 +3684,53 @@ const onboardingTooltip =
           >
             <img className="nb-avatar sm" src={me.avatar} alt={me.name} />
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  function YouOfferedPanel() {
+    if (!youOfferedOpen) return null;
+
+    return (
+      <div className="nb-modal-backdrop" onClick={() => setYouOfferedOpen(false)}>
+        <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="nb-modal-head">
+            <div className="nb-modal-title">Your offers</div>
+            <button className="nb-x" onClick={() => setYouOfferedOpen(false)} aria-label="Close">✕</button>
+          </div>
+
+          <div className="nb-modal-body-scroll" style={{ padding: 14 }}>
+            {(!myOffers || myOffers.length === 0) ? (
+              <div className="nb-muted">You haven't offered on any help requests yet.</div>
+            ) : (
+              <div className="nb-offers-list">
+                {myOffers.map((o) => (
+                  <div key={`${o.postId}::${o.replyId}`} className="nb-offer-item">
+                    <div className="nb-offer-main">
+                      <div className="nb-offer-title" style={{ fontWeight: 900 }}>{o.postTitle}</div>
+                      <div className="nb-offer-meta nb-muted">{o.postArea || ''} · {o.postStage}</div>
+                    </div>
+                    <div className="nb-offer-actions">
+                      <button className="nb-btn nb-btn-ghost" onClick={() => goToOfferPost(o.postId)}>Open post</button>
+                      {!o.selected ? (
+                        <button className="nb-btn nb-btn-ghost" onClick={() => { cancelOffer(o.postId, o.replyId); }} style={{ marginLeft: 8 }}>Cancel</button>
+                      ) : (
+                        <div style={{ marginLeft: 8, fontWeight: 900, color: 'var(--accent)' }}>Selected</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="nb-modal-foot">
+            <div className="nb-muted">Manage your active offers here.</div>
+            <div className="nb-modal-actions">
+              <button className="nb-btn nb-btn-primary" onClick={() => setYouOfferedOpen(false)}>Close</button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -3987,6 +4128,15 @@ const onboardingTooltip =
                   >
                     {u?.name}
                     <UserBadge userId={r.authorId} />
+                    {post.kind === 'help' && r.helperStatus ? (
+                      <span
+                        className="nb-helper-status"
+                        title={`Status: ${r.helperStatus}`}
+                        style={{ marginLeft: 8, fontSize: 12, fontWeight: 900 }}
+                      >
+                        {r.helperStatus === 'offered' ? 'You offered' : r.helperStatus === 'started' ? 'Started' : r.helperStatus === 'done' ? 'Done' : r.helperStatus}
+                      </span>
+                    ) : null}
                     <span className="nb-handle">{u?.handle}</span>
                   </div>
                   <div className="nb-reply-time">{timeAgo(r.createdAt)}</div>
@@ -4374,7 +4524,7 @@ function pushActivity(arg, meta = {}) {
     })();
 
     return (
-      <div className="nb-card">
+      <div id={`post_card_${post.id}`} className="nb-card">
         <PostMetaLine post={post} />
 
         <div className="nb-card-main">
@@ -4480,63 +4630,83 @@ function pushActivity(arg, meta = {}) {
               />
             </div>
 
-            {isOwner &&
-            post.kind === 'help' &&
-            (selectedHelperIds.length > 0) ? (
+            {isOwner && post.kind === 'help' && (selectedHelperIds.length > 0) ? (
               <div className="nb-helpflow">
-                <label style={{ display: 'none' }} htmlFor={`nb_stage_select_${post.id}`}>Stage</label>
-                <select
-                  id={`nb_stage_select_${post.id}`}
-                  className="nb-stage-select"
-                  value={post.stage || 'open'}
-                  onChange={(e) => advanceHelpStage(post.id, e.target.value)}
-                  title="Set help stage"
-                >
-                  <option value="open">Open</option>
-                  <option value="booked">Booked</option>
-                  <option value="started">Started</option>
-                  <option value="done">Done</option>
-                </select>
-
                 <button
                   className={`nb-btn nb-btn-primary ${post.stage === 'confirmed' ? 'is-on' : ''}`}
-                  onClick={() => confirmHelp(post.id)}
+                  onClick={() => setModal({ type: 'confirm_award', postId: post.id, helperIds: getSelectedHelperIds(post) })}
                   disabled={post.stage !== 'done' && post.stage !== 'confirmed'}
                   title={
                     post.stage === 'done'
                       ? 'Award +20 NP to selected helper(s)'
-                      : 'Mark as Done first'
+                      : 'Waiting for helper to mark Completed'
                   }
                 >
-                  Award NP
+                  Confirm - Award NP
                 </button>
               </div>
             ) : null}
 
-            {!isOwner &&
-        post.kind === 'help' &&
-        selectedHelperIds.includes(me.id) &&
-        post.status !== 'resolved' ? (
-  <div className="nb-helpflow">
-    <label style={{ display: 'none' }} htmlFor={`nb_stage_select_helper_${post.id}`}>Stage</label>
-    <select
-      id={`nb_stage_select_helper_${post.id}`}
-      className="nb-stage-select"
-      value={post.stage || 'open'}
-      onChange={(e) => advanceHelpStage(post.id, e.target.value)}
-      title="Update your progress"
-    >
-      <option value="started">Started</option>
-      <option value="done">Done</option>
-    </select>
+            {/* Selected helper UI: single Completed button + awaiting confirmation */}
+            {!isOwner && post.kind === 'help' && post.status !== 'resolved' && (post.replies || []).some((r) => r && r.authorId === me.id) && selectedHelperIds.includes(me.id) ? (
+              (() => {
+                const myReply = (post.replies || []).find((r) => r && r.authorId === me.id);
+                if (!myReply) return null;
+                const cur = myReply.helperStatus || 'offered';
+                return (
+                  <div className="nb-helpflow">
+                    {cur !== 'done' ? (
+                      <button
+                        className="nb-btn nb-btn-primary"
+                        onClick={() => {
+                          if (!myReply) return;
+                          setHelperStatus(post.id, myReply.id, 'done');
+                          pushActivity({ text: `${usersById[me.id]?.name || 'You'} marked this as completed.`, actorId: me.id, postId: post.id, audienceIds: [me.id, post.ownerId] });
+                        }}
+                      >
+                        Completed
+                      </button>
+                    ) : (
+                      <span className="nb-muted small" style={{ fontWeight: 900 }}>
+                        Awaiting confirmation
+                      </span>
+                    )}
 
-    {post.stage === 'done' ? (
-      <span className="nb-muted small" style={{ fontWeight: 900 }}>
-        Waiting for confirm
-      </span>
-    ) : null}
-  </div>
-) : null}
+                    <button
+                      className="nb-btn nb-btn-ghost nb-btn-sm"
+                        onClick={() => {
+                        if (!myReply) return;
+                        const ok = window.confirm('Cancel your offer?');
+                        if (!ok) return;
+                        setPosts((prev) =>
+                          (prev || []).map((p) => {
+                            if (p.id !== post.id) return p;
+                            const nextReplies = (p.replies || []).filter((r) => r.id !== myReply.id);
+                            const prevSelected = Array.isArray(p.selectedUserIds)
+                              ? p.selectedUserIds
+                              : p.selectedUserId
+                              ? [p.selectedUserId]
+                              : [];
+                            const nextSelected = prevSelected.filter((id) => id !== myReply.authorId);
+                            return {
+                              ...p,
+                              replies: nextReplies,
+                              selectedUserIds: nextSelected.length ? nextSelected : undefined,
+                            };
+                          })
+                        );
+                        pushActivity({ text: `${usersById[me.id]?.name || 'You'} cancelled an offer.`, actorId: me.id, postId: post.id, audienceIds: [me.id, post.ownerId] });
+                      }}
+                      title="Cancel your offer"
+                    >
+                      Cancel offer
+                    </button>
+                  </div>
+                );
+              })()
+            ) : null}
+
+            
             <button
               type="button"
               className="nb-btn nb-btn-ghost nb-btn-sm"
@@ -6023,6 +6193,15 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
                 setActiveTab('home');
                 setHomeChip('help');
                 setHomeShowAll(false);
+                // ensure we're showing requests (not just following)
+                setHomeFollowOnly(false);
+                // clear any existing search so all help posts are visible
+                setHomeQuery('');
+                // give immediate visual feedback by scrolling the feed into view
+                setTimeout(() => {
+                  const feed = document.querySelector('.nb-feed');
+                  if (feed) feed.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 50);
               }}
             >
               Prefer to help?{' '}
@@ -6943,6 +7122,11 @@ if (mentionsIndoor(combined)) {
         createdAt: NOW(),
         replies: [],
         selectedUserId: null,
+        // completion photo proof metadata (optional)
+        completionPhoto: null,
+        completionPhotoMeta: null,
+        completionPhotoApproved: false,
+        awardQueuedUntil: null,
       };
 
       setPosts((prev) => [p, ...(Array.isArray(prev) ? prev : [])]);
@@ -7500,6 +7684,65 @@ const [nearText, setNearText] = useState('');
           </div>
         </div>
 
+        <div className="nb-activity-ctas">
+          <button
+            className="nb-btn nb-btn-ghost"
+            title="Open the next chat thread with unread messages"
+            onClick={(e) => {
+              e.stopPropagation();
+              // Open next unread chat thread (newest first)
+              const sorted = [...visibleActivity].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+              for (const a of sorted) {
+                const isChatEvent = a?.type === 'chat_unlocked' || a?.type === 'chat_message';
+                if (!isChatEvent || !a?.postId) continue;
+                const post = posts.find((p) => p.id === a.postId);
+                const otherId = otherIdFromActivity(a, me.id);
+                if (!post || !otherId) continue;
+                if (!canOpenChatForPost(post, otherId)) continue;
+                const viewerChatId = getChatId(post.id, me.id, otherId);
+                if (unreadCount(viewerChatId, me.id) > 0) {
+                  openChat(post.id, otherId);
+                  markChatRead(viewerChatId, me.id);
+                  return;
+                }
+              }
+            }}
+          >
+            Open next unread
+          </button>
+
+          <button
+            className="nb-btn nb-btn-ghost"
+            title="Jump to the feed (clears local filters)"
+            onClick={(e) => {
+              e.stopPropagation();
+              setActiveTab('home');
+              setHomeChip('all');
+              setHomeFollowOnly(false);
+              setHomeQuery('');
+              const el = document.querySelector('.nb-feed');
+              if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth' });
+            }}
+          >
+            Go to Feed
+          </button>
+
+          <button
+            className="nb-btn nb-btn-ghost"
+            title="Mark activity as read"
+            onClick={(e) => {
+              e.stopPropagation();
+              try {
+                markSeen(me.id, 'activity');
+              } catch (err) {
+                setLastSeenByUser((prev) => prev);
+              }
+            }}
+          >
+            Mark all read
+          </button>
+        </div>
+
         {visibleActivity.length === 0 ? (
           <EmptyState
             title="No activity yet"
@@ -7509,89 +7752,133 @@ const [nearText, setNearText] = useState('');
           />
         ) : (
           <div className="nb-list">
-            {visibleActivity.map((a) => {
-              const isChatEvent =
-                a?.type === 'chat_unlocked' || a?.type === 'chat_message';
-              const post = a?.postId
-                ? posts.find((p) => p.id === a.postId)
-                : null;
-              const otherId = otherIdFromActivity(a, me.id);
+            {(() => {
+              // Group visible activity by postId (or by activity id for standalone events)
+              const byKey = {};
+              visibleActivity.forEach((it) => {
+                const key = it.postId ? `post:${it.postId}` : `act:${it.id}`;
+                if (!byKey[key])
+                  byKey[key] = { key, post: it.postId ? posts.find((p) => p.id === it.postId) : null, items: [] };
+                byKey[key].items.push(it);
+              });
 
-              const canCta =
-                isChatEvent &&
-                post &&
-                otherId &&
-                canOpenChatForPost(post, otherId);
+              const groups = Object.values(byKey)
+                .map((g) => {
+                  g.items.sort((x, y) => (y.ts || 0) - (x.ts || 0));
+                  g.most = g.items[0];
+                  return g;
+                })
+                .sort((a, b) => (b.most.ts || 0) - (a.most.ts || 0));
 
-              // thread key based on the two participants (not viewer)
-              const threadKey = canCta
-                ? getChatId(a.postId, a.actorId, a.otherUserId)
-                : null;
+              if (groups.length === 0) return null;
 
-              const showCta =
-                canCta && threadKey && !shownChatCtas.has(threadKey);
-              if (showCta) shownChatCtas.add(threadKey);
+              return groups.map((g) => {
+                const a = g.most;
+                const isChatEvent = a?.type === 'chat_unlocked' || a?.type === 'chat_message';
+                const post = g.post;
+                const otherId = otherIdFromActivity(a, me.id);
 
-              const viewerChatId = canCta
-                ? getChatId(post.id, me.id, otherId)
-                : null;
-              const unread = viewerChatId
-                ? unreadCount(viewerChatId, me.id)
-                : 0;
-              const unreadLabel = unread > 9 ? '9+' : String(unread);
+                const canCta = isChatEvent && post && otherId && canOpenChatForPost(post, otherId);
+                const threadKey = canCta ? getChatId(a.postId, a.actorId, a.otherUserId) : null;
+                const showCta = canCta && threadKey && !shownChatCtas.has(threadKey);
+                if (showCta) shownChatCtas.add(threadKey);
 
-              return (
-                <div
-  key={a.id}
-  className="nb-listitem"
-  role="button"
-  tabIndex={0}
-  onClick={() => onActivityRowClick(a)}
-  onKeyDown={(e) => {
-    if (e.key === 'Enter' || e.key === ' ') onActivityRowClick(a);
-  }}
-  style={{ cursor: 'pointer' }}
->
-                  <div className="nb-listdot" />
-                  <div className="nb-listtext">
-                    <div className="nb-listmain">{activityText(a, me.id)}</div>
-                    <div className="nb-listsub">{timeAgo(a.ts)}</div>
+                const viewerChatId = canCta ? getChatId(post.id, me.id, otherId) : null;
+                const unread = viewerChatId ? unreadCount(viewerChatId, me.id) : 0;
+                const unreadLabel = unread > 9 ? '9+' : String(unread);
+
+                const viewerChatId = post && otherId ? getChatId(post.id, me.id, otherId) : null;
+                const preview = viewerChatId ? getLastMessagePreview(viewerChatId, me.id, 80) : '';
+                const lastMsgTs = viewerChatId ? getLastChatTs(viewerChatId) : 0;
+                const groupHasNew = g.items.some((it) => (it.ts || 0) > (lastSeen.activityTs || 0));
+
+                return (
+                  <div
+                    key={g.key}
+                    className="nb-listitem"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onActivityRowClick(a)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') onActivityRowClick(a);
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="nb-listdot" />
+                    <div className="nb-listtext">
+                      <div className="nb-listmain">
+                        {activityText(a, me.id)}
+                        {g.items.length > 1 ? (
+                          <span className="nb-group-badge" aria-hidden>
+                            {g.items.length}
+                          </span>
+                        ) : null}
+                        {unread > 0 ? (
+                          <span className="nb-unread-pill" aria-hidden title={`${unread} unread`}>
+                            {unreadLabel}
+                          </span>
+                        ) : null}
+                        {groupHasNew ? <span className="nb-new-dot" aria-hidden /> : null}
+                      </div>
+
+                      <div className="nb-listsub">
+                        {preview ? (
+                          <button
+                            type="button"
+                            className="nb-preview-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (post && otherId && canOpenChatForPost(post, otherId)) {
+                                openChat(post.id, otherId);
+                                const vId = getChatId(post.id, me.id, otherId);
+                                try { markChatRead(vId, me.id); } catch (_) {}
+                              }
+                            }}
+                            title={preview}
+                          >
+                            <span className="nb-preview">{preview}</span>
+                          </button>
+                        ) : null}
+                        {preview ? <span className="nb-preview-sep">·</span> : null}
+                        <span>{lastMsgTs ? timeAgo(lastMsgTs) : timeAgo(a.ts)}</span>
+                      </div>
+                    </div>
+
+                    {showCta ? (
+                      <button
+                        type="button"
+                        className="nb-btn nb-btn-ghost nb-btn-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openChat(post.id, otherId);
+                        }}
+                      >
+                        Open chat
+                        {unread > 0 ? (
+                          <span
+                            aria-label={`${unread} unread`}
+                            title={`${unread} unread`}
+                            style={{
+                              marginLeft: 8,
+                              padding: '2px 8px',
+                              borderRadius: 999,
+                              fontSize: 12,
+                              fontWeight: 900,
+                              lineHeight: '16px',
+                              background: 'rgba(255,145,90,.95)',
+                              color: '#111',
+                              border: '1px solid rgba(255,255,255,.12)',
+                            }}
+                          >
+                            {unreadLabel}
+                          </span>
+                        ) : null}
+                      </button>
+                    ) : null}
                   </div>
-
-                  {showCta ? (
-                    <button
-                      type="button"
-                      className="nb-btn nb-btn-ghost nb-btn-sm"
-                      onClick={(e) => {
-  e.stopPropagation();
-  openChat(post.id, otherId);
-}}
-                    >
-                      Open chat
-                      {unread > 0 ? (
-                        <span
-                          aria-label={`${unread} unread`}
-                          title={`${unread} unread`}
-                          style={{
-                            marginLeft: 8,
-                            padding: '2px 8px',
-                            borderRadius: 999,
-                            fontSize: 12,
-                            fontWeight: 900,
-                            lineHeight: '16px',
-                            background: 'rgba(255,145,90,.95)',
-                            color: '#111',
-                            border: '1px solid rgba(255,255,255,.12)',
-                          }}
-                        >
-                          {unreadLabel}
-                        </span>
-                      ) : null}
-                    </button>
-                  ) : null}
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         )}
       </div>
@@ -7930,6 +8217,89 @@ const [nearText, setNearText] = useState('');
     </div>
   );
 }
+
+  // --- Completion photo helper UI (inline modal-like small component) ---
+  function CompletionPhotoForm({ postId, onSave }) {
+    const post = posts.find((p) => p && p.id === postId) || {};
+    const [preview, setPreview] = useState(post?.completionPhoto || '');
+    const [meta, setMeta] = useState(post?.completionPhotoMeta || null);
+    const [err, setErr] = useState('');
+
+    async function handleFile(f) {
+      setErr('');
+      if (!f) return;
+      // prefer camera capture on mobile
+      try {
+        // quick recency check
+        const now = Date.now();
+        if (f.lastModified && Math.abs(now - f.lastModified) > 1000 * 60 * 60 * 48) {
+          // older than 48h
+          setErr('Please take a recent photo (within 48 hours).');
+        }
+
+        const out = await compressImageFileToDataUrl(f, { maxDim: 1600, quality: 0.82 });
+        // basic heuristic: resolution
+        const img = new Image();
+        img.src = out.dataUrl;
+        await new Promise((res) => { img.onload = res; img.onerror = res; });
+        if (img.width < 320 || img.height < 240) {
+          setErr('Photo too small. Take a clearer picture.');
+        }
+
+        // variance check: draw small canvas to sample pixels
+        try {
+          const c = document.createElement('canvas');
+          c.width = Math.min(64, img.width);
+          c.height = Math.min(64, img.height);
+          const ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, 0, c.width, c.height);
+          const data = ctx.getImageData(0, 0, c.width, c.height).data;
+          let sum = 0, sumsq = 0, cnt = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            const lum = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
+            sum += lum; sumsq += lum*lum; cnt++;
+          }
+          const mean = sum / cnt; const variance = Math.max(0, sumsq / cnt - mean*mean);
+          if (variance < 30) {
+            setErr('Photo looks too uniform — please capture the scene (include the helper or vehicle).');
+          }
+        } catch (e) {}
+
+        // accept
+        setPreview(out.dataUrl || '');
+        const metaObj = { name: f.name, lastModified: f.lastModified || Date.now(), size: f.size || 0 };
+        setMeta(metaObj);
+        // persist into posts state (helper uploaded proof; not yet owner-approved)
+        setPosts((prev) => prev.map((p) => (p && p.id === postId ? { ...p, completionPhoto: out.dataUrl, completionPhotoMeta: metaObj, completionPhotoApproved: false } : p)));
+        onSave && onSave(out.dataUrl, metaObj, false);
+      } catch (e) {
+        setErr('Could not process that photo.');
+      }
+    }
+
+    return (
+      <div style={{ marginTop: 8 }}>
+        <div className="nb-label">Completion photo (optional but recommended)</div>
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={(e) => handleFile(e.target.files?.[0])}
+          style={{ marginTop: 8 }}
+        />
+        {err ? <div className="nb-error" style={{ marginTop: 8 }}>{err}</div> : null}
+        {preview ? (
+          <div style={{ marginTop: 8 }}>
+            <img src={preview} alt="preview" style={{ width: '100%', maxWidth: 320, borderRadius: 10 }} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button className="nb-btn nb-btn-ghost" onClick={() => { setPreview(''); setMeta(null); setPosts((prev) => prev.map((p) => (p && p.id === postId ? { ...p, completionPhoto: null, completionPhotoMeta: null, completionPhotoApproved: false } : p))); onSave && onSave(null, null, false); }}>Remove</button>
+              <button className="nb-btn nb-btn-primary" onClick={() => { setPosts((prev) => prev.map((p) => (p && p.id === postId ? { ...p, completionPhotoApproved: true } : p))); onSave && onSave(preview, meta, true); }}>Save & mark ready</button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   function ProfileTab() {
     const myFollowers = Array.isArray(followersByUser?.[me.id])
@@ -8369,6 +8739,150 @@ onRefresh={refreshHome}
               <div className="nb-modal-actions">
                 <button className="nb-btn nb-btn-ghost" onClick={() => { advanceHelpStage(modal.postId, 'done'); setModal(null); }}>
                   Skip & mark Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {youOfferedOpen ? <YouOfferedPanel /> : null}
+
+      {modal?.type === 'confirm_award' ? (
+        <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
+          <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="nb-modal-head">
+              <div className="nb-modal-title">Confirm award</div>
+              <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">✕</button>
+            </div>
+
+            <div style={{ padding: 14 }}>
+              <div className="nb-muted" style={{ marginBottom: 8, fontWeight: 850 }}>
+                Are you sure you want to award +20 NP to the selected helper(s)? This will mark the post resolved.
+              </div>
+
+              {(() => {
+                const post = posts.find((p) => p && p.id === modal.postId);
+                if (!post) return null;
+                const names = (modal.helperIds || [])
+                  .map((id) => usersById[id]?.name || 'Helper')
+                  .filter(Boolean)
+                  .join(', ');
+                return (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    <div style={{ fontWeight: 950 }}>To: {names || 'Selected helpers'}</div>
+                    {post.completionPhoto ? (
+                      <div>
+                        <div style={{ fontWeight: 850, marginBottom: 6 }}>Attached photo</div>
+                        <img src={post.completionPhoto} alt="completion" style={{ width: '100%', maxWidth: 360, borderRadius: 8 }} />
+                      </div>
+                    ) : (
+                      <div className="nb-muted">No completion photo attached.</div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="nb-modal-foot">
+              <div className="nb-modal-actions">
+                <button
+                  className="nb-btn nb-btn-primary"
+                  onClick={() => {
+                    const pid = modal.postId;
+                    setModal(null);
+                    // call confirmHelp which will run the existing guard and award logic
+                    confirmHelp(pid);
+                  }}
+                >
+                  Confirm and award
+                </button>
+
+                <button className="nb-btn nb-btn-ghost" onClick={() => setModal(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {modal?.type === 'award_guard' ? (
+        <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
+          <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="nb-modal-head">
+              <div className="nb-modal-title">Verify completion before awarding</div>
+              <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">✕</button>
+            </div>
+
+            <div style={{ padding: 14 }}>
+              <div className="nb-muted" style={{ marginBottom: 8, fontWeight: 850 }}>
+                We recommend attaching a recent photo showing the completed work. You can approve and award now, queue the award for 24 hours, or award anyway.
+              </div>
+
+              <div style={{ display: 'grid', gap: 12 }}>
+                {(() => {
+                  const post = posts.find((p) => p && p.id === modal.postId);
+                  if (!post) return null;
+                  return (
+                    <div>
+                      {post.completionPhoto ? (
+                        <div>
+                          <div style={{ fontWeight: 950, marginBottom: 8 }}>Attached photo</div>
+                          <img src={post.completionPhoto} alt="completion" style={{ width: '100%', maxWidth: 360, borderRadius: 8 }} />
+                          <div style={{ color: 'var(--muted)', marginTop: 8 }}>Uploaded {post.completionPhotoMeta?.name || ''}</div>
+                        </div>
+                      ) : (
+                        <div className="nb-muted">No photo attached yet.</div>
+                      )}
+
+                      <CompletionPhotoForm postId={modal.postId} />
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            <div className="nb-modal-foot">
+              <div className="nb-muted">Choose an action:</div>
+              <div className="nb-modal-actions">
+                <button
+                  className="nb-btn nb-btn-primary"
+                  onClick={() => {
+                    const post = posts.find((p) => p && p.id === modal.postId);
+                    if (!post) return;
+                    // Mark approved if not already
+                    if (!post.completionPhotoApproved) {
+                      setPosts((prev) => prev.map((p) => (p && p.id === modal.postId ? { ...p, completionPhotoApproved: true } : p)));
+                    }
+                    awardHelpers(modal.postId, modal.helperIds || []);
+                  }}
+                >
+                  Approve & Award
+                </button>
+
+                <button
+                  className="nb-btn nb-btn-ghost"
+                  onClick={() => {
+                    // Queue award for 24 hours
+                    const until = Date.now() + 24 * 60 * 60 * 1000;
+                    setPosts((prev) => prev.map((p) => (p && p.id === modal.postId ? { ...p, awardQueuedUntil: until } : p)));
+                    pushActivity({ text: 'Award queued for 24h pending proof.', postId: modal.postId, actorId: me.id, postOwnerId: me.id, postKind: 'help', audienceIds: [me.id] });
+                    setModal(null);
+                    setToastMsg('Award queued for 24 hours');
+                  }}
+                >
+                  Queue award 24h
+                </button>
+
+                <button
+                  className="nb-btn nb-btn-ghost"
+                  onClick={() => {
+                    // Force award anyway (owner override)
+                    awardHelpers(modal.postId, modal.helperIds || []);
+                  }}
+                >
+                  Award anyway
                 </button>
               </div>
             </div>
