@@ -181,6 +181,18 @@ function timeAgo(ts) {
   return `${d}d ago`;
 }
 
+// Lightweight telemetry helper (buffers to window and logs to console).
+function trackEvent(name, payload = {}) {
+  try {
+    if (typeof window !== 'undefined') {
+      window.__nb_telemetry__ = window.__nb_telemetry__ || [];
+      window.__nb_telemetry__.push({ name, payload, ts: NOW() });
+    }
+    // Keep in console for quick remote-inspect verification
+    console.debug('[telemetry]', name, payload);
+  } catch (_) {}
+}
+
 function containsLink(text) {
   return /(https?:\/\/|www\.)/i.test(text || '');
 }
@@ -261,175 +273,236 @@ function imageFileToDataUrl(file, maxDim = 1280, quality = 0.82) {
 
         try {
           resolve(canvas.toDataURL('image/jpeg', quality));
-            // Redesigned ActivityTab: grouped threads, inline expansion, filters + search
-            const visibleActivity = useMemo(() => {
-              const list = Array.isArray(activity) ? activity : [];
-              return list.filter((a) => a && typeof a === 'object' && Array.isArray(a.audienceIds) && a.audienceIds.includes(me.id));
-            }, [activity, me.id]);
+        } catch {
+          reject(new Error('Couldn’t process that photo.'));
+        }
+      };
 
-            const [filter, setFilter] = useState('all'); // all | chats | replies
-            const [q, setQ] = useState('');
-            const [expandedGroups, setExpandedGroups] = useState({});
+      img.src = String(reader.result || '');
+    };
 
-            function toggleGroup(key) {
-              setExpandedGroups((prev) => ({ ...(prev || {}), [key]: !prev?.[key] }));
-            }
+    reader.readAsDataURL(file);
+  });
+}
 
-            // Build groups: threads by postId or single activity
-            const groups = useMemo(() => {
-              const by = {};
-              for (const a of visibleActivity) {
-                const key = a.postId ? `post:${a.postId}` : `act:${a.id}`;
-                if (!by[key]) by[key] = { key, post: a.postId ? posts.find((p) => p.id === a.postId) : null, items: [] };
-                by[key].items.push(a);
-              }
-              const out = Object.values(by).map((g) => {
-                g.items.sort((x, y) => (y.ts || 0) - (x.ts || 0));
-                g.most = g.items[0];
-                g.unread = 0;
-                // compute unread for the thread (sum of distinct chats)
-                const a = g.most;
-                const otherId = otherIdFromActivity(a, me.id);
-                if (g.post && otherId && canOpenChatForPost(g.post, otherId)) {
-                  const chatId = getChatId(g.post.id, me.id, otherId);
-                  g.unread = unreadCount(chatId, me.id);
-                  g.preview = getLastMessagePreview(chatId, me.id, 90);
-                } else {
-                  g.unread = g.items.filter((it) => (it.ts || 0) > (lastSeen.activityTs || 0)).length;
-                  g.preview = '';
-                }
-                return g;
-              }).sort((a, b) => (b.most.ts || 0) - (a.most.ts || 0));
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
 
-              // apply filter + query
-              return out.filter((g) => {
-                if (filter === 'chats') {
-                  const a = g.most;
-                  const isChat = a?.type === 'chat_unlocked' || a?.type === 'chat_message';
-                  if (!isChat) return false;
-                }
-                if (filter === 'replies') {
-                  const a = g.most;
-                  if (a?.type !== 'reply_sent') return false;
-                }
-                if (!q) return true;
-                const lower = q.toLowerCase();
-                const a = g.most;
-                const text = (activityText(a, me.id) + ' ' + (g.preview || '')).toLowerCase();
-                return text.includes(lower);
-              });
-            }, [visibleActivity, filter, q, posts, me.id, lastSeen.activityTs]);
+async function compressImageFileToDataUrl(
+  file,
+  { maxDim = 1600, quality = 0.82, mime = 'image/jpeg' } = {}
+) {
+  const src = await fileToDataUrl(file);
 
-            function handleOpenNextUnread() {
-              for (const g of groups) {
-                if (g.unread && g.post) {
-                  const otherId = otherIdFromActivity(g.most, me.id);
-                  if (!otherId) continue;
-                  if (!canOpenChatForPost(g.post, otherId)) continue;
-                  openChat(g.post.id, otherId);
-                  const chatId = getChatId(g.post.id, me.id, otherId);
-                  markChatRead(chatId, me.id);
-                  return;
-                }
-              }
-            }
+  const img = new Image();
+  img.src = src;
 
-            return (
-              <div className="nb-page nb-activity-page">
-                <div className="nb-section nb-activity-header">
-                  <div>
-                    <div className="nb-section-title">Activity</div>
-                    <div className="nb-section-sub">Track replies, unlocked chats, and key updates.</div>
-                  </div>
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = () => reject(new Error('Invalid image'));
+  });
 
-                  <div className="nb-activity-controls">
-                    <div className="nb-activity-filter">
-                      <select value={filter} onChange={(e) => setFilter(e.target.value)} className="nb-input">
-                        <option value="all">All</option>
-                        <option value="chats">Chats</option>
-                        <option value="replies">Replies</option>
-                      </select>
-                    </div>
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
 
-                    <input
-                      className="nb-input"
-                      placeholder="Search activity"
-                      value={q}
-                      onChange={(e) => setQ(e.target.value)}
-                      aria-label="Search activity"
-                    />
+  const scale = Math.min(1, maxDim / Math.max(w, h));
+  const cw = Math.max(1, Math.round(w * scale));
+  const ch = Math.max(1, Math.round(h * scale));
 
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <button className="nb-btn nb-btn-ghost" onClick={handleOpenNextUnread}>Open next unread</button>
-                      <button className="nb-btn nb-btn-ghost" onClick={() => markSeen(me.id, 'activity')}>Mark all read</button>
-                    </div>
-                  </div>
-                </div>
+  const canvas = document.createElement('canvas');
+  canvas.width = cw;
+  canvas.height = ch;
 
-                {groups.length === 0 ? (
-                  <EmptyState
-                    title="No activity yet"
-                    body="Activity will appear when people reply, open chats, or mark posts resolved."
-                    ctaLabel="Go to Feed"
-                    onCta={() => setActiveTab('home')}
-                  />
-                ) : (
-                  <div className="nb-activity-list">
-                    {groups.map((g) => {
-                      const a = g.most;
-                      const post = g.post;
-                      const otherId = otherIdFromActivity(a, me.id);
-                      const canChat = post && otherId && canOpenChatForPost(post, otherId);
-                      const unreadLabel = g.unread > 9 ? '9+' : String(g.unread || '');
-                      const isExpanded = !!expandedGroups[g.key];
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas unsupported');
 
-                      return (
-                        <div key={g.key} className="nb-activity-row" role="group" aria-labelledby={g.key}>
-                          <div className="nb-activity-main" onClick={() => toggleGroup(g.key)} tabIndex={0} onKeyDown={(e)=>{ if(e.key==='Enter') toggleGroup(g.key)}}>
-                            <div className="nb-activity-left">
-                              <img className="nb-activity-avatar" src={(post && usersById[post.ownerId]?.avatar) || AVATAR} alt="" />
-                            </div>
+  ctx.drawImage(img, 0, 0, cw, ch);
 
-                            <div className="nb-activity-mid">
-                              <div className="nb-activity-title">{activityText(a, me.id)} {g.items.length>1? <span className="nb-group-badge">{g.items.length}</span>:null}</div>
-                              <div className="nb-activity-sub">
-                                {g.preview ? <span className="nb-preview">{g.preview}</span> : null}
-                                {g.preview ? <span className="nb-preview-sep">·</span> : null}
-                                <span className="nb-time">{timeAgo(a.ts)}</span>
-                              </div>
-                            </div>
+  const blob = await new Promise((resolve) =>
+    canvas.toBlob(resolve, mime, quality)
+  );
+  if (!blob) throw new Error('Compression failed');
 
-                            <div className="nb-activity-right">
-                              {g.unread ? <span className="nb-unread-pill" aria-hidden title={`${g.unread} unread`}>{unreadLabel}</span> : null}
-                              {canChat ? (
-                                <button className="nb-btn nb-btn-ghost nb-btn-sm" onClick={(e)=>{ e.stopPropagation(); openChat(post.id, otherId); }}>Open chat</button>
-                              ) : (
-                                <button className="nb-btn nb-btn-ghost nb-btn-sm" onClick={(e)=>{ e.stopPropagation(); jumpToPostFromActivity(a.postId); }}>View</button>
-                              )}
-                            </div>
-                          </div>
+  const out = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ''));
+    r.onerror = () => reject(new Error('Failed to read compressed image'));
+    r.readAsDataURL(blob);
+  });
 
-                          {isExpanded ? (
-                            <div className="nb-activity-expand">
-                              {g.items.slice(0,5).map((it) => (
-                                <div key={it.id} className="nb-activity-expand-row">
-                                  <div className="nb-activity-expand-left"><img className="nb-activity-avatar sm" src={usersById[it.actorId]?.avatar || AVATAR} alt="" /></div>
-                                  <div className="nb-activity-expand-body">
-                                    <div className="nb-activity-expand-top"><strong>{usersById[it.actorId]?.name || 'Someone'}</strong> · <span className="nb-time">{timeAgo(it.ts)}</span></div>
-                                    <div className="nb-activity-expand-text">{it.text || activityText(it, me.id)}</div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
+  return { dataUrl: out, bytes: blob.size };
+}
+
+const BADGES = [
+  { min: 0, name: '🌱 Seedling' },
+  { min: 100, name: '🌿 Sprout' },
+  { min: 300, name: '🌸 Blossom' },
+  { min: 800, name: '🌳 Oak' },
+];
+
+const BADGE_DETAILS = {
+  Seedling: 'Getting started. Communicates clearly and respects the rules.',
+  Sprout:
+    'Dependable follow-through. Confirms details and completes what they commit to.',
+  Blossom:
+    'High-trust. Frequently chosen because plans stay clear and outcomes match expectations.',
+  Oak: 'Proven cornerstone. A long track record of confirmed help—consistent, calm, reliable.',
+};
+
+function badgeFor(points) {
+  let b = BADGES[0];
+  for (const x of BADGES) if (points >= x.min) b = x;
+  return b.name;
+}
+
+function badgeParts(label) {
+  const parts = String(label || '').split(' ');
+  return {
+    emoji: parts[0] || '🌱',
+    name: parts.slice(1).join(' ') || 'Seedling',
+  };
+}
+
+// -------------------- PERSISTENCE (V1) --------------------
+const STORAGE_KEY = 'neighbloom_v1';
+const STORAGE_VERSION = 1;
+const MAX_SAVED_SEARCHES = 5;
+
+function searchFingerprint({ query, homeChip, homeShowAll }) {
+  const q = normalizeText(query).toLowerCase();
+  const chip = homeChip || 'all';
+  const showAll = homeShowAll ? '1' : '0';
+  return `${chip}|${showAll}|${q}`;
+}
+
+function defaultSavedSearchName(query) {
+  const q = normalizeText(query);
+  if (!q) return 'Saved';
+  return q.length > 22 ? `${q.slice(0, 22)}…` : q;
+}
+
+function safeJsonParse(raw, fallback) {
+  try {
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function loadAppState() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  const data = safeJsonParse(raw, null);
+
+  if (!data || data.version !== STORAGE_VERSION) return null;
+
+  // Basic shape checks (keep it light, avoid brittle validation)
+  if (!Array.isArray(data.posts)) return null;
+  if (!Array.isArray(data.activity)) return null;
+  if (typeof data.npPointsByUser !== 'object') return null;
+  if (typeof data.replyStats !== 'object') return null;
+  if (typeof data.chats !== 'object') return null;
+
+  // Optional (newer versions). Keep backwards compatible.
+  if ('followsByUser' in data && typeof data.followsByUser !== 'object')
+    return null;
+  if ('homeFollowOnly' in data && typeof data.homeFollowOnly !== 'boolean')
+    return null;
+
+  return data;
+}
+
+function saveAppState(state) {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ version: STORAGE_VERSION, ...state })
+    );
+  } catch {
+    // ignore quota / private mode errors
+  }
+}
+
+function resetAppState() {
+  localStorage.removeItem(STORAGE_KEY);
+}
+
+function mentionsReward(text) {
+  const t = (text || '').toLowerCase();
+  return (
+    t.includes('reward') ||
+    t.includes('bounty') ||
+    /\$\s*\d+/.test(t) ||
+    t.includes('venmo') ||
+    t.includes('zelle') ||
+    t.includes('paypal') ||
+    t.includes('cashapp') ||
+    t.includes('cash app')
+  );
+}
+
+function mentionsIndoor(text) {
+  const t = (text || '').toLowerCase();
+  const terms = [
+    'inside',
+    'indoors',
+    'enter',
+    'come in',
+    'in my house',
+    'in the house',
+    'bedroom',
+    'bathroom',
+    'kitchen',
+    'basement',
+    'upstairs',
+    'downstairs',
+    'garage',
+  ];
+  return terms.some((w) => t.includes(w));
+}
+
+const REC_CATEGORIES = [
+  'Plumber',
+  'Electrician',
+  'Mechanic',
+  'Barber',
+  'Daycare',
+  'Pediatric PT',
+  'Dentist',
+  'CPA / Tax',
+  'Landscaper',
+  'Dog Groomer',
+  'Handyman',
+  '__custom__', // Custom…
+];
+
+const REC_PREF_TAGS = [
+  'Neighbor-owned',
+  'Honest pricing',
+  'No upsell',
+  'Fast turnaround',
+  'Warranty-backed',
+  'Great with kids',
+  'Accepts insurance',
+];
+
+const HELP_CATEGORIES = [
+  'Snow shoveling (driveway/sidewalk)',
+  'Yard help (raking/bagging)',
+  'Trash bins (to/from curb)',
+  'Curb-to-curb move',
+  'Porch pickup / drop (no valuables)',
+  'Outdoor quick pet assist',
+  'Litter pickup / block cleanup',
+  'Quick outside check (ice/porch/etc.)',
+];
+
 const HELP_TEMPLATES = [
   {
     category: 'Snow shoveling (driveway/sidewalk)',
@@ -1274,6 +1347,37 @@ function App() {
   const [homeFollowOnly, setHomeFollowOnly] = useState(
     () => saved?.homeFollowOnly ?? false
   ); // Following mode
+
+  // Highlights feature state (opt-in + temporary boosts)
+  const [highlightsByUser, setHighlightsByUser] = useState(() => saved?.highlightsByUser || {});
+
+  function setUserHighlightOptIn(userId, allow) {
+    setHighlightsByUser((prev) => {
+      const next = { ...(prev || {}) };
+      next[userId] = { ...(next[userId] || {}), allowHighlights: !!allow };
+      try {
+        const store = safeJsonParse(localStorage.getItem(STORAGE_KEY), {}) || {};
+        store.highlightsByUser = next;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: STORAGE_VERSION, ...store }));
+      } catch {}
+      return next;
+    });
+    trackEvent('highlight_opt_in', { userId, optIn: !!allow });
+  }
+
+  function setUserTempBoost(userId, untilTs) {
+    setHighlightsByUser((prev) => {
+      const next = { ...(prev || {}) };
+      next[userId] = { ...(next[userId] || {}), tempBoostUntil: untilTs };
+      try {
+        const store = safeJsonParse(localStorage.getItem(STORAGE_KEY), {}) || {};
+        store.highlightsByUser = next;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: STORAGE_VERSION, ...store }));
+      } catch {}
+      return next;
+    });
+    trackEvent('highlight_set', { userId, until: untilTs });
+  }
 
   const [expandedThreads, setExpandedThreads] = useState(() => ({})); // postId -> bool (start collapsed)
   const [expandedOtherVols, setExpandedOtherVols] = useState(
@@ -2450,25 +2554,6 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   return max;
 }
 
-  function getLastMessagePreview(chatId, viewerId, max = 64) {
-  const msgs = Array.isArray(chats?.[chatId]) ? chats[chatId] : [];
-  if (!msgs.length) return '';
-
-  // take last non-empty text message (prefer most recent)
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const m = msgs[i];
-    if (!m) continue;
-    if (typeof m.text === 'string' && m.text.trim()) {
-      const t = maskPhones(m.text.trim());
-      if (t.length <= max) return t;
-      return t.slice(0, max - 1).trim() + '…';
-    }
-  }
-
-  // fallback: show indicator for non-text (image/attachment)
-  return 'Attachment';
-}
-
   function unreadCount(chatId, viewerId) {
   const msgs = Array.isArray(chats?.[chatId]) ? chats[chatId] : [];
 
@@ -3575,7 +3660,7 @@ expandedOtherVols,
 
   function Header() {
     const titleMap = {
-      home: 'Your Feed',
+      home: 'Home',
       post: 'Create',
       activity: 'Activity',
       profile: 'Profile',
@@ -3623,69 +3708,87 @@ const onboardingTooltip =
     ? 'Claim your +25 NP bonus'
     : 'Quick start checklist: complete 3 steps to earn +25 NP';
 
+    // NP badge calculations (show progress to next level)
+    const points = npPoints;
+    const currentBadge =
+      BADGES.slice()
+        .reverse()
+        .find((b) => points >= b.min) || BADGES[0];
+    const nextBadge = BADGES.find((b) => points < b.min) || null;
+    const prevMin = currentBadge.min;
+    const nextMin = nextBadge ? nextBadge.min : prevMin;
+    const denom = nextBadge ? Math.max(1, nextMin - prevMin) : 1;
+    const progress = nextBadge ? Math.min(1, (points - prevMin) / denom) : 1;
+    const toNext = nextBadge ? Math.max(0, nextMin - points) : 0;
+    const nextParts = nextBadge ? badgeParts(nextBadge.name) : { emoji: '', name: '' };
+
     return (
-      <div className="nb-header">
-        <div className="nb-header-left">
-          <img className="nb-logo" src={NEIGHBLOOM_LOGO} alt="Neighbloom" />
-          <div className="nb-titlewrap">
-            <div className="nb-title">
-              {titleMap[activeTab] || 'Neighbloom'}
+      <>
+        <div className="nb-header">
+          <div className="nb-header-left">
+            <img className="nb-logo" src={NEIGHBLOOM_LOGO} alt="Neighbloom" />
+            <div className="nb-titlewrap">
+              <div className="nb-title">
+                {titleMap[activeTab] || 'Neighbloom'}
+              </div>
+              <div className="nb-subtitle">{subtitle}</div>
             </div>
-            <div className="nb-subtitle">{subtitle}</div>
           </div>
-          {/* Onboarding moved to HomeHero — keep header compact */}
+
+          <div className="nb-header-right">
+            <button
+              className="nb-iconbtn"
+              aria-label="Your offers"
+              title="Your offers"
+              onClick={() => setYouOfferedOpen(true)}
+            >
+              🤝
+              {myOffers && myOffers.length > 0 ? (
+                <span className="nb-iconbadge" aria-hidden="true">
+                  {myOffers.length > 9 ? '9+' : String(myOffers.length)}
+                </span>
+              ) : null}
+            </button>
+
+            <button
+              className="nb-avatarbtn"
+              aria-label="Profile"
+              title="Profile"
+              onClick={() => navTo('profile')}
+            >
+              <img className="nb-avatar sm" src={me.avatar} alt={me.name} />
+            </button>
+          </div>
         </div>
 
-        <div className="nb-header-right">
+        {/* NP badge sits in its own row below the header to avoid overlap */}
+        <div className="nb-np-row" style={{ padding: '10px 14px' }}>
           <button
             type="button"
-            className="nb-pill nb-pill-ghost nb-pillbtn"
+            className="nb-np-badge"
             title="Neighbor Points"
+            aria-label={`Neighbor Points ${npPoints} points`}
             onClick={() => setModal({ type: 'points' })}
           >
-            <span className="nb-pill-text">NP</span>
-            <span className="nb-pill-strong">{npPoints}</span>
-          </button>
-          <button
-            className="nb-iconbtn"
-            aria-label="Your offers"
-            title="Your offers"
-            onClick={() => setYouOfferedOpen(true)}
-          >
-            🤝
-            {myOffers && myOffers.length > 0 ? (
-              <span className="nb-iconbadge" aria-hidden="true">
-                {myOffers.length > 9 ? '9+' : String(myOffers.length)}
-              </span>
-            ) : null}
-          </button>
+            <div className="nb-np-main">
+              <div className="nb-np-value">{points}</div>
+              <div style={{ flex: 1 }}>
+                <div className="nb-np-sub">{points} / {nextMin} NP</div>
+                <div className="nb-np-progress" aria-hidden="true">
+                  <div
+                    className="nb-np-progress-inner"
+                    style={{ width: `${Math.round(progress * 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
 
-          {/* Onboarding pill removed from header — use HomeHero/modal instead */}
-
-          <button
-            className="nb-iconbtn nb-bellbtn"
-            aria-label="Activity"
-            title="Activity"
-            onClick={() => navTo('activity')}
-          >
-            🔔
-            {totalUnread > 0 ? (
-              <span className="nb-iconbadge" aria-label={`${totalUnread} unread chats`}>
-                {unreadLabel}
-              </span>
-            ) : null}
-          </button>
-
-          <button
-            className="nb-avatarbtn"
-            aria-label="Profile"
-            title="Profile"
-            onClick={() => navTo('profile')}
-          >
-            <img className="nb-avatar sm" src={me.avatar} alt={me.name} />
+            <div className="nb-np-note">
+              {toNext} more to unlock {nextParts.emoji} {nextParts.name}
+            </div>
           </button>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -4523,8 +4626,10 @@ function pushActivity(arg, meta = {}) {
       return null;
     })();
 
+    const cardKindClass = post.kind === 'help' ? 'nb-card-help' : post.kind === 'rec' ? 'nb-card-rec' : '';
+
     return (
-      <div id={`post_card_${post.id}`} className="nb-card">
+      <div id={`post_card_${post.id}`} className={"nb-card " + cardKindClass}>
         <PostMetaLine post={post} />
 
         <div className="nb-card-main">
@@ -7130,7 +7235,7 @@ if (mentionsIndoor(combined)) {
       };
 
       setPosts((prev) => [p, ...(Array.isArray(prev) ? prev : [])]);
-      pushActivity('Created a help request.');
+      pushActivity({ type: 'post_created', text: 'Created a help request.', actorId: me.id, postId: p.id, postOwnerId: me.id, audienceIds: [me.id] });
       setActiveTab('home');
       setHomeChip('help');
       setHomeShowAll(false);
@@ -7470,7 +7575,7 @@ const [nearText, setNearText] = useState('');
       };
 
       setPosts((prev) => [p, ...(Array.isArray(prev) ? prev : [])]);
-      pushActivity('Created a recommendation request.');
+      pushActivity({ type: 'post_created', text: 'Created a recommendation request.', actorId: me.id, postId: p.id, postOwnerId: me.id, audienceIds: [me.id] });
       setActiveTab('home');
       setHomeChip('rec');
       setHomeShowAll(false);
@@ -7634,116 +7739,94 @@ const [nearText, setNearText] = useState('');
 
   function ActivityTab() {
     const visibleActivity = useMemo(() => {
-  const list = Array.isArray(activity) ? activity : [];
-  return list.filter((a) => {
-    if (!a || typeof a !== 'object') return false;
-    const aud = Array.isArray(a.audienceIds) ? a.audienceIds : [];
-    return aud.includes(me.id);
-  });
-}, [activity, me.id]);
-    const shownChatCtas = useMemo(() => new Set(), [visibleActivity.length]);
+      const list = Array.isArray(activity) ? activity : [];
+      return list.filter((a) => {
+        if (!a || typeof a !== 'object') return false;
+        const aud = Array.isArray(a.audienceIds) ? a.audienceIds : [];
+        return aud.includes(me.id);
+      });
+    }, [activity, me.id]);
 
-    function onActivityRowClick(a) {
-  const isChatEvent = a?.type === 'chat_unlocked' || a?.type === 'chat_message';
-  const post = a?.postId ? posts.find((p) => p.id === a.postId) : null;
-  const otherId = otherIdFromActivity(a, me.id);
+    // Group activity by postId (fallback to actor/type key)
+    const groups = useMemo(() => {
+      const map = new Map();
+      for (const a of visibleActivity) {
+        const key = a?.postId ? String(a.postId) : `x_${a?.actorId}_${a?.type}`;
+        const arr = map.get(key) || [];
+        arr.push(a);
+        map.set(key, arr);
+      }
 
-  // If it's a chat-related event and it's actually unlocked, open the chat
-  if (isChatEvent && post && otherId && canOpenChatForPost(post, otherId)) {
-    openChat(post.id, otherId);
-    return;
-  }
+      const out = Array.from(map.entries()).map(([key, events]) => {
+        const last = events.reduce((m, e) => (e && e.ts > (m?.ts || 0) ? e : m), events[0]);
+        const preview = activityText(last, me.id);
 
-  // Otherwise, if the activity points to a post, jump to Home and expand that thread
-  if (post) {
-    setChat(null);
-    setThread(null);
-    setModal(null);
+        // Try to find a postId anywhere in the group's events (some events may omit postId)
+        const foundPost = events.find((ev) => ev && ev.postId);
+        const groupPostId = foundPost ? foundPost.postId : last?.postId || null;
 
-    setActiveTab('home');
+        // aggregate unread for chat threads inside this group
+        let unread = 0;
+        let primary = { type: 'view', postId: groupPostId };
 
-    // Clear filters that could hide the post
-    setHomeChip('all');
-    setHomeQuery('');
-    setHomeFollowOnly(false);
+        for (const ev of events) {
+          const isChatEvent = ev?.type === 'chat_unlocked' || ev?.type === 'chat_message';
+          const post = ev?.postId ? posts.find((p) => p.id === ev.postId) : null;
+          const otherId = otherIdFromActivity(ev, me.id);
+          if (isChatEvent && post && otherId && canOpenChatForPost(post, otherId)) {
+            const viewerChatId = getChatId(post.id, me.id, otherId);
+            unread += unreadCount(viewerChatId, me.id);
+            // prefer chat as primary action
+            primary = { type: 'chat', postId: post.id, otherId };
+          }
+        }
 
-    // If the post is resolved, Home might be hiding it → show All
-    if (post.status === 'resolved') setHomeShowAll(true);
+        return {
+          id: key,
+          postId: groupPostId,
+          events,
+          last,
+          preview,
+          unread,
+          primary,
+          count: events.length,
+        };
+      });
 
-    // Expand the post thread
-    setExpandedThreads((prev) => ({ ...(prev || {}), [post.id]: true }));
-  }
-}
+      return out.sort((a, b) => (b.last?.ts || 0) - (a.last?.ts || 0));
+    }, [visibleActivity, posts, chats, lastRead, me.id]);
+
+    function openGroupPrimary(g, e) {
+      if (e && e.stopPropagation) e.stopPropagation();
+      trackEvent('activity_primary_cta', { type: g.primary?.type, postId: g.postId });
+      if (g.primary?.type === 'chat' && g.primary.otherId) {
+        console.debug('Activity: open chat', g.primary);
+        openChat(g.primary.postId, g.primary.otherId);
+        return;
+      }
+
+      if (g.postId) {
+        console.debug('Activity: jump to post', g.postId);
+        // use existing helper to ensure consistent behavior
+        jumpToPostFromActivity(g.postId);
+      }
+    }
+
+    function quickReply(g, text, e) {
+      if (e && e.stopPropagation) e.stopPropagation();
+      if (g.primary?.type !== 'chat' || !g.primary.otherId || !g.primary.postId) return;
+      trackEvent('activity_quick_reply', { postId: g.primary.postId, otherId: g.primary.otherId, text });
+      sendChatMessage(g.primary.postId, g.primary.otherId, text);
+    }
 
     return (
       <div className="nb-page">
         <div className="nb-section">
           <div className="nb-section-title">Activity</div>
-          <div className="nb-section-sub">
-            Replies, chat unlocks, and resolution updates show up here.
-          </div>
+          <div className="nb-section-sub">Replies, chat unlocks, and resolution updates show up here.</div>
         </div>
 
-        <div className="nb-activity-ctas">
-          <button
-            className="nb-btn nb-btn-ghost"
-            title="Open the next chat thread with unread messages"
-            onClick={(e) => {
-              e.stopPropagation();
-              // Open next unread chat thread (newest first)
-              const sorted = [...visibleActivity].sort((a, b) => (b.ts || 0) - (a.ts || 0));
-              for (const a of sorted) {
-                const isChatEvent = a?.type === 'chat_unlocked' || a?.type === 'chat_message';
-                if (!isChatEvent || !a?.postId) continue;
-                const post = posts.find((p) => p.id === a.postId);
-                const otherId = otherIdFromActivity(a, me.id);
-                if (!post || !otherId) continue;
-                if (!canOpenChatForPost(post, otherId)) continue;
-                const viewerChatId = getChatId(post.id, me.id, otherId);
-                if (unreadCount(viewerChatId, me.id) > 0) {
-                  openChat(post.id, otherId);
-                  markChatRead(viewerChatId, me.id);
-                  return;
-                }
-              }
-            }}
-          >
-            Open next unread
-          </button>
-
-          <button
-            className="nb-btn nb-btn-ghost"
-            title="Jump to the feed (clears local filters)"
-            onClick={(e) => {
-              e.stopPropagation();
-              setActiveTab('home');
-              setHomeChip('all');
-              setHomeFollowOnly(false);
-              setHomeQuery('');
-              const el = document.querySelector('.nb-feed');
-              if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth' });
-            }}
-          >
-            Go to Feed
-          </button>
-
-          <button
-            className="nb-btn nb-btn-ghost"
-            title="Mark activity as read"
-            onClick={(e) => {
-              e.stopPropagation();
-              try {
-                markSeen(me.id, 'activity');
-              } catch (err) {
-                setLastSeenByUser((prev) => prev);
-              }
-            }}
-          >
-            Mark all read
-          </button>
-        </div>
-
-        {visibleActivity.length === 0 ? (
+        {groups.length === 0 ? (
           <EmptyState
             title="No activity yet"
             body="That usually means nobody is posting. The fastest fix: create one structured post."
@@ -7752,133 +7835,74 @@ const [nearText, setNearText] = useState('');
           />
         ) : (
           <div className="nb-list">
-            {(() => {
-              // Group visible activity by postId (or by activity id for standalone events)
-              const byKey = {};
-              visibleActivity.forEach((it) => {
-                const key = it.postId ? `post:${it.postId}` : `act:${it.id}`;
-                if (!byKey[key])
-                  byKey[key] = { key, post: it.postId ? posts.find((p) => p.id === it.postId) : null, items: [] };
-                byKey[key].items.push(it);
-              });
+            {groups.map((g) => {
+              const actor = usersById[g.last?.actorId];
+              const actorPoints = (typeof npPointsByUser === 'object' && actor && actor.id) ? (npPointsByUser?.[actor.id] || 0) : 0;
+              const avatar = actor?.avatar || AVATAR;
+              const title = activityText(g.last, me.id);
+              const time = timeAgo(g.last?.ts || Date.now());
+              const unreadLabel = g.unread > 9 ? '9+' : String(g.unread || '');
 
-              const groups = Object.values(byKey)
-                .map((g) => {
-                  g.items.sort((x, y) => (y.ts || 0) - (x.ts || 0));
-                  g.most = g.items[0];
-                  return g;
-                })
-                .sort((a, b) => (b.most.ts || 0) - (a.most.ts || 0));
+              return (
+                <div
+                  key={g.id}
+                  className="nb-activity-group"
+                  role="group"
+                  tabIndex={0}
+                  onClick={() => openGroupPrimary(g)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') openGroupPrimary(g, e);
+                  }}
+                >
+                  <div className="nb-activity-left">
+                    <img
+                      src={avatar}
+                      alt={actor?.name || ''}
+                      className="nb-avatar sm is-loading"
+                      loading="lazy"
+                      onLoad={(ev) => ev.currentTarget.classList.remove('is-loading')}
+                    />
+                  </div>
 
-              if (groups.length === 0) return null;
-
-              return groups.map((g) => {
-                const a = g.most;
-                const isChatEvent = a?.type === 'chat_unlocked' || a?.type === 'chat_message';
-                const post = g.post;
-                const otherId = otherIdFromActivity(a, me.id);
-
-                const canCta = isChatEvent && post && otherId && canOpenChatForPost(post, otherId);
-                const threadKey = canCta ? getChatId(a.postId, a.actorId, a.otherUserId) : null;
-                const showCta = canCta && threadKey && !shownChatCtas.has(threadKey);
-                if (showCta) shownChatCtas.add(threadKey);
-
-                const viewerChatId = canCta ? getChatId(post.id, me.id, otherId) : null;
-                const unread = viewerChatId ? unreadCount(viewerChatId, me.id) : 0;
-                const unreadLabel = unread > 9 ? '9+' : String(unread);
-
-                const viewerChatId = post && otherId ? getChatId(post.id, me.id, otherId) : null;
-                const preview = viewerChatId ? getLastMessagePreview(viewerChatId, me.id, 80) : '';
-                const lastMsgTs = viewerChatId ? getLastChatTs(viewerChatId) : 0;
-                const groupHasNew = g.items.some((it) => (it.ts || 0) > (lastSeen.activityTs || 0));
-
-                return (
-                  <div
-                    key={g.key}
-                    className="nb-listitem"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => onActivityRowClick(a)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') onActivityRowClick(a);
-                    }}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div className="nb-listdot" />
-                    <div className="nb-listtext">
-                      <div className="nb-listmain">
-                        {activityText(a, me.id)}
-                        {g.items.length > 1 ? (
-                          <span className="nb-group-badge" aria-hidden>
-                            {g.items.length}
-                          </span>
-                        ) : null}
-                        {unread > 0 ? (
-                          <span className="nb-unread-pill" aria-hidden title={`${unread} unread`}>
-                            {unreadLabel}
-                          </span>
-                        ) : null}
-                        {groupHasNew ? <span className="nb-new-dot" aria-hidden /> : null}
-                      </div>
-
-                      <div className="nb-listsub">
-                        {preview ? (
-                          <button
-                            type="button"
-                            className="nb-preview-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (post && otherId && canOpenChatForPost(post, otherId)) {
-                                openChat(post.id, otherId);
-                                const vId = getChatId(post.id, me.id, otherId);
-                                try { markChatRead(vId, me.id); } catch (_) {}
-                              }
-                            }}
-                            title={preview}
-                          >
-                            <span className="nb-preview">{preview}</span>
-                          </button>
-                        ) : null}
-                        {preview ? <span className="nb-preview-sep">·</span> : null}
-                        <span>{lastMsgTs ? timeAgo(lastMsgTs) : timeAgo(a.ts)}</span>
+                  <div className="nb-activity-main">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div className="nb-activity-title" style={{ flex: 1 }}>{title}</div>
+                      <div className="nb-activity-token" title={badgeParts(badgeFor(actorPoints)).name}>
+                        {badgeParts(badgeFor(actorPoints)).emoji}
                       </div>
                     </div>
+                    <div className="nb-activity-sub">{g.preview}</div>
+                    <div className="nb-activity-meta">{time} · {g.count} event{g.count>1?'s':''}</div>
 
-                    {showCta ? (
-                      <button
-                        type="button"
-                        className="nb-btn nb-btn-ghost nb-btn-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openChat(post.id, otherId);
-                        }}
-                      >
-                        Open chat
-                        {unread > 0 ? (
-                          <span
-                            aria-label={`${unread} unread`}
-                            title={`${unread} unread`}
-                            style={{
-                              marginLeft: 8,
-                              padding: '2px 8px',
-                              borderRadius: 999,
-                              fontSize: 12,
-                              fontWeight: 900,
-                              lineHeight: '16px',
-                              background: 'rgba(255,145,90,.95)',
-                              color: '#111',
-                              border: '1px solid rgba(255,255,255,.12)',
+                    <div className="nb-activity-footer">
+                      <div className="nb-activity-ctas">
+                        {g.primary?.type !== 'none' && g.primary ? (
+                          <button
+                            type="button"
+                            className={`nb-btn nb-btn-primary nb-btn-sm ${!g.postId && g.primary?.type === 'view' ? 'disabled' : ''}`}
+                            onClick={(e) => {
+                              // prevent no-op if there's no postId
+                              if (g.primary?.type === 'view' && !g.postId) return;
+                              openGroupPrimary(g, e);
                             }}
                           >
-                            {unreadLabel}
-                          </span>
+                            {g.primary?.type === 'chat' ? 'Open chat' : 'View post'}
+                          </button>
                         ) : null}
-                      </button>
-                    ) : null}
+
+                        {g.unread > 0 ? (
+                          <div className="nb-unread-pill" aria-label={`${g.unread} unread`}>
+                            {unreadLabel}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {/* Quick replies removed from activity list - kept inside chat view instead */}
+                    </div>
                   </div>
-                );
-              });
-            })()}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -7967,6 +7991,17 @@ const [nearText, setNearText] = useState('');
     const theirPosts = posts
       .filter((p) => p && p.ownerId === userId)
       .sort((a, b) => b.createdAt - a.createdAt);
+
+    // Highlights info (opt-in + current boost)
+    const highlightInfo = highlightsByUser?.[userId] || {};
+    const isHighlighted = highlightInfo.tempBoostUntil && Date.now() < highlightInfo.tempBoostUntil;
+    const allowHighlights = !!highlightInfo.allowHighlights;
+
+    // compute helps count from activity events (approx)
+    const helpsCount = Array.isArray(activity)
+      ? activity.filter((a) => a && a.type === 'help_confirmed' && a.actorId === userId).length
+      : 0;
+    const npBalance = npPointsByUser?.[userId] || 0;
 
     return (
       <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
@@ -8093,6 +8128,37 @@ const [nearText, setNearText] = useState('');
                 paddingTop: 14,
               }}
             >
+              {/* Profile ledger + highlights */}
+              <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                  <div style={{ fontWeight: 900 }}>{u.name}</div>
+                  <div style={{ color: 'var(--muted)', fontSize: 13 }}>Helps: {helpsCount}</div>
+                  <div style={{ color: 'var(--muted)', fontSize: 13 }}>NP: {npBalance}</div>
+                  {isHighlighted ? <div className="nb-badge">Highlighted</div> : null}
+                </div>
+
+                {isMe ? (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>Allow public highlights</div>
+                    <button
+                      className={`nb-btn ${allowHighlights ? 'nb-btn-primary' : 'nb-btn-ghost'}`}
+                      onClick={() => setUserHighlightOptIn(userId, !allowHighlights)}
+                    >
+                      {allowHighlights ? 'Enabled' : 'Enable'}
+                    </button>
+                  </div>
+                ) : null}
+
+                {me.id === 'me' && !isMe ? (
+                  <div>
+                    {isHighlighted ? (
+                      <button className="nb-btn nb-btn-ghost" onClick={() => setUserTempBoost(userId, null)}>Remove highlight</button>
+                    ) : (
+                      <button className="nb-btn nb-btn-primary" onClick={() => setUserTempBoost(userId, Date.now() + 1000 * 60 * 60 * 24 * 7)}>Highlight for 7 days (dev)</button>
+                    )}
+                  </div>
+                ) : null}
+              </div>
               <div style={{ fontWeight: 980 }}>Posts</div>
 
               {theirPosts.length === 0 ? (
@@ -8150,7 +8216,13 @@ const [nearText, setNearText] = useState('');
         return { u, v, on: isAvailabilityActive(v) };
       })
       .filter((x) => x?.u?.id && x.on && x.u.id !== meId)
-      .sort((a, b) => (Number(b?.v?.ts || 0) - Number(a?.v?.ts || 0)));
+      .sort((a, b) => {
+        // prefer highlighted users (temporary boost)
+        const ah = highlightsByUser?.[a.u?.id]?.tempBoostUntil && Date.now() < highlightsByUser[a.u.id].tempBoostUntil ? 1 : 0;
+        const bh = highlightsByUser?.[b.u?.id]?.tempBoostUntil && Date.now() < highlightsByUser[b.u.id].tempBoostUntil ? 1 : 0;
+        if (ah !== bh) return bh - ah; // highlighted first
+        return Number(b?.v?.ts || 0) - Number(a?.v?.ts || 0);
+      });
   }, [users, meId, tick]);
 
   return (
