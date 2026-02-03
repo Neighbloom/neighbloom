@@ -1484,6 +1484,42 @@ function App() {
       }
   );
 
+    // Small hook to animate numbers (e.g. NP badge count-up)
+    function useAnimatedNumber(value, duration = 1000) {
+      const [display, setDisplay] = useState(Number(value) || 0);
+      const rafRef = useRef(null);
+      const fromRef = useRef(Number(value) || 0);
+
+      useEffect(() => {
+        cancelAnimationFrame(rafRef.current);
+        const from = Number(fromRef.current) || 0;
+        const to = Number(value) || 0;
+        if (from === to) {
+          setDisplay(to);
+          fromRef.current = to;
+          return;
+        }
+        const start = performance.now();
+        function step(now) {
+          const t = Math.min(1, (now - start) / duration);
+          const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+          const current = Math.round(from + (to - from) * eased);
+          setDisplay(current);
+          if (t < 1) rafRef.current = requestAnimationFrame(step);
+          else fromRef.current = to;
+        }
+        rafRef.current = requestAnimationFrame(step);
+        return () => cancelAnimationFrame(rafRef.current);
+      }, [value, duration]);
+
+      // keep baseline in sync if outer code resets value
+      useEffect(() => {
+        fromRef.current = Number(value) || 0;
+      }, []);
+
+      return display;
+    }
+
   // -------------------- DAILY CHECK-IN (local, no backend) --------------------
   const [checkInByUser, setCheckInByUser] = useLocalStorageJsonState(
     'nb_checkInByUser',
@@ -3229,6 +3265,14 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
       audienceIds: Array.from(new Set([posts.find((p) => p.id === postId)?.ownerId, ...selectedIds].filter(Boolean))),
     });
 
+    // celebration: confetti burst + toast showing total NP awarded
+    try {
+      const AWARD_PER_HELPER = 20;
+      const totalAwarded = (selectedIds?.length || 0) * AWARD_PER_HELPER;
+      try { launchConfetti(48); } catch (e) {}
+      try { showToast(`+${totalAwarded} NP • Great job!`); } catch (e) {}
+    } catch (e) {}
+
     setModal({ type: 'thank_you', postId, helperIds: selectedIds });
   }
 
@@ -3736,6 +3780,7 @@ const onboardingTooltip =
 
     // NP badge calculations (show progress to next level)
     const points = npPoints;
+    const displayedPoints = useAnimatedNumber(npPoints, 1000);
     const currentBadge =
       BADGES.slice()
         .reverse()
@@ -3796,8 +3841,8 @@ const onboardingTooltip =
             aria-label={`Neighbor Points ${npPoints} points`}
             onClick={() => setModal({ type: 'points' })}
           >
-            <div className="nb-np-main">
-              <div className="nb-np-value">{points}</div>
+              <div className="nb-np-main">
+              <div className="nb-np-value">{displayedPoints}</div>
               <div style={{ flex: 1 }}>
                 <div className="nb-np-sub">{points} / {nextMin} NP</div>
                 <div className="nb-np-progress" aria-hidden="true">
@@ -5178,26 +5223,24 @@ function launchConfetti(count = 36) {
   try {
     const root = document.body;
     const pieces = [];
-    const colors = ['#ff915a', '#ffd166', '#7bd389', '#70c1b3', '#9ec1ff', '#ffd6a5', '#a0f0d6'];
+    // Brand palette: coral, turquoise, gold
+    const colors = ['#FF6A3D', '#4FD1C5', '#F59E0B'];
     for (let i = 0; i < count; i++) {
       const el = document.createElement('div');
       el.className = 'nb-confetti-piece';
-      // randomize color and position
       el.style.background = colors[Math.floor(Math.random() * colors.length)];
       el.style.left = Math.round(Math.random() * 80 + 10) + '%';
       el.style.transform = `rotate(${Math.round(Math.random() * 360)}deg)`;
-      // small size variation
-      const w = 10 + Math.round(Math.random() * 10);
-      const h = 14 + Math.round(Math.random() * 12);
+      const w = 8 + Math.round(Math.random() * 14);
+      const h = 10 + Math.round(Math.random() * 18);
       el.style.width = w + 'px';
       el.style.height = h + 'px';
-      // vary animation durations slightly per piece
-      const fall = 1.8 + Math.random() * 1.4; // seconds
-      const spin = 1 + Math.random() * 1.2;
+      // overall fall centered around ~2s with slight variance
+      const fall = 1.6 + Math.random() * 0.8; // ~1.6 - 2.4s
+      const spin = 0.9 + Math.random() * 1.2;
       el.style.animationDuration = `${fall}s, ${spin}s`;
       root.appendChild(el);
       pieces.push(el);
-      // remove after animation
       setTimeout(() => {
         try { el.remove(); } catch (e) {}
       }, (fall * 1000) + 600 + Math.round(Math.random() * 600));
