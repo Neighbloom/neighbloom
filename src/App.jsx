@@ -3284,12 +3284,12 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     });
 
     // celebration: confetti burst + toast showing total NP awarded
-    try {
-      const AWARD_PER_HELPER = 20;
-      const totalAwarded = (selectedIds?.length || 0) * AWARD_PER_HELPER;
-      try { launchConfetti(48); } catch (e) {}
-      try { showToast(`+${totalAwarded} NP • Great job!`); } catch (e) {}
-    } catch (e) {}
+    const AWARD_PER_HELPER = 20;
+    const totalAwarded = (selectedIds?.length || 0) * AWARD_PER_HELPER;
+    console.log('awardHelpers: launching confetti, totalAwarded=', totalAwarded, 'postId=', postId, 'selectedIds=', selectedIds);
+    // deliberately not wrapped in try/catch so errors surface in console
+    launchConfetti(48);
+    showToast(`+${totalAwarded} NP • Great job!`);
 
     setModal({ type: 'thank_you', postId, helperIds: selectedIds });
   }
@@ -5238,32 +5238,41 @@ function pushActivity(arg, meta = {}) {
 }
 
 function launchConfetti(count = 36) {
-  try {
-    const root = document.body;
-    const pieces = [];
-    // Brand palette: coral, turquoise, gold
-    const colors = ['#FF6A3D', '#4FD1C5', '#F59E0B'];
-    for (let i = 0; i < count; i++) {
-      const el = document.createElement('div');
-      el.className = 'nb-confetti-piece';
-      el.style.background = colors[Math.floor(Math.random() * colors.length)];
-      el.style.left = Math.round(Math.random() * 80 + 10) + '%';
-      el.style.transform = `rotate(${Math.round(Math.random() * 360)}deg)`;
-      const w = 8 + Math.round(Math.random() * 14);
-      const h = 10 + Math.round(Math.random() * 18);
-      el.style.width = w + 'px';
-      el.style.height = h + 'px';
-      // overall fall centered around ~2s with slight variance
-      const fall = 1.6 + Math.random() * 0.8; // ~1.6 - 2.4s
-      const spin = 0.9 + Math.random() * 1.2;
-      el.style.animationDuration = `${fall}s, ${spin}s`;
-      root.appendChild(el);
-      pieces.push(el);
-      setTimeout(() => {
-        try { el.remove(); } catch (e) {}
-      }, (fall * 1000) + 600 + Math.round(Math.random() * 600));
+  const root = document.body;
+  const pieces = [];
+  // Brand palette: coral, turquoise, gold
+  const colors = ['#FF6A3D', '#4FD1C5', '#F59E0B'];
+  console.log('launchConfetti called, count=', count, 'colors=', colors);
+  let firstLogged = false;
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement('div');
+    el.className = 'nb-confetti-piece';
+    el.style.background = colors[Math.floor(Math.random() * colors.length)];
+    el.style.left = Math.round(Math.random() * 80 + 10) + '%';
+    el.style.transform = `rotate(${Math.round(Math.random() * 360)}deg)`;
+    const w = 8 + Math.round(Math.random() * 14);
+    const h = 10 + Math.round(Math.random() * 18);
+    el.style.width = w + 'px';
+    el.style.height = h + 'px';
+    // overall fall centered around ~2s with slight variance
+    const fall = 1.6 + Math.random() * 0.8; // ~1.6 - 2.4s
+    const spin = 0.9 + Math.random() * 1.2;
+    el.style.animationDuration = `${fall}s, ${spin}s`;
+    root.appendChild(el);
+    pieces.push(el);
+    if (!firstLogged) {
+      try {
+        const cs = window.getComputedStyle(el);
+        console.log('confetti piece computed style:', { animationName: cs.animationName, animationDuration: cs.animationDuration, width: cs.width, height: cs.height });
+      } catch (e) {
+        console.log('confetti computed style read failed', e);
+      }
+      firstLogged = true;
     }
-  } catch (e) {}
+    setTimeout(() => {
+      try { el.remove(); } catch (e) {}
+    }, (fall * 1000) + 600 + Math.round(Math.random() * 600));
+  }
 }
 
 function OnboardingModal() {
@@ -8983,88 +8992,7 @@ onRefresh={refreshHome}
         </div>
       ) : null}
 
-      {modal?.type === 'award_guard' ? (
-        <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
-          <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="nb-modal-head">
-              <div className="nb-modal-title">Verify completion before awarding</div>
-              <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">✕</button>
-            </div>
-
-            <div style={{ padding: 14 }}>
-              <div className="nb-muted" style={{ marginBottom: 8, fontWeight: 850 }}>
-                We recommend attaching a recent photo showing the completed work. You can approve and award now, queue the award for 24 hours, or award anyway.
-              </div>
-
-              <div style={{ display: 'grid', gap: 12 }}>
-                {(() => {
-                  const post = posts.find((p) => p && p.id === modal.postId);
-                  if (!post) return null;
-                  return (
-                    <div>
-                      {post.completionPhoto ? (
-                        <div>
-                          <div style={{ fontWeight: 950, marginBottom: 8 }}>Attached photo</div>
-                          <img src={post.completionPhoto} alt="completion" style={{ width: '100%', maxWidth: 360, borderRadius: 8 }} />
-                          <div style={{ color: 'var(--muted)', marginTop: 8 }}>Uploaded {post.completionPhotoMeta?.name || ''}</div>
-                        </div>
-                      ) : (
-                        <div className="nb-muted">No photo attached yet.</div>
-                      )}
-
-                      <CompletionPhotoForm postId={modal.postId} />
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-
-            <div className="nb-modal-foot">
-              <div className="nb-muted">Choose an action:</div>
-              <div className="nb-modal-actions">
-                <button
-                  className="nb-btn nb-btn-primary"
-                  onClick={() => {
-                    const post = posts.find((p) => p && p.id === modal.postId);
-                    if (!post) return;
-                    // Mark approved if not already
-                    if (!post.completionPhotoApproved) {
-                      setPosts((prev) => prev.map((p) => (p && p.id === modal.postId ? { ...p, completionPhotoApproved: true } : p)));
-                    }
-                    awardHelpers(modal.postId, modal.helperIds || []);
-                  }}
-                >
-                  Approve & Award
-                </button>
-
-                <button
-                  className="nb-btn nb-btn-ghost"
-                  onClick={() => {
-                    // Queue award for 24 hours
-                    const until = Date.now() + 24 * 60 * 60 * 1000;
-                    setPosts((prev) => prev.map((p) => (p && p.id === modal.postId ? { ...p, awardQueuedUntil: until } : p)));
-                    pushActivity({ text: 'Award queued for 24h pending proof.', postId: modal.postId, actorId: me.id, postOwnerId: me.id, postKind: 'help', audienceIds: [me.id] });
-                    setModal(null);
-                    setToastMsg('Award queued for 24 hours');
-                  }}
-                >
-                  Queue award 24h
-                </button>
-
-                <button
-                  className="nb-btn nb-btn-ghost"
-                  onClick={() => {
-                    // Force award anyway (owner override)
-                    awardHelpers(modal.postId, modal.helperIds || []);
-                  }}
-                >
-                  Award anyway
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {/* award_guard modal removed: confirm_award now proceeds directly to awarding */}
 
       {/* Recommendation thread modal (separate state) */}
       {thread ? <RecThreadModal postId={thread.postId} replyId={thread.replyId} /> : null}
