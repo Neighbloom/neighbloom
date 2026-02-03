@@ -254,6 +254,8 @@ body{
     left:50%;
     z-index:2147483000;
     animation: nb-confetti-fall 2.6s cubic-bezier(.2,.8,.2,1) forwards, nb-confetti-spin 1.6s linear infinite;
+    outline: 2px solid magenta;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.6);
   }
 
   @keyframes nb-confetti-fall{

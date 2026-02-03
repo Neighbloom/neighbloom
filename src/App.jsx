@@ -5246,11 +5246,10 @@ function launchConfetti(count = 36) {
   console.log('launchConfetti called, count=', count, 'colors=', colors);
   let firstLogged = false;
   for (let i = 0; i < count; i++) {
-    const el = document.createElement('div');
-    el.className = 'nb-confetti-piece';
-    el.style.background = colors[Math.floor(Math.random() * colors.length)];
-    el.style.left = Math.round(Math.random() * 80 + 10) + '%';
-    el.style.transform = `rotate(${Math.round(Math.random() * 360)}deg)`;
+  const el = document.createElement('div');
+  el.className = 'nb-confetti-piece';
+  el.style.background = colors[Math.floor(Math.random() * colors.length)];
+  el.style.left = Math.round(Math.random() * 80 + 10) + '%';
     const w = 8 + Math.round(Math.random() * 14);
     const h = 10 + Math.round(Math.random() * 18);
     el.style.width = w + 'px';
