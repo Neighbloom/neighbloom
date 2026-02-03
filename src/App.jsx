@@ -3289,7 +3289,7 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     const totalAwarded = (selectedIds?.length || 0) * AWARD_PER_HELPER;
     console.log('awardHelpers: launching confetti, totalAwarded=', totalAwarded, 'postId=', postId, 'selectedIds=', selectedIds);
     // deliberately not wrapped in try/catch so errors surface in console
-    launchConfetti(48);
+    launchConfetti(24);
     showToast(`+${totalAwarded} NP • Great job!`);
 
     // Delay opening the thank-you modal so celebration animations can run first
@@ -5206,7 +5206,7 @@ function pushActivity(arg, meta = {}) {
                       disabled={!canChat}
                       style={{ minWidth: 140 }}
                       onClick={() => {
-                        try { launchConfetti(48); } catch (e) {}
+                        try { launchConfetti(24); } catch (e) {}
                         try { setModal(null); } catch (e) {}
                         setTimeout(() => {
                           sendChatMessage(
@@ -5255,7 +5255,8 @@ function launchConfetti(count = 36) {
   const el = document.createElement('div');
   el.className = 'nb-confetti-piece';
   el.style.background = colors[Math.floor(Math.random() * colors.length)];
-  el.style.left = Math.round(Math.random() * 80 + 10) + '%';
+  // keep pieces centered within ~30%-70% to avoid edge overflow
+  el.style.left = Math.round(Math.random() * 40 + 30) + '%';
     const w = 8 + Math.round(Math.random() * 14);
     const h = 10 + Math.round(Math.random() * 18);
     el.style.width = w + 'px';

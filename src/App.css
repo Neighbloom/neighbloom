@@ -247,15 +247,13 @@ body{
   .nb-confetti-piece{
     position:fixed;
     top:6%;
-    width:12px;
-    height:18px;
+    width:8px;
+    height:12px;
     border-radius:2px;
     opacity:0.98;
     left:50%;
     z-index:2147483000;
     animation: nb-confetti-fall 2.6s cubic-bezier(.2,.8,.2,1) forwards, nb-confetti-spin 1.6s linear infinite;
-    outline: 2px solid magenta;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.6);
   }
 
   @keyframes nb-confetti-fall{
