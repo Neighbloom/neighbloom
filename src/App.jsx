@@ -1278,16 +1278,16 @@ onRefresh,
             }
             onCta={() => {
               if (homeFollowOnly) {
-                setActiveTab('home');
+                setActiveTab('profile');
               } else if (homeChip === 'help') {
                 setActiveTab('post');
-                setPostFlow({ step: 'chooser', kind: 'help' });
+                setPostFlow({ step: 'form', kind: 'help' });
               } else if (homeChip === 'rec') {
                 setActiveTab('post');
-                setPostFlow({ step: 'chooser', kind: 'rec' });
+                setPostFlow({ step: 'form', kind: 'rec' });
               } else {
                 setActiveTab('post');
-                setPostFlow({ step: 'chooser', kind: null });
+                setPostFlow({ step: 'form', kind: null });
               }
             }}
           />
@@ -7855,11 +7855,11 @@ const [nearText, setNearText] = useState('');
         {groups.length === 0 ? (
           <EmptyState
             title="Your activity starts here"
-            body="Follow neighbors or create a post to see replies and updates."
+            body="Create a post to see replies and updates."
             ctaLabel="Create a post"
             onCta={() => {
               setActiveTab('post');
-              setPostFlow({ step: 'chooser', kind: null });
+              setPostFlow({ step: 'form', kind: null });
             }}
           />
         ) : (
