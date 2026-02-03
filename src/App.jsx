@@ -3292,7 +3292,10 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     launchConfetti(48);
     showToast(`+${totalAwarded} NP • Great job!`);
 
-    setModal({ type: 'thank_you', postId, helperIds: selectedIds });
+    // Delay opening the thank-you modal so celebration animations can run first
+    setTimeout(() => {
+      setModal({ type: 'thank_you', postId, helperIds: selectedIds });
+    }, 2500);
   }
 
   const filteredFeed = useMemo(() => {
