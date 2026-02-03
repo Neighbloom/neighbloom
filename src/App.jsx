@@ -8978,9 +8978,12 @@ onRefresh={refreshHome}
                   className="nb-btn nb-btn-primary"
                   onClick={() => {
                     const pid = modal.postId;
+                    const helpers = modal.helperIds || [];
+                    // Close the confirm modal first so confetti is visible on the main screen
                     setModal(null);
-                    // Directly award — call awardHelpers so confirmation immediately proceeds
-                    awardHelpers(pid, modal.helperIds || []);
+                    setTimeout(() => {
+                      awardHelpers(pid, helpers);
+                    }, 100);
                   }}
                 >
                   Confirm and award
