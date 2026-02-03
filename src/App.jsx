@@ -5243,6 +5243,9 @@ function pushActivity(arg, meta = {}) {
 
 function launchConfetti(count = 36) {
   const root = document.body;
+  try {
+    if (root && root.style) root.style.overflowX = 'hidden';
+  } catch (e) {}
   const pieces = [];
   // Brand palette: coral, turquoise, gold
   const colors = ['#FF6A3D', '#4FD1C5', '#F59E0B'];
@@ -5276,6 +5279,14 @@ function launchConfetti(count = 36) {
       try { el.remove(); } catch (e) {}
     }, (fall * 1000) + 600 + Math.round(Math.random() * 600));
   }
+  // restore overflow after confetti animation finishes
+  try {
+    setTimeout(() => {
+      try {
+        if (root && root.style) root.style.overflowX = '';
+      } catch (e) {}
+    }, 3000);
+  } catch (e) {}
 }
 
 function OnboardingModal() {
