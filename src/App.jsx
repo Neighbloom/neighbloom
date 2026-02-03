@@ -1249,20 +1249,46 @@ onRefresh,
           ) : null}
 
           <EmptyState
-            title="Nothing here yet"
+            title={
+              homeFollowOnly
+                ? 'Make your feed yours'
+                : homeChip === 'help'
+                ? 'Need a hand?'
+                : homeChip === 'rec'
+                ? 'Looking for local tips?'
+                : 'Start your neighborhood'
+            }
             body={
               homeFollowOnly
-                ? 'You’re not following anyone yet. Open a neighbor profile and hit Follow.'
+                ? 'Follow neighbors to see posts that matter to you.'
                 : homeChip === 'help'
-                ? 'No help posts yet. The app feels dead if nobody posts. Fix that.'
+                ? 'Ask for help — neighbors often pitch in quickly.'
                 : homeChip === 'rec'
-                ? 'No recommendation requests yet. Ask a specific question and you’ll get better replies.'
-                : 'No posts yet. Start the neighborhood with one structured post.'
+                ? 'Ask a specific question and get useful recommendations.'
+                : 'Be the first to share — post a question or request and get neighbors involved.'
             }
-            ctaLabel="Create a post"
+            ctaLabel={
+              homeFollowOnly
+                ? 'Discover neighbors'
+                : homeChip === 'help'
+                ? 'Ask for help'
+                : homeChip === 'rec'
+                ? 'Ask for recommendations'
+                : 'Create a post'
+            }
             onCta={() => {
-              setActiveTab('post');
-              setPostFlow({ step: 'chooser', kind: null });
+              if (homeFollowOnly) {
+                setActiveTab('home');
+              } else if (homeChip === 'help') {
+                setActiveTab('post');
+                setPostFlow({ step: 'chooser', kind: 'help' });
+              } else if (homeChip === 'rec') {
+                setActiveTab('post');
+                setPostFlow({ step: 'chooser', kind: 'rec' });
+              } else {
+                setActiveTab('post');
+                setPostFlow({ step: 'chooser', kind: null });
+              }
             }}
           />
         </>
@@ -7828,10 +7854,13 @@ const [nearText, setNearText] = useState('');
 
         {groups.length === 0 ? (
           <EmptyState
-            title="No activity yet"
-            body="That usually means nobody is posting. The fastest fix: create one structured post."
-            ctaLabel="Go to Home"
-            onCta={() => setActiveTab('home')}
+            title="Your activity starts here"
+            body="Follow neighbors or create a post to see replies and updates."
+            ctaLabel="Create a post"
+            onCta={() => {
+              setActiveTab('post');
+              setPostFlow({ step: 'chooser', kind: null });
+            }}
           />
         ) : (
           <div className="nb-list">
@@ -8162,9 +8191,15 @@ const [nearText, setNearText] = useState('');
               <div style={{ fontWeight: 980 }}>Posts</div>
 
               {theirPosts.length === 0 ? (
-                <div className="nb-muted" style={{ marginTop: 10 }}>
-                  No posts yet.
-                </div>
+                <EmptyState
+                  title="No posts here"
+                  body="Be the first to start a thread for this neighbor."
+                  ctaLabel="Create a post"
+                  onCta={() => {
+                    setActiveTab('post');
+                    setPostFlow({ step: 'chooser', kind: null });
+                  }}
+                />
               ) : (
                 <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
                   {theirPosts.map((p) => (
@@ -8572,7 +8607,15 @@ const [nearText, setNearText] = useState('');
           </div>
 
           {myPosts.length === 0 ? (
-            <div className="nb-muted">No posts yet.</div>
+            <EmptyState
+              title="You haven't posted yet"
+              body="Share a local question or request to get responses."
+              ctaLabel="Create a post"
+              onCta={() => {
+                setActiveTab('post');
+                setPostFlow({ step: 'chooser', kind: null });
+              }}
+            />
           ) : (
             <div style={{ display: 'grid', gap: 8 }}>
               {myPosts.map((p) => (
