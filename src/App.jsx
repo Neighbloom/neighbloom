@@ -3195,7 +3195,25 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
         const replies = (p.replies || []).map((r) =>
           r.id === replyId ? { ...r, helperStatus: status } : r
         );
-        return { ...p, replies };
+
+        // If all selected helpers have now marked 'done', auto-promote post.stage -> 'done'
+        const next = { ...p, replies };
+        try {
+          const selected = getSelectedHelperIds(next);
+          if (Array.isArray(selected) && selected.length > 0) {
+            const allDone = selected.every((id) => {
+              const rr = (replies || []).find((x) => x && x.authorId === id);
+              return rr && rr.helperStatus === 'done';
+            });
+            if (allDone && next.stage !== 'done' && next.stage !== 'confirmed') {
+              return { ...next, stage: 'done' };
+            }
+          }
+        } catch (e) {
+          // fall back to conservative behavior
+        }
+
+        return next;
       })
     );
 
