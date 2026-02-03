@@ -3256,6 +3256,7 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
 }
 
   function awardHelpers(postId, selectedIds) {
+    console.log('awardHelpers called', { postId, selectedIds });
     setNpPointsByUser((prev) => {
       const next = { ...prev };
       for (const helperId of selectedIds) {
@@ -8976,8 +8977,8 @@ onRefresh={refreshHome}
                   onClick={() => {
                     const pid = modal.postId;
                     setModal(null);
-                    // call confirmHelp which will run the existing guard and award logic
-                    confirmHelp(pid);
+                    // Directly award — call awardHelpers so confirmation immediately proceeds
+                    awardHelpers(pid, modal.helperIds || []);
                   }}
                 >
                   Confirm and award
