@@ -1272,6 +1272,26 @@ backdrop-filter: blur(10px);
   gap: 8px;
 }
 
+/* Stat card interactive styles */
+.nb-stat-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255,255,255,.03);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.nb-stat-card:hover {
+  background: rgba(255,255,255,.06);
+  transform: translateY(-2px);
+}
+
+.nb-stat-card:active {
+  transform: scale(0.98);
+}
+
 .nb-badge{
   border: 1px solid var(--border);
   background: rgba(255,255,255,.04);

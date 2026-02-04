@@ -8496,13 +8496,16 @@ const [nearText, setNearText] = useState('');
               gap: 10,
             }}
           >
-            <div
+            <button
+              type="button"
+              className="nb-stat-card"
               style={{
                 border: '1px solid var(--border)',
                 borderRadius: 14,
                 padding: 12,
                 background: 'rgba(255,255,255,.03)',
               }}
+              onClick={() => setModal({ type: 'badges' })}
             >
               <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
                 NP
@@ -8510,14 +8513,23 @@ const [nearText, setNearText] = useState('');
               <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
                 {npPoints}
               </div>
-            </div>
+            </button>
 
-            <div
+            <button
+              type="button"
+              className="nb-stat-card"
               style={{
                 border: '1px solid var(--border)',
                 borderRadius: 14,
                 padding: 12,
                 background: 'rgba(255,255,255,.03)',
+              }}
+              onClick={() => {
+                if ((helpfulRepliesCount || 0) > 0) {
+                  showToast(`You've completed ${helpfulRepliesCount} helps!`);
+                } else {
+                  showToast('Complete your first help to build reputation');
+                }
               }}
             >
               <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
@@ -8526,14 +8538,20 @@ const [nearText, setNearText] = useState('');
               <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
                 {helpfulRepliesCount}
               </div>
-            </div>
+            </button>
 
-            <div
+            <button
+              type="button"
+              className="nb-stat-card"
               style={{
                 border: '1px solid var(--border)',
                 borderRadius: 14,
                 padding: 12,
                 background: 'rgba(255,255,255,.03)',
+              }}
+              onClick={() => {
+                if ((myFollowers || 0) > 0) showToast(`${myFollowers} neighbors follow you`);
+                else showToast('Get followers by helping neighbors');
               }}
             >
               <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
@@ -8542,14 +8560,20 @@ const [nearText, setNearText] = useState('');
               <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
                 {myFollowers}
               </div>
-            </div>
+            </button>
 
-            <div
+            <button
+              type="button"
+              className="nb-stat-card"
               style={{
                 border: '1px solid var(--border)',
                 borderRadius: 14,
                 padding: 12,
                 background: 'rgba(255,255,255,.03)',
+              }}
+              onClick={() => {
+                if ((myFollowing || 0) > 0) showToast(`You're following ${myFollowing} neighbors`);
+                else showToast('Follow neighbors to see their posts');
               }}
             >
               <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
@@ -8558,7 +8582,7 @@ const [nearText, setNearText] = useState('');
               <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
                 {myFollowing}
               </div>
-            </div>
+            </button>
           </div>
         </div>
 
