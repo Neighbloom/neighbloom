@@ -8525,6 +8525,7 @@ const [nearText, setNearText] = useState('');
                 background: 'rgba(255,255,255,.03)',
               }}
               onClick={() => {
+                console.log('Helpful clicked', helpfulRepliesCount);
                 if ((helpfulRepliesCount || 0) > 0) {
                   showToast(`You've completed ${helpfulRepliesCount} helps!`);
                 } else {
@@ -8550,8 +8551,12 @@ const [nearText, setNearText] = useState('');
                 background: 'rgba(255,255,255,.03)',
               }}
               onClick={() => {
-                if ((myFollowers || 0) > 0) showToast(`${myFollowers} neighbors follow you`);
-                else showToast('Get followers by helping neighbors');
+                console.log('Followers clicked', myFollowers);
+                if ((myFollowers || 0) > 0) {
+                  showToast(`${myFollowers} neighbors follow you`);
+                } else {
+                  showToast('Get followers by helping neighbors');
+                }
               }}
             >
               <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
@@ -8572,8 +8577,12 @@ const [nearText, setNearText] = useState('');
                 background: 'rgba(255,255,255,.03)',
               }}
               onClick={() => {
-                if ((myFollowing || 0) > 0) showToast(`You're following ${myFollowing} neighbors`);
-                else showToast('Follow neighbors to see their posts');
+                console.log('Following clicked', myFollowing);
+                if ((myFollowing || 0) > 0) {
+                  showToast(`You're following ${myFollowing} neighbors`);
+                } else {
+                  showToast('Follow neighbors to see their posts');
+                }
               }}
             >
               <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
