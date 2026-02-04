@@ -3287,9 +3287,7 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     // celebration: confetti burst + toast showing total NP awarded
     const AWARD_PER_HELPER = 20;
     const totalAwarded = (selectedIds?.length || 0) * AWARD_PER_HELPER;
-    console.log('awardHelpers: launching confetti, totalAwarded=', totalAwarded, 'postId=', postId, 'selectedIds=', selectedIds);
-    // deliberately not wrapped in try/catch so errors surface in console
-    launchConfetti(24);
+    // show toast and perform awarding (no confetti)
     showToast(`+${totalAwarded} NP • Great job!`);
 
     // Delay opening the thank-you modal so celebration animations can run first
@@ -5206,8 +5204,8 @@ function pushActivity(arg, meta = {}) {
                       disabled={!canChat}
                       style={{ minWidth: 140 }}
                       onClick={() => {
-                        try { launchConfetti(24); } catch (e) {}
-                        try { setModal(null); } catch (e) {}
+                        // confetti removed — just close modal and send thanks
+                        setModal(null);
                         setTimeout(() => {
                           sendChatMessage(
                             postId,
@@ -5241,54 +5239,7 @@ function pushActivity(arg, meta = {}) {
   );
 }
 
-function launchConfetti(count = 36) {
-  const root = document.body;
-  try {
-    if (root && root.style) root.style.overflowX = 'hidden';
-  } catch (e) {}
-  const pieces = [];
-  // Brand palette: coral, turquoise, gold
-  const colors = ['#FF6A3D', '#4FD1C5', '#F59E0B'];
-  console.log('launchConfetti called, count=', count, 'colors=', colors);
-  let firstLogged = false;
-  for (let i = 0; i < count; i++) {
-  const el = document.createElement('div');
-  el.className = 'nb-confetti-piece';
-  el.style.background = colors[Math.floor(Math.random() * colors.length)];
-  // keep pieces centered within ~30%-70% to avoid edge overflow
-  el.style.left = Math.round(Math.random() * 40 + 30) + '%';
-    const w = 8 + Math.round(Math.random() * 14);
-    const h = 10 + Math.round(Math.random() * 18);
-    el.style.width = w + 'px';
-    el.style.height = h + 'px';
-    // overall fall centered around ~2s with slight variance
-    const fall = 1.6 + Math.random() * 0.8; // ~1.6 - 2.4s
-    const spin = 0.9 + Math.random() * 1.2;
-    el.style.animationDuration = `${fall}s, ${spin}s`;
-    root.appendChild(el);
-    pieces.push(el);
-    if (!firstLogged) {
-      try {
-        const cs = window.getComputedStyle(el);
-        console.log('confetti piece computed style:', { animationName: cs.animationName, animationDuration: cs.animationDuration, width: cs.width, height: cs.height });
-      } catch (e) {
-        console.log('confetti computed style read failed', e);
-      }
-      firstLogged = true;
-    }
-    setTimeout(() => {
-      try { el.remove(); } catch (e) {}
-    }, (fall * 1000) + 600 + Math.round(Math.random() * 600));
-  }
-  // restore overflow after confetti animation finishes
-  try {
-    setTimeout(() => {
-      try {
-        if (root && root.style) root.style.overflowX = '';
-      } catch (e) {}
-    }, 3000);
-  } catch (e) {}
-}
+// Confetti removed: launchConfetti helper deleted
 
 function OnboardingModal() {
     const uid = me?.id || 'me';
