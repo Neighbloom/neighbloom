@@ -8807,7 +8807,7 @@ onRefresh={refreshHome}
 ) : activeTab === 'activity' ? (
   <ActivityTab />
 ) : (
-  <ProfileScreen />
+  <ProfileTab />
 )}
 
 
