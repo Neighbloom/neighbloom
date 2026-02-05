@@ -97,6 +97,8 @@ body{
   --radius: 22px;
   color: var(--text);
 
+}
+
 /* Prominent CTA styles tied to new accents */
 .nb-btn.nb-btn-primary{
   background: linear-gradient(90deg, var(--accent), #ff915a);
