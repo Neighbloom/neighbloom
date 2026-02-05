@@ -8546,7 +8546,7 @@ const [nearText, setNearText] = useState('');
                 const out = list.slice(0, 5);
                 if (out.length === 0) return <div style={{ color: 'var(--muted)' }}>No recent activity</div>;
                 return out.map((it, idx) => (
-                  <div key={idx} style={{ color: 'var(--text)', fontWeight: 850 }}>• {it.text} - {timeAgoLabel(it.ts)}</div>
+                  <div key={idx} style={{ color: 'var(--text)', fontWeight: 850 }}>• {it.text} - {timeAgo(it.ts)}</div>
                 ));
               })()}
             </div>
