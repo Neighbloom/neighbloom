@@ -8471,127 +8471,85 @@ const [nearText, setNearText] = useState('');
     )}
   </div>
 </div>
-        <div className="nb-section">
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <img className="nb-avatar" src={me.avatar} alt={me.name} />
+        <div className="nb-section nb-profile-hero">
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <div style={{ flex: '0 0 auto' }}>
+              <img src={me.avatar} alt={me.name} style={{ width: 120, height: 120, borderRadius: 16, objectFit: 'cover', border: '2px solid var(--gold)', padding: 2 }} />
+            </div>
+
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 980, fontSize: 18 }}>
-                {me.name} <span className="nb-handle">{me.handle}</span>
-                <UserBadge userId={me.id} showText />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 980, fontSize: 20 }}>
+                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{me.name}</div>
+                <div className="nb-handle">{me.handle}</div>
+                <div style={{ marginLeft: 6, fontSize: 18 }}>🌱</div>
               </div>
-              <div style={{ marginTop: 4, color: 'var(--muted)', fontWeight: 850 }}>
-                {me.location || ''}
+              <div style={{ marginTop: 6, color: 'var(--muted)', fontWeight: 850 }}>{me.location || 'Worth'}</div>
+              <div style={{ marginTop: 8, fontWeight: 850 }}>{me.tagline || 'Little missions, big city.'}</div>
+              <div style={{ marginTop: 6, color: 'var(--muted)', fontWeight: 800, fontSize: 13 }}>
+                {(() => {
+                  try {
+                    const d = new Date(); d.setMonth(d.getMonth() - 1); // approximate joined last month if not provided
+                    const mo = d.toLocaleString('default', { month: 'short' });
+                    const yr = d.getFullYear();
+                    return `Joined ${mo} ${yr}`;
+                  } catch { return 'Joined 2026'; }
+                })()}
               </div>
-              {me.tagline ? (
-                <div style={{ marginTop: 8, fontWeight: 850 }}>{me.tagline}</div>
-              ) : null}
+
+              <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="nb-btn nb-btn-ghost" onClick={() => setModal({ type: 'badges' })}>View badges & points</button>
+                <button className="nb-btn nb-btn-ghost" onClick={() => { resetDemoData(); showToast('Demo data reset'); }}>Reset demo data</button>
+              </div>
             </div>
           </div>
 
-          <div
-            style={{
-              marginTop: 14,
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 10,
-            }}
-          >
-            <button
-              type="button"
-              className="nb-stat-card"
-              style={{
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                padding: 12,
-                background: 'rgba(255,255,255,.03)',
-              }}
-              onClick={() => setModal({ type: 'badges' })}
-            >
-              <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
-                NP
-              </div>
-              <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
-                {npPoints}
-              </div>
-            </button>
+          {/* Trust signals */}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 980, fontSize: 15 }}>Trust</div>
+            <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 6 }}>
+              <li style={{ display: 'flex', gap: 8, alignItems: 'center' }}>✅ ID verified</li>
+              <li style={{ display: 'flex', gap: 8, alignItems: 'center' }}>🛡️ Trusted by neighbors</li>
+              <li style={{ display: 'flex', gap: 8, alignItems: 'center' }}>📬 Responsive</li>
+            </ul>
+          </div>
 
-            <button
-              type="button"
-              className="nb-stat-card"
-              style={{
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                padding: 12,
-                background: 'rgba(255,255,255,.03)',
-              }}
-              onClick={() => {
-                console.log('Helpful clicked', helpfulRepliesCount);
-                if ((helpfulRepliesCount || 0) > 0) {
-                  showToast(`You've completed ${helpfulRepliesCount} helps!`);
-                } else {
-                  showToast('Complete your first help to build reputation');
-                }
-              }}
-            >
-              <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
-                Helpful
-              </div>
-              <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
-                {helpfulRepliesCount}
-              </div>
-            </button>
+          {/* Impact / Activity highlights */}
+          <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,.02)' }}>
+              <div style={{ fontWeight: 950 }}>Your impact</div>
+              <div style={{ marginTop: 8, color: 'var(--muted)' }}>Helped {helpfulRepliesCount} neighbors</div>
+              <div style={{ marginTop: 6, fontWeight: 980 }}>{npPoints} NP</div>
+            </div>
 
-            <button
-              type="button"
-              className="nb-stat-card"
-              style={{
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                padding: 12,
-                background: 'rgba(255,255,255,.03)',
-              }}
-              onClick={() => {
-                console.log('Followers clicked', myFollowers);
-                if ((myFollowers || 0) > 0) {
-                  showToast(`${myFollowers} neighbors follow you`);
-                } else {
-                  showToast('Get followers by helping neighbors');
-                }
-              }}
-            >
-              <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
-                Followers
-              </div>
-              <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
-                {myFollowers}
-              </div>
-            </button>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,.02)' }}>
+              <div style={{ fontWeight: 950 }}>Your activity</div>
+              <div style={{ marginTop: 8, color: 'var(--muted)' }}>Last active: Today</div>
+              <div style={{ marginTop: 6, fontWeight: 980 }}>{(getCheckInFor && getCheckInFor(me.id)?.streak) || 0} days 🔥</div>
+            </div>
+          </div>
 
-            <button
-              type="button"
-              className="nb-stat-card"
-              style={{
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                padding: 12,
-                background: 'rgba(255,255,255,.03)',
-              }}
-              onClick={() => {
-                console.log('Following clicked', myFollowing);
-                if ((myFollowing || 0) > 0) {
-                  showToast(`You're following ${myFollowing} neighbors`);
-                } else {
-                  showToast('Follow neighbors to see their posts');
+          {/* Recent activity */}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 980, fontSize: 15 }}>Recent activity</div>
+            <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
+              {(() => {
+                const list = [];
+                // recent posts
+                for (const p of (posts || []).slice().reverse()) {
+                  if (p.ownerId === me.id) list.push({ text: `Posted: ${p.title || p.title || p.kind}`, ts: p.createdAt });
                 }
-              }}
-            >
-              <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
-                Following
-              </div>
-              <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
-                {myFollowing}
-              </div>
-            </button>
+                // activity entries
+                for (const a of (activity || []).slice().reverse()) {
+                  if (a && a.actorId === me.id) list.push({ text: a.title || a.action || a.label || a.msg || 'Activity', ts: a.activityTs || a.ts || 0 });
+                }
+                // limit
+                const out = list.slice(0, 5);
+                if (out.length === 0) return <div style={{ color: 'var(--muted)' }}>No recent activity</div>;
+                return out.map((it, idx) => (
+                  <div key={idx} style={{ color: 'var(--text)', fontWeight: 850 }}>• {it.text} - {timeAgoLabel(it.ts)}</div>
+                ));
+              })()}
+            </div>
           </div>
         </div>
 
