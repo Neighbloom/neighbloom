@@ -8446,6 +8446,69 @@ const [nearText, setNearText] = useState('');
 
   function ProfileTab() {
     const scrollRef = useRef(null);
+    // Pull-to-refresh state (for the profile scroll container)
+    const [pull, setPull] = useState(0);
+    const threshold = 68;
+    const [refreshing, setRefreshing] = useState(false);
+    const _ptrStartY = useRef(null);
+    const _ptrDragging = useRef(false);
+
+    useEffect(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+
+      function onStart(e) {
+        // only start when scrolled to top
+        if (el.scrollTop > 0) return;
+        _ptrStartY.current = e.touches ? e.touches[0].clientY : e.clientY;
+        _ptrDragging.current = true;
+      }
+
+      function onMove(e) {
+        if (!_ptrDragging.current) return;
+        const y = e.touches ? e.touches[0].clientY : e.clientY;
+        const delta = Math.max(0, y - (_ptrStartY.current || 0));
+        if (delta > 0 && el.scrollTop <= 0) {
+          // prevent native overscroll
+          try { e.preventDefault(); } catch (_) {}
+          setPull(Math.min(delta, 160));
+        }
+      }
+
+      function onEnd() {
+        if (!_ptrDragging.current) return;
+        _ptrDragging.current = false;
+        if (pull >= threshold) {
+          (async () => {
+            setRefreshing(true);
+            try {
+              await sleep(700);
+            } finally {
+              setRefreshing(false);
+              setPull(0);
+            }
+          })();
+        } else {
+          setPull(0);
+        }
+      }
+
+      el.addEventListener('touchstart', onStart, { passive: false });
+      el.addEventListener('touchmove', onMove, { passive: false });
+      el.addEventListener('touchend', onEnd);
+      el.addEventListener('mousedown', onStart);
+      el.addEventListener('mousemove', onMove);
+      el.addEventListener('mouseup', onEnd);
+
+      return () => {
+        el.removeEventListener('touchstart', onStart);
+        el.removeEventListener('touchmove', onMove);
+        el.removeEventListener('touchend', onEnd);
+        el.removeEventListener('mousedown', onStart);
+        el.removeEventListener('mousemove', onMove);
+        el.removeEventListener('mouseup', onEnd);
+      };
+    }, [scrollRef, pull]);
     const myFollowers = Array.isArray(followersByUser?.[me.id])
       ? followersByUser[me.id].length
       : 0;
