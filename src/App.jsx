@@ -8445,6 +8445,7 @@ const [nearText, setNearText] = useState('');
   }
 
   function ProfileTab() {
+    const scrollRef = useRef(null);
     const myFollowers = Array.isArray(followersByUser?.[me.id])
       ? followersByUser[me.id].length
       : 0;
