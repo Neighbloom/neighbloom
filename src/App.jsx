@@ -6769,40 +6769,44 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
       ? 'Write it like a text to a neighbor. Be clear about where/how (porch, curb, driveway, indoors, etc.). One solid detail beats a paragraph.'
       : 'Ask for exactly what you want. One detail about price/timing helps a lot.';
 
-  const quickRow = isHelp ? (
-    <div className="nb-suggest-row" style={{ marginTop: 10 }}>
-      <label style={{ display: 'none' }} htmlFor="nb_quick_select">Quick templates</label>
-      <select id="nb_quick_select" className="nb-quick-select" onChange={(e) => {
-        const idx = Number(e.target.value);
-        const arr = (typeof HELP_TEMPLATES !== 'undefined' && Array.isArray(HELP_TEMPLATES) ? HELP_TEMPLATES : []);
-        const item = arr[idx];
-        if (item) fillHelpTemplate(item);
-        e.target.selectedIndex = 0;
-      }}>
-        <option value="">Choose a quick template…</option>
-        {(typeof HELP_TEMPLATES !== 'undefined' && Array.isArray(HELP_TEMPLATES) ? HELP_TEMPLATES : []).map((t, i) => (
-          <option key={t.label || i} value={i}>{t.label || (`Template ${i+1}`)}</option>
-        ))}
-      </select>
-    </div>
-  ) : (
-    <div className="nb-suggest-row" style={{ marginTop: 10 }}>
-      <label style={{ display: 'none' }} htmlFor="nb_rec_select">Common requests</label>
-      <select id="nb_rec_select" className="nb-quick-select" onChange={(e) => {
-        const v = e.target.value;
-        if (v) fillRecQuick(v);
-        e.target.selectedIndex = 0;
-      }}>
-        <option value="">Choose a common request…</option>
-        {(typeof REC_CATEGORIES !== 'undefined' && Array.isArray(REC_CATEGORIES) ? REC_CATEGORIES : [])
-          .filter((x) => x && x !== '__custom__')
-          .slice(0, 8)
-          .map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-      </select>
-    </div>
-  );
+  // Template keyword map for chip suggestions
+  const TEMPLATE_KEYWORDS = {
+    shovel: 'Shoveling',
+    rake: 'Rake & bag',
+    bin: 'Bins',
+    bins: 'Bins',
+    trash: 'Bins',
+    heavy: 'One heavy item',
+    furniture: 'One heavy item',
+    couch: 'One heavy item',
+    table: 'One heavy item',
+    pickup: 'Pickup/drop',
+    drop: 'Pickup/drop',
+  };
+
+  const [suggestedTemplates, setSuggestedTemplates] = useState([]);
+  const messageRef = useRef(null);
+
+  // Debounced keyword detection for template chips (help only)
+  useEffect(() => {
+    if (!isHelp) {
+      setSuggestedTemplates([]);
+      return;
+    }
+    let t = null;
+    const check = () => {
+      const v = (message || '').toLowerCase();
+      const found = [];
+      for (const k of Object.keys(TEMPLATE_KEYWORDS)) {
+        if (v.includes(k) && !found.includes(TEMPLATE_KEYWORDS[k])) {
+          found.push(TEMPLATE_KEYWORDS[k]);
+        }
+      }
+      setSuggestedTemplates(found.slice(0, 3));
+    };
+    t = setTimeout(check, 300);
+    return () => clearTimeout(t);
+  }, [message, isHelp]);
 
   return (
     <div className="nb-page">
@@ -6811,9 +6815,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
           <div className="nb-form-head">
             <div>
               <div className="nb-form-title">{headerTitle}</div>
-              <div className="nb-form-sub">{sub}</div>
             </div>
-
             <button
               type="button"
               className="nb-btn nb-btn-ghost nb-btn-sm"
@@ -6824,176 +6826,91 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
             </button>
           </div>
 
-          {quickRow}
-
-          {(() => {
-            const isPristine = !String(what || '').trim() && !String(details || '').trim() && !String(area || '').trim();
-            const showBanner = draftAvailable && isPristine;
-            return showBanner ? (
-              <div style={{ marginTop: 10 }}>
-                <div className="nb-draft-banner">
-                  <div>
-                    <strong>Saved draft found</strong>
-                    <div className="nb-muted small">We saved your draft locally. Restore or discard.</div>
-                  </div>
-                  <div className="nb-draft-actions">
-                    <button className="nb-draft-cta restore" onClick={() => {
-                      try {
-                        const raw = localStorage.getItem(DRAFT_KEY);
-                        if (!raw) return clearDraft();
-                        const obj = JSON.parse(raw || '{}');
-                        setWhat(obj.what || '');
-                        setDetails(obj.details || '');
-                        setArea(obj.area || me?.location || '');
-                        setDraftAvailable(false);
-                      } catch (e) { clearDraft(); }
-                    }}>Restore</button>
-                    <button className="nb-draft-cta discard" onClick={() => {
-                      if (!confirm('Discard saved draft?')) return;
-                      try { clearDraft(); } catch (e) {}
-                      try { if (autosaveRef.current) clearTimeout(autosaveRef.current); } catch (e) {}
-                      suppressAutosaveRef.current = true;
-                      try { setWhat(''); setDetails(''); setArea(''); } catch (e) {}
-                    }}>Discard</button>
-                  </div>
-                </div>
-              </div>
-            ) : null;
-          })()}
-
-          {/* inline top error/hint */}
-          {err ? (
-            <div className="nb-error" style={{ marginTop: 10 }}>{err}</div>
-          ) : null}
-
-          {/* Primary composer: single message first */}
+          {/* Main message textarea (simplified) */}
           <div className="nb-card" style={{ marginTop: 12 }}>
             <label className="nb-label">Message</label>
             <textarea
-              className="nb-input nb-textarea nb-message"
+              ref={messageRef}
+              className={`nb-input nb-textarea nb-message ${err ? 'has-error' : ''}`}
               value={message}
-              onChange={(e) => handleMessageChange(e.target.value)}
-              placeholder={getMessagePlaceholder()}
-              rows={4}
-            />
-            {/* Suggested location micro-confirmation (tappable, non-destructive) */}
-            {(() => {
-              const inferredTown = (() => {
-                try { return inferTownKeyFromText(message || '') || null; } catch (e) { return null; }
-              })();
-              if (!inferredTown || (String(normalizeText(area) || '').toLowerCase() === String(inferredTown || '').toLowerCase())) return null;
-              return (
-                <div style={{ marginTop: 8 }}>
-                  {!showInferConfirm ? (
-                    <button
-                      type="button"
-                      className="nb-meta-chip nb-infer-chip"
-                      onClick={() => setShowInferConfirm(true)}
-                    >
-                      Suggested location: {inferredTown}
-                    </button>
-                  ) : (
-                    <div className="nb-infer-confirm-row">
-                      <span>Set location to {inferredTown}?</span>
-                      <div style={{ display: 'inline-flex', gap: 8, marginLeft: 8 }}>
-                        <button
-                          type="button"
-                          className="nb-btn nb-btn-primary nb-infer-action"
-                          onClick={() => { setArea(inferredTown); setShowInferConfirm(false); }}
-                        >
-                          Set Location
-                        </button>
-                        <button
-                          type="button"
-                          className="nb-btn nb-infer-action"
-                          onClick={() => setShowInferConfirm(false)}
-                        >
-                          Keep mine
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-            <div className="nb-muted" style={{ marginTop: 8 }}>Include: what + where/how + when.</div>
-
-            
-
-          {/* spacer so sticky CTA doesn't cover content on mobile */}
-          {/* Sticky CTA removed — use single action row */}
-          </div>
-
-          {/* (composer above replaces the older segmented inputs to keep UI simple) */}
-
-          {/* Section C: Details */}
-          <div className="nb-card" style={{ marginTop: 12 }}>
-            <label className="nb-label">Details <span className="nb-muted small">(optional)</span></label>
-            <div className="nb-muted" style={{ marginTop: 6 }}>Where exactly + timing + anything heavy/tools (optional but helpful)</div>
-            <textarea
-              className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
-              value={details}
               onChange={(e) => {
-                setDetails(e.target.value);
-                setErr('');
+                handleMessageChange(e.target.value);
+                // auto-resize
+                const el = messageRef.current;
+                if (el) {
+                  el.style.height = 'auto';
+                  el.style.height = `${Math.min(400, el.scrollHeight)}px`;
+                }
               }}
-              placeholder={isHelp ? 'Add 1–2 specifics: porch/curb, timing, heavy items, tools' : 'Add a short reason or detail'}
+              placeholder={getMessagePlaceholder()}
+              rows={3}
             />
-
-            {!details.trim() ? (
-              <div className="nb-inline-hint">Add a short detail so helpers know what to expect.</div>
-            ) : null}
-
-            <details className="nb-more-options" style={{ marginTop: 10 }}>
-              <summary>More options</summary>
-
-              {isHelp ? (
-                <div style={{ display: 'grid', gap: 10, marginTop: 8 }}>
-                  <div>
-                    <label className="nb-label">How many helpers?</label>
-                    <div className="nb-stepper" style={{ marginTop: 8 }}>
-                      <button type="button" onClick={() => setHelpersNeeded((n) => Math.max(1, (Number(n) || 1) - 1))}>−</button>
-                      <div className="nb-stepper-num">{helpersNeeded}</div>
-                      <button type="button" onClick={() => setHelpersNeeded((n) => Math.min(6, (Number(n) || 1) + 1))}>+</button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="nb-label">Attach photo (optional)</label>
-                    <div className="nb-photorow" style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center' }}>
-                      {photo ? <img className="nb-photo-thumb" src={photo} alt="" /> : <div className="nb-muted">Photo helps with clarity</div>}
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <input id="nb_post_photo" type="file" accept="image/*" onChange={(e) => onPickPhoto(e.target.files?.[0])} style={{ display: 'none' }} />
-                        <label htmlFor="nb_post_photo" className="nb-btn nb-btn-ghost nb-filebtn">{photo ? 'Change photo' : 'Add photo'}</label>
-                        {photo ? <span className="nb-muted" style={{ fontSize: 12 }}>{photoBytes ? prettyBytes(photoBytes) : 'Attached'}</span> : null}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ marginTop: 8 }}>
-                  <label className="nb-label">Preference chips (optional)</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-                    {(typeof REC_PREF_TAGS !== 'undefined' && Array.isArray(REC_PREF_TAGS) ? REC_PREF_TAGS : []).map((t) => {
-                      const on = prefTags.includes(t);
-                      return (
-                        <button key={t} type="button" className={`nb-suggest ${on ? 'is-on' : ''}`} onClick={() => togglePref(t)}>{t}</button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </details>
           </div>
+
+          {/* Template chips (help only, debounced) */}
+          {isHelp && suggestedTemplates && suggestedTemplates.length ? (
+            <div className="nb-card" style={{ marginTop: 12, display: 'flex', gap: 8, overflowX: 'auto' }}>
+              {suggestedTemplates.slice(0, 3).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="nb-chip"
+                  onClick={() => {
+                    const insert = `Need help with ${s} — [where/how], [when].`;
+                    handleMessageChange(message ? `${message}\n${insert}` : insert);
+                    setErr('');
+                    setTimeout(() => {
+                      const el = messageRef.current;
+                      if (el) {
+                        el.style.height = 'auto';
+                        el.style.height = `${Math.min(400, el.scrollHeight)}px`;
+                      }
+                    }, 0);
+                  }}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {/* Always-visible fields row (help: helpers, photo, timing) */}
+          {isHelp ? (
+            <div className="nb-card" style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label className="nb-label" style={{ marginRight: 6, marginBottom: 0 }}>How many helpers?</label>
+                <button type="button" className="nb-btn nb-btn-ghost nb-btn-sm" onClick={() => setHelpersNeeded((v) => Math.max(1, Number(v) - 1))}>−</button>
+                <div style={{ minWidth: 28, textAlign: 'center', fontWeight: 900 }}>{helpersNeeded}</div>
+                <button type="button" className="nb-btn nb-btn-ghost nb-btn-sm" onClick={() => setHelpersNeeded((v) => Math.min(10, Number(v) + 1))}>+</button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input id="nb_help_photo_main" className="nb-file" type="file" accept="image/*" onChange={(e) => onPickPhoto(e.target.files?.[0])} />
+                <label htmlFor="nb_help_photo_main" className="nb-btn nb-btn-ghost nb-filebtn">{photo ? 'Change photo' : 'Add photo'}</label>
+                <div className="nb-muted small" style={{ marginLeft: 6 }}>Helps with clarity</div>
+              </div>
+
+              <div style={{ marginLeft: 'auto' }}>
+                <select className="nb-input" value={whenMode} onChange={(e) => { const v = e.target.value; setWhenMode(v); if (v !== '__custom__') setWhenCustom(''); setErr(''); }}>
+                  <option value="ASAP">ASAP</option>
+                  <option value="Today">Today</option>
+                  <option value="Tomorrow">Tomorrow</option>
+                  <option value="This week">This week</option>
+                  <option value="__custom__">Pick date/time</option>
+                </select>
+              </div>
+            </div>
+          ) : null}
+
+          {photo ? <img className="nb-photopreview" src={photo} alt="Preview" style={{ marginTop: 12 }} /> : null}
+          {photoErr ? <div className="nb-error" style={{ marginTop: 10 }}>{photoErr}</div> : null}
 
           {err ? <div className="nb-error" style={{ marginTop: 10 }}>{err}</div> : null}
 
           <div className="nb-formactions" style={{ marginTop: 12 }}>
             <button className="nb-btn nb-btn-ghost" onClick={onBack}>Cancel</button>
-            <button className="nb-btn nb-btn-primary" onClick={uiSubmit} disabled={busy || !what.trim() || !area.trim()}>{busy ? 'Working…' : 'Post'}</button>
+            <button className="nb-btn nb-btn-primary" onClick={uiSubmit} disabled={busy || !message.trim()}>{busy ? 'Working…' : 'Post'}</button>
           </div>
-
-          
         </div>
       </div>
     </div>
@@ -7213,6 +7130,41 @@ const [nearText, setNearText] = useState('');
     }, [category]);
 
     const [details, setDetails] = useState('');
+    // New simplified message for Need a hand posts
+    const [message, setMessage] = useState('');
+    const messageRef = useRef(null);
+    const [suggestedTemplates, setSuggestedTemplates] = useState([]);
+    // Template keyword map
+    const TEMPLATE_KEYWORDS = {
+      shovel: 'Shoveling',
+      rake: 'Rake & bag',
+      bin: 'Bins',
+      bins: 'Bins',
+      trash: 'Bins',
+      heavy: 'One heavy item',
+      furniture: 'One heavy item',
+      couch: 'One heavy item',
+      table: 'One heavy item',
+      pickup: 'Pickup/drop',
+      drop: 'Pickup/drop',
+    };
+
+    // Debounced detection of keywords to show suggestion chips
+    useEffect(() => {
+      let t = null;
+      const check = () => {
+        const v = (message || '').toLowerCase();
+        const found = [];
+        for (const k of Object.keys(TEMPLATE_KEYWORDS)) {
+          if (v.includes(k) && !found.includes(TEMPLATE_KEYWORDS[k])) {
+            found.push(TEMPLATE_KEYWORDS[k]);
+          }
+        }
+        setSuggestedTemplates(found.slice(0, 3));
+      };
+      t = setTimeout(check, 300);
+      return () => clearTimeout(t);
+    }, [message]);
     const [photo, setPhoto] = useState(null); // dataURL (local demo only)
     const [err, setErr] = useState('');
     const [photoErr, setPhotoErr] = useState('');
@@ -7249,25 +7201,13 @@ const [nearText, setNearText] = useState('');
       setErr('');
       setPhotoErr('');
 
-      const t = title.trim();
-      const a = normalizeText(
-        nearText ? `${townKey} (near ${nearText})` : `${townKey}`
-      );
-      const d = details.trim();
-
+      const msg = message.trim();
       const whenRange =
-        whenMode === '__custom__'
-          ? normalizeText(whenCustom)
-          : normalizeText(whenMode);
+        whenMode === '__custom__' ? normalizeText(whenCustom) : normalizeText(whenMode);
 
-      if (!category) return setErr('Category is required.');
-      if (!t) return setErr('Title is required.');
-      if (!a) return setErr('Location is required.');
-      if (!d) return setErr('Details are required.');
-      if (d.length < 12)
-        return setErr('Add one more detail (time, size, or constraints).');
+      if (!msg) return setErr('Write a short message describing what you need.');
 
-      const combined = `${t} ${d}`;
+      const combined = msg;
 
       // Guidance only (no blocking)
 if (mentionsReward(combined)) {
@@ -7280,14 +7220,15 @@ if (mentionsIndoor(combined)) {
   // setErr('Tip: For indoor tasks, consider a Recommendation post instead.');
 }
 
+      const titleText = msg.split('\n')[0].slice(0, 80);
       const p = {
         id: uid('p'),
         kind: 'help',
         helpType,
-        category,
-        title: normalizeText(t),
-        details: normalizeText(d),
-        area: normalizeText(a),
+        category: category || 'Help',
+        title: normalizeText(titleText || 'Need a hand'),
+        details: normalizeText(msg),
+        area: normalizeText(townKey || ''),
         townKey,
         whenRange,
         helpersNeeded: Math.max(1, Number(helpersNeeded || 1)),
@@ -7300,7 +7241,6 @@ if (mentionsIndoor(combined)) {
         createdAt: NOW(),
         replies: [],
         selectedUserId: null,
-        // completion photo proof metadata (optional)
         completionPhoto: null,
         completionPhotoMeta: null,
         completionPhotoApproved: false,
@@ -7330,222 +7270,96 @@ if (mentionsIndoor(combined)) {
           </div>
         </div>
 
-        <div className="nb-form">
-          {/* Category (premium segmented + optional More picker) */}
-          <div className="nb-row">
-            <label className="nb-label">Category</label>
-
-            <div className="nb-seg nb-seg-compact nb-seg-scroll">
-              {PRIMARY_CATS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  className={`nb-segbtn ${category === c ? 'is-on' : ''}`}
-                  onClick={() => {
-                    setCategory(c);
-                    setShowAllCats(false);
-                    setErr('');
-                  }}
-                  title={c}
-                >
-                  {CAT_SHORT[c] || c}
-                </button>
-              ))}
-
-              <button
-                type="button"
-                className={`nb-segbtn ${showAllCats ? 'is-on' : ''}`}
-                onClick={() => setShowAllCats((v) => !v)}
-                title="All categories"
-              >
-                More
-              </button>
+          <div className="nb-form">
+            {/* Main message */}
+            <div className="nb-row">
+              <label className="nb-label">Message</label>
+              <textarea
+                ref={messageRef}
+                rows={3}
+                className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
+                value={message}
+                onChange={(e) => {
+                  setMessage(e.target.value);
+                  setErr('');
+                  // auto-resize
+                  const el = messageRef.current;
+                  if (el) {
+                    el.style.height = 'auto';
+                    el.style.height = `${Math.min(400, el.scrollHeight)}px`;
+                  }
+                }}
+                placeholder="What do you need help with?"
+                maxLength={500}
+              />
             </div>
 
-            {showAllCats ? (
-              <select
-                className="nb-input"
-                value={category}
-                onChange={(e) => {
-                  setCategory(e.target.value);
-                  setErr('');
-                }}
-              >
-                {HELP_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+            {/* Template suggestion chips (debounced) */}
+            {suggestedTemplates && suggestedTemplates.length ? (
+              <div className="nb-row" style={{ overflowX: 'auto' }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {suggestedTemplates.slice(0, 3).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className="nb-chip"
+                      onClick={() => {
+                        const insert = `Need help with ${s} — [where/how], [when].`;
+                        setMessage((prev) => (prev ? `${prev}\n${insert}` : insert));
+                        setErr('');
+                        // resize after insert
+                        setTimeout(() => {
+                          const el = messageRef.current;
+                          if (el) {
+                            el.style.height = 'auto';
+                            el.style.height = `${Math.min(400, el.scrollHeight)}px`;
+                          }
+                        }, 0);
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : null}
-          </div>
 
-          {/* Title */}
-<div className="nb-row">
-  <label className="nb-label">Title</label>
-  <input
-    className="nb-input"
-    value={title}
-    onChange={(e) => {
-      setTitle(e.target.value);
-      setErr('');
-    }}
-    placeholder="Example: Need help shoveling my driveway"
-  />
-</div>
-          <div className="nb-row">
-  <label className="nb-label">Location</label>
+            {/* Always-visible fields row */}
+            <div className="nb-row" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label className="nb-label" style={{ marginRight: 6 }}>How many helpers?</label>
+                <button type="button" className="nb-btn nb-btn-ghost nb-btn-sm" onClick={() => setHelpersNeeded((v) => Math.max(1, Number(v) - 1))}>-</button>
+                <div style={{ minWidth: 28, textAlign: 'center', fontWeight: 900 }}>{helpersNeeded}</div>
+                <button type="button" className="nb-btn nb-btn-ghost nb-btn-sm" onClick={() => setHelpersNeeded((v) => Math.min(10, Number(v) + 1))}>+</button>
+              </div>
 
-  <select
-    className="nb-input"
-    value={townKey}
-    onChange={(e) => {
-      setTownKey(e.target.value);
-      setErr('');
-    }}
-  >
-    {(typeof TOWN_KEYS !== 'undefined' && Array.isArray(TOWN_KEYS) ? TOWN_KEYS : []).map((k) => (
-      <option key={k} value={k}>{k}</option>
-    ))}
-  </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input id="nb_help_photo" className="nb-file" type="file" accept="image/*" onChange={(e) => onPickPhoto(e.target.files?.[0])} />
+                <label htmlFor="nb_help_photo" className="nb-btn nb-btn-ghost nb-filebtn">{photo ? 'Change photo' : 'Add photo'}</label>
+                <div className="nb-muted small" style={{ marginLeft: 6 }}>Helps with clarity</div>
+              </div>
 
-  <input
-    className="nb-input"
-    value={nearText}
-    onChange={(e) => {
-      setNearText(e.target.value);
-      setErr('');
-    }}
-    placeholder="Optional: near cross-street or landmark (e.g., near 183rd/Harlem)"
-    style={{ marginTop: 10 }}
-  />
-</div>
-
-          {/* Helpers needed */}
-          <div className="nb-row">
-            <label className="nb-label">Helpers needed</label>
-            <select
-              className="nb-input"
-              value={helpersNeeded}
-              onChange={(e) => setHelpersNeeded(Number(e.target.value))}
-            >
-              <option value={1}>1 helper</option>
-              <option value={2}>2 helpers</option>
-              <option value={3}>3 helpers</option>
-              <option value={4}>4 helpers</option>
-            </select>
-            <div className="nb-hintrow">
-              Only select more than 1 if it truly requires multiple people
-              (heavy item / safety).
-            </div>
-          </div>
-
-          {/* Timing */}
-          <div className="nb-row">
-            <label className="nb-label">Timing (optional)</label>
-
-            <select
-              className="nb-input"
-              value={whenMode}
-              onChange={(e) => {
-                const v = e.target.value;
-                setWhenMode(v);
-                if (v !== '__custom__') setWhenCustom('');
-                setErr('');
-              }}
-            >
-              <option value="">Not sure yet</option>
-              {TIME_PRESETS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-              <option value="__custom__">Custom…</option>
-            </select>
-
-            {whenMode === '__custom__' ? (
-              <input
-                className="nb-input"
-                value={whenCustom}
-                onChange={(e) => {
-                  setWhenCustom(e.target.value);
-                  setErr('');
-                }}
-                placeholder="Example: Today 6–8pm"
-              />
-            ) : null}
-          </div>
-
-          {/* Photo */}
-          <div className="nb-row">
-            <label className="nb-label">Photo (optional)</label>
-
-            <div className="nb-photorow">
-              <input
-                id="nb_help_photo"
-                className="nb-file"
-                type="file"
-                accept="image/*"
-                onChange={(e) => onPickPhoto(e.target.files?.[0])}
-              />
-              <label
-                htmlFor="nb_help_photo"
-                className="nb-btn nb-btn-ghost nb-filebtn"
-              >
-                {photo ? 'Change photo' : 'Add photo'}
-              </label>
-
-              {photo ? (
-                <button type="button" className="nb-link" onClick={clearPhoto}>
-                  Remove
-                </button>
-              ) : null}
+              <div style={{ marginLeft: 'auto' }}>
+                <select className="nb-input" value={whenMode} onChange={(e) => { const v = e.target.value; setWhenMode(v); if (v !== '__custom__') setWhenCustom(''); setErr(''); }}>
+                  <option value="ASAP">ASAP</option>
+                  <option value="Today">Today</option>
+                  <option value="Tomorrow">Tomorrow</option>
+                  <option value="This week">This week</option>
+                  <option value="__custom__">Pick date/time</option>
+                </select>
+              </div>
             </div>
 
             {photoErr ? <div className="nb-error">{photoErr}</div> : null}
-            {photo ? (
-              <img className="nb-photopreview" src={photo} alt="Preview" />
-            ) : null}
-          </div>
+            {photo ? <img className="nb-photopreview" src={photo} alt="Preview" /> : null}
 
-          {/* Details */}
-          <div className="nb-row">
-            <div className="nb-labelrow">
-              <label className="nb-label">Details</label>
-              <span className="nb-muted small">{details.length}/400</span>
-            </div>
+            {err ? <div className="nb-error">{err}</div> : null}
 
-            <textarea
-              className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
-              value={details}
-              onChange={(e) => {
-                setDetails(e.target.value);
-                setErr('');
-              }}
-              maxLength={400}
-              placeholder="Add specifics: what you need, where (porch/curb/outdoor), timing, tools you have, and anything tricky (stairs, ice, parking)."
-            />
-
-            <div className="nb-hintrow">
-              Include time estimate, tools you have, and anything tricky
-              (stairs, ice, parking).
+            <div className="nb-formactions">
+              <button className="nb-btn nb-btn-ghost" onClick={() => setPostFlow({ step: 'chooser', kind: null })}>Cancel</button>
+              <button className="nb-btn nb-btn-primary" onClick={submit} disabled={!message.trim()}>Post</button>
             </div>
           </div>
-
-          {err ? <div className="nb-error">{err}</div> : null}
-
-          <div className="nb-formactions">
-            <button
-              className="nb-btn nb-btn-ghost"
-              onClick={() => setPostFlow({ step: 'chooser', kind: null })}
-            >
-              Cancel
-            </button>
-            <button className="nb-btn nb-btn-primary" onClick={submit}>
-              Post
-            </button>
-          </div>
-        </div>
       </div>
     );
   }
