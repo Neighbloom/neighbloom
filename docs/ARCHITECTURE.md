@@ -85,5 +85,9 @@ Service-role key is never in the frontend. Only the anon key ships with the app.
 
 - Local dev: `.env.local` (gitignored). Never commit.
 - Production: Cloudflare Pages environment variables.
-- Supabase anon key: safe for frontend (RLS protects data).
+- Supabase publishable key (`sb_publishable_...`): safe for frontend (RLS protects data).
 - Supabase service-role key: server-only, never in repo or frontend bundle.
+
+## Auth email note (Milestone 1 testing)
+
+Supabase's default auth email service is rate-limited and restricted. For two-account testing, use email addresses you control (e.g., `you+test1@gmail.com`, `you+test2@gmail.com` — Gmail aliases deliver to the same inbox). Alternatively, disable "Confirm email" in Supabase Auth settings for the dev project to skip verification during testing. Do not disable it on production.
