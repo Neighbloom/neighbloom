@@ -586,6 +586,13 @@ COMMIT;
 -- Idempotency: second run must also succeed.
 \i supabase/migrations/20261012000012_notification_wiring.sql
 
+-- M4: notification mark-as-read permission (migration
+-- 20261012000013). Same inline pattern; N10 tests live at the end
+-- of this suite, after the M3 sections.
+\i supabase/migrations/20261012000013_notification_read.sql
+-- Idempotency: second run must also succeed.
+\i supabase/migrations/20261012000013_notification_read.sql
+
 -- SETUP: users D (queue-rule tests) and E (no-prefs isolation test)
 DO $$
 BEGIN
@@ -1050,6 +1057,70 @@ BEGIN
     'N9g: exactly one gratitude notification total across both events');
 END;
 $$;
+
+-- ============================================================
+-- N10: mark-as-read permission (M4 regression — live dev finding
+-- 2026-10-12: PATCH /notifications returned 403 because only
+-- SELECT was granted. Users must be able to update read_at on
+-- their OWN notifications, nothing else, nobody else's.)
+-- ============================================================
+-- Seed one notification for user A (...0001) as postgres.
+INSERT INTO public.notifications (profile_id, type, title, body)
+VALUES ('00000000-0000-0000-0000-000000000001', 'weekly_digest', 'N10 seed', 'seed-n10-marker');
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000001"}', true);
+DO $$
+DECLARE
+  v_rows INT;
+BEGIN
+  UPDATE public.notifications SET read_at = now()
+  WHERE id = (SELECT id FROM public.notifications WHERE body = 'seed-n10-marker');
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  PERFORM public._assert(v_rows = 1,
+    'N10a: owner can mark own notification read');
+END;
+$$;
+COMMIT;
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000002"}', true);
+DO $$
+DECLARE
+  v_rows INT;
+BEGIN
+  UPDATE public.notifications SET read_at = now()
+  WHERE id = (SELECT id FROM public.notifications WHERE body = 'seed-n10-marker');
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+  PERFORM public._assert(v_rows = 0,
+    'N10b: another user cannot mark it read (0 rows, RLS)');
+END;
+$$;
+COMMIT;
+
+-- Column-scope: even the owner must not rewrite content columns.
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000001"}', true);
+DO $$
+DECLARE
+  v_blocked BOOLEAN := false;
+BEGIN
+  BEGIN
+    UPDATE public.notifications SET title = 'forged'
+    WHERE id = (SELECT id FROM public.notifications WHERE body = 'seed-n10-marker');
+  EXCEPTION WHEN insufficient_privilege THEN
+    v_blocked := true;
+  END;
+  PERFORM public._assert(v_blocked,
+    'N10c: content columns are not updatable (grant is read_at only)');
+END;
+$$;
+COMMIT;
+
+DELETE FROM public.notifications WHERE id = (SELECT id FROM public.notifications WHERE body = 'seed-n10-marker');
 
 -- Cleanup
 DELETE FROM public.posts WHERE id = '22222222-2222-2222-2222-222222222222'::UUID;
