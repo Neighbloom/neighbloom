@@ -708,6 +708,38 @@ INSERT INTO public.posts (id, owner_id, kind, title, details, helpers_needed)
 VALUES ('55555555-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000001', 'help', 'M3 after-quiet post', 'test', 1);
 COMMIT;
 
+-- TEMP DIAGNOSTIC (remove after N4b investigation): dump the runtime
+-- state every gate sees, then attempt the exact call the trigger makes.
+DO $$
+DECLARE
+  v_c UUID := '00000000-0000-0000-0000-000000000003';
+  v_a UUID := '00000000-0000-0000-0000-000000000001';
+  v_prefs public.notification_prefs%ROWTYPE;
+  v_id UUID;
+  v_recipients TEXT;
+BEGIN
+  SELECT * INTO v_prefs FROM public.notification_prefs WHERE profile_id = v_c;
+  RAISE NOTICE 'DIAG prefs: enabled=% nearby=% quiet=%-% tz=%',
+    v_prefs.enabled, v_prefs.notify_help_nearby, v_prefs.quiet_start, v_prefs.quiet_end, v_prefs.timezone;
+  RAISE NOTICE 'DIAG gates: is_blocked(C,A)=% is_blocked(A,C)=% can_send(C)=% notif_count(C)=%',
+    public.is_blocked(v_c, v_a), public.is_blocked(v_a, v_c),
+    public.can_send_notification(v_c),
+    (SELECT count(*) FROM public.notifications WHERE profile_id = v_c);
+  SELECT string_agg(p.id::text, ',') INTO v_recipients
+    FROM public.profiles p
+    WHERE p.town = (SELECT town FROM public.profiles WHERE id = v_a)
+      AND p.id <> v_a AND NOT public.is_blocked(v_a, p.id);
+  RAISE NOTICE 'DIAG loop recipients for a new A post: %', v_recipients;
+  BEGIN
+    v_id := public.queue_notification(v_c, 'help_nearby', 'diag', 'diag',
+      'post', '55555555-5555-5555-5555-555555555555', v_a);
+    RAISE NOTICE 'DIAG direct queue call returned: %', v_id;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'DIAG direct queue call ERRORED: %', SQLERRM;
+  END;
+END;
+$$;
+
 DO $$
 BEGIN
   PERFORM public._assert(
