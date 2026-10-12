@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import './App.css';
 import pkg from '../package.json';
 import { normalizeText, containsLink, maskPhones, buildRecTitle, badgeFor, timeAgo } from './utils.js';
+import { useAuth } from './auth.jsx';
+import { AuthScreen } from './AuthScreen.jsx';
 
 /* ---------- NB: show fatal errors on-screen (prod-friendly) ---------- */
 function nbFormatErr(err) {
@@ -1303,6 +1305,9 @@ function useLocalStorageJsonState(key, fallbackValue) {
 
 
 function App() {
+  // Supabase Auth (Milestone 1) — falls back to demo mode if not configured
+  const { user: authUser, profile: authProfile, loading: authLoading, isConfigured: authConfigured, isAuthenticated } = useAuth();
+
   // -------------------- LOAD SAVED STATE (V1) --------------------
   const saved = useMemo(() => loadAppState(), []);
 
@@ -1336,6 +1341,50 @@ function App() {
   const [posts, setPosts] = useState(() =>
     normalizePostsForRecSocial(saved?.posts ?? seedPosts())
   );
+
+  // Milestone 1: Load shared posts from Supabase when authenticated
+  const [supabasePosts, setSupabasePosts] = useState([]);
+  const [supabaseLoading, setSupabaseLoading] = useState(false);
+  useEffect(() => {
+    if (!isAuthenticated || !authConfigured) return;
+    setSupabaseLoading(true);
+    import('./posts.js').then(({ fetchPosts }) => {
+      fetchPosts().then(data => {
+        // Convert Supabase format to app format
+        const converted = data.map(p => ({
+          id: p.id,
+          kind: p.kind,
+          title: p.title,
+          details: p.details,
+          area: p.area,
+          category: p.category,
+          prefTags: p.pref_tags,
+          helpersNeeded: p.helpers_needed,
+          helpers: p.helpers,
+          stage: p.stage,
+          status: p.status,
+          createdAt: new Date(p.created_at).getTime(),
+          ownerId: p.owner_id,
+          ownerName: p.owner?.display_name,
+          ownerAvatar: p.owner?.avatar_url,
+          _supabase: true,
+        }));
+        setSupabasePosts(converted);
+        setSupabaseLoading(false);
+      }).catch(e => {
+        console.error('[Supabase] Failed to fetch posts:', e.message);
+        setSupabaseLoading(false);
+      });
+    });
+  }, [isAuthenticated, authConfigured]);
+
+  // Combined posts: Supabase (shared) + local (demo). Dedupe by ID.
+  const displayPosts = useMemo(() => {
+    if (!isAuthenticated || !authConfigured) return posts;
+    const localIds = new Set(posts.map(p => p.id));
+    const merged = [...supabasePosts.filter(p => !localIds.has(p.id)), ...posts];
+    return merged.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }, [posts, supabasePosts, isAuthenticated, authConfigured]);
   const [homeChip, setHomeChip] = useState(() => saved?.homeChip ?? 'all'); // all | help | rec
   const [homeShowAll, setHomeShowAll] = useState(
     () => saved?.homeShowAll ?? false
@@ -3267,7 +3316,8 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   }
 
   const filteredFeed = useMemo(() => {
-    let list = [...posts];
+    // Milestone 1: use displayPosts (Supabase + local merged) when authenticated
+    let list = [...displayPosts];
 
     // Default feed shows open only (resolved hidden)
     if (!homeShowAll) list = list.filter((p) => p.status !== 'resolved');
@@ -6710,7 +6760,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
     }
   }
 
-  function submit() {
+  async function submit() {
     const msg = validate();
     if (msg) {
       setErr(msg);
@@ -6720,6 +6770,47 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
     const post = isHelp ? buildHelpPost() : buildRecPost();
 
     setPosts((prev) => [post, ...(Array.isArray(prev) ? prev : [])]);
+
+    // Milestone 1: Save to Supabase when authenticated (shared persistent posts)
+    if (isAuthenticated && authConfigured) {
+      try {
+        const { createPost } = await import('./posts.js');
+        const supabasePost = await createPost({
+          kind: post.kind,
+          title: post.title,
+          details: post.details || post.message || '',
+          area: post.area || '',
+          category: post.category || post.recCategory || null,
+          prefTags: post.prefTags || [],
+          helpersNeeded: post.helpersNeeded || 1,
+        });
+        // Refresh Supabase posts to include the new one
+        const { fetchPosts } = await import('./posts.js');
+        const data = await fetchPosts();
+        const converted = data.map(p => ({
+          id: p.id,
+          kind: p.kind,
+          title: p.title,
+          details: p.details,
+          area: p.area,
+          category: p.category,
+          prefTags: p.pref_tags,
+          helpersNeeded: p.helpers_needed,
+          helpers: p.helpers,
+          stage: p.stage,
+          status: p.status,
+          createdAt: new Date(p.created_at).getTime(),
+          ownerId: p.owner_id,
+          ownerName: p.owner?.display_name,
+          ownerAvatar: p.owner?.avatar_url,
+          _supabase: true,
+        }));
+        setSupabasePosts(converted);
+      } catch (e) {
+        console.error('[Supabase] Failed to save post:', e.message);
+        setErr('Post saved locally, but failed to sync: ' + e.message);
+      }
+    }
 
     // Make it feel instant: go home and focus the relevant chip. Do not auto-expand threads.
     setHomeChip(isHelp ? 'help' : 'rec');
@@ -8488,6 +8579,12 @@ const blockedSet = getBlockedSet(me.id);
       </div>
     );
   }
+  // Auth gate (Milestone 1): show AuthScreen if Supabase configured but not authenticated
+  // Public post view remains accessible without auth (shareable links)
+  if (authConfigured && !authLoading && !isAuthenticated && !publicViewPostId) {
+    return <AuthScreen />;
+  }
+
   if (publicViewPostId) {
     const p = (posts || []).find((x) => x && x.id === publicViewPostId);
     return (
