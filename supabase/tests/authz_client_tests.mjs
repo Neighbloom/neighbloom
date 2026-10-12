@@ -41,16 +41,18 @@ async function test(name, fn, shouldFail = true) {
 async function main() {
   console.log('Setting up test users...\n');
 
-  // Create two test users
+  // Create two test users (use valid domains; @example.com is blocked by Supabase)
+  // NOTE: Requires "Confirm email" DISABLED in Supabase Dashboard → Authentication → Settings
+  const timestamp = Date.now();
   const { data: u1, error: e1 } = await supabase.auth.signUp({
-    email: `test-a-${Date.now()}@example.com`,
+    email: `nb-test-a-${timestamp}@gmail.com`,
     password: 'TestPass123!',
     options: { data: { display_name: 'Attacker Alice' } }
   });
   if (e1) throw e1;
 
   const { data: u2, error: e2 } = await supabase.auth.signUp({
-    email: `test-b-${Date.now()}@example.com`,
+    email: `nb-test-b-${timestamp}@gmail.com`,
     password: 'TestPass123!',
     options: { data: { display_name: 'Victim Bob' } }
   });
@@ -78,17 +80,24 @@ async function main() {
   // TEST 2: award_np does not exist (no RPC to exploit)
   await test('T2: award_np function does not exist', async () => {
     const { error } = await alice.rpc('award_np', { target_user_id: aliceId, amount: 1000 });
-    if (error && error.message.includes('does not exist')) throw error; // expected
-    if (!error) throw new Error('award_np should not exist!');
-  });
+    // Expected: error indicating function not found
+    if (!error) throw new Error('award_np should not exist, but RPC succeeded!');
+    if (!error.message.match(/does not exist|not found|could not find|404/i)) {
+      throw new Error(`Unexpected error (expected "not found"): ${error.message}`);
+    }
+    // Correctly denied — test passes by not throwing
+  }, false);
 
   // TEST 3: Alice cannot update Bob's profile
+  // RLS filters to 0 rows (USING clause), so update "succeeds" but affects nothing.
+  // Secure behavior = Bob's data unchanged.
   await test('T3: Cross-user profile update blocked', async () => {
     const { error, count } = await alice.from('profiles').update({ display_name: 'Hacked' }).eq('id', bobId);
-    if (error) throw error;
+    if (error) throw error; // RLS error is also acceptable
     const { data } = await bob.from('profiles').select('display_name').eq('id', bobId).single();
-    if (data.display_name === 'Hacked') throw new Error('Bob\'s profile was changed!');
-  });
+    if (data.display_name === 'Hacked') throw new Error('Bob\'s profile was changed! VULNERABILITY!');
+    // Data unchanged = secure. Test passes.
+  }, false);
 
   // TEST 4: Alice cannot delete her profile
   await test('T4: Profile deletion blocked', async () => {
@@ -105,18 +114,20 @@ async function main() {
 
   await test('T5: Cross-user post edit blocked', async () => {
     const { error } = await alice.from('posts').update({ title: 'Hacked by Alice' }).eq('id', bobPost.id);
-    if (error) throw error;
+    if (error) throw error; // RLS error is also acceptable
     const { data } = await bob.from('posts').select('title').eq('id', bobPost.id).single();
-    if (data.title === 'Hacked by Alice') throw new Error('Bob\'s post was changed!');
-  });
+    if (data.title === 'Hacked by Alice') throw new Error('Bob\'s post was changed! VULNERABILITY!');
+    // Data unchanged = secure. Test passes.
+  }, false);
 
   // TEST 6: Alice cannot delete Bob's post
   await test('T6: Cross-user post delete blocked', async () => {
     const { error } = await alice.from('posts').delete().eq('id', bobPost.id);
-    if (error) throw error;
+    if (error) throw error; // RLS error is also acceptable
     const { data } = await bob.from('posts').select('id').eq('id', bobPost.id).single();
-    if (!data) throw new Error('Bob\'s post was actually deleted!');
-  });
+    if (!data) throw new Error('Bob\'s post was actually deleted! VULNERABILITY!');
+    // Post still exists = secure. Test passes.
+  }, false);
 
   // TEST 7: Alice cannot create a post with Bob as owner (impersonation)
   await test('T7: Ownership impersonation blocked', async () => {
