@@ -1378,12 +1378,15 @@ function App() {
     });
   }, [isAuthenticated, authConfigured]);
 
-  // Combined posts: Supabase (shared) + local (demo). Dedupe by ID.
+  // Combined posts: Supabase ONLY when authenticated (never show demo posts to real users).
+  // Demo/local posts only appear in demo mode (Supabase not configured).
   const displayPosts = useMemo(() => {
-    if (!isAuthenticated || !authConfigured) return posts;
-    const localIds = new Set(posts.map(p => p.id));
-    const merged = [...supabasePosts.filter(p => !localIds.has(p.id)), ...posts];
-    return merged.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (isAuthenticated && authConfigured) {
+      // Real users see only real shared posts from Supabase
+      return [...supabasePosts].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    }
+    // Demo mode: local posts only
+    return posts;
   }, [posts, supabasePosts, isAuthenticated, authConfigured]);
   const [homeChip, setHomeChip] = useState(() => saved?.homeChip ?? 'all'); // all | help | rec
   const [homeShowAll, setHomeShowAll] = useState(
@@ -8581,6 +8584,26 @@ const blockedSet = getBlockedSet(me.id);
   }
   // Auth gate (Milestone 1): show AuthScreen if Supabase configured but not authenticated
   // Public post view remains accessible without auth (shareable links)
+  //
+  // PRODUCTION SAFETY: Demo mode (no Supabase) is only allowed in development.
+  // A production build without Supabase configuration shows an error, never demo data.
+  const isProd = import.meta.env.PROD;
+  if (!authConfigured && isProd && !publicViewPostId) {
+    return (
+      <div className="nb-auth-screen" style={{
+        minHeight: '100dvh', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', padding: 24,
+        background: '#031628', color: '#fff',
+      }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+        <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Configuration Error</h1>
+        <p style={{ opacity: 0.7, textAlign: 'center', maxWidth: 320 }}>
+          This application requires Supabase configuration. Demo mode is not available in production.
+        </p>
+      </div>
+    );
+  }
+
   if (authConfigured && !authLoading && !isAuthenticated && !publicViewPostId) {
     return <AuthScreen />;
   }
