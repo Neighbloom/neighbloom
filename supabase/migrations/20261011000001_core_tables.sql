@@ -2,7 +2,7 @@
 -- All tables have Row Level Security enabled with restrictive policies.
 
 -- Profiles: one row per authenticated user, created on signup via trigger.
-CREATE TABLE profiles (
+CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   display_name TEXT NOT NULL,
   handle TEXT UNIQUE,
@@ -13,7 +13,7 @@ CREATE TABLE profiles (
 );
 
 -- Posts: help requests and recommendations.
-CREATE TABLE posts (
+CREATE TABLE IF NOT EXISTS posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   kind TEXT NOT NULL CHECK (kind IN ('help', 'rec')),
@@ -30,13 +30,13 @@ CREATE TABLE posts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX posts_owner_idx ON posts(owner_id);
-CREATE INDEX posts_kind_idx ON posts(kind);
-CREATE INDEX posts_created_idx ON posts(created_at DESC);
-CREATE INDEX posts_area_idx ON posts(area);
+CREATE INDEX IF NOT EXISTS posts_owner_idx ON posts(owner_id);
+CREATE INDEX IF NOT EXISTS posts_kind_idx ON posts(kind);
+CREATE INDEX IF NOT EXISTS posts_created_idx ON posts(created_at DESC);
+CREATE INDEX IF NOT EXISTS posts_area_idx ON posts(area);
 
 -- Replies: volunteer offers and recommendation responses.
-CREATE TABLE replies (
+CREATE TABLE IF NOT EXISTS replies (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_id UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
   author_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
@@ -45,8 +45,8 @@ CREATE TABLE replies (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX replies_post_idx ON replies(post_id);
-CREATE INDEX replies_author_idx ON replies(author_id);
+CREATE INDEX IF NOT EXISTS replies_post_idx ON replies(post_id);
+CREATE INDEX IF NOT EXISTS replies_author_idx ON replies(author_id);
 
 -- Auto-create profile on signup.
 CREATE OR REPLACE FUNCTION handle_new_user()
@@ -62,6 +62,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
@@ -75,6 +76,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS posts_updated_at ON posts;
 CREATE TRIGGER posts_updated_at
   BEFORE UPDATE ON posts
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
