@@ -13,6 +13,7 @@ export default defineConfig({
     channel: 'chromium', // use full chromium (headless shell download fails in this env)
     proxy: {
       server: process.env.HTTPS_PROXY || process.env.https_proxy,
+      bypass: 'localhost,127.0.0.1',
     },
   },
   projects: [
