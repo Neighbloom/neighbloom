@@ -4235,8 +4235,13 @@ const onboardingTooltip =
   }
 
   function BottomTabs() {
+    // NOTE: this inner BottomTabs shadows the module-level one of the
+    // same name — it is the tab bar that actually renders. Its Activity
+    // badge counts unread chats PLUS unread activity (server
+    // notifications + new local events), or the bell under-reports.
     // total unread across chats involving me (for the badge on Activity)
-    const totalUnread = getTotalUnreadForUser(chats || chats, me.id, unreadCount);
+    const chatUnread = getTotalUnreadForUser(chats || chats, me.id, unreadCount);
+    const totalUnread = chatUnread + (activityNewCount || 0);
 
     const unreadLabel = totalUnread > 9 ? '9+' : String(totalUnread);
 
@@ -4271,7 +4276,7 @@ const onboardingTooltip =
           <span className="nb-tablabel">Activity</span>
 
           {totalUnread > 0 ? (
-            <span className="nb-tabbadge" aria-label={`${totalUnread} unread chats`}>
+            <span className="nb-tabbadge" aria-label={`${totalUnread} unread updates`}>
               {unreadLabel}
             </span>
           ) : null}
@@ -8184,9 +8189,14 @@ const [nearText, setNearText] = useState('');
 
         for (const ev of events) {
           const isChatEvent = ev?.type === 'chat_unlocked' || ev?.type === 'chat_message' || !!(ev?.conversationId && ev?.chatOtherId);
-          const post = ev?.postId ? posts.find((p) => p.id === ev.postId) : null;
+          const post = ev?.postId ? displayPosts.find((p) => p.id === ev.postId) : null;
           const otherId = ev?.chatOtherId || otherIdFromActivity(ev, me.id);
-          if (isChatEvent && post && otherId && canOpenChatForPost(post, otherId)) {
+          // A server conversation is itself proof of an authorized chat
+          // (the RPC created it for these two users; RLS guards the
+          // drawer), so remote message events don't need the local
+          // reply-state check that server posts can't satisfy.
+          const chatAllowed = canOpenChatForPost(post, otherId) || !!(ev?.conversationId && ev?.chatOtherId);
+          if (isChatEvent && post && otherId && chatAllowed) {
             const viewerChatId = getChatId(post.id, me.id, otherId);
             unread += unreadCount(viewerChatId, me.id);
             // prefer chat as primary action
@@ -8205,11 +8215,12 @@ const [nearText, setNearText] = useState('');
           count: events.length,
           remoteUnread: events.filter((ev) => ev?.remoteId && !ev.readAt).length,
           isRemote: !!last?.remoteId,
+          postTitle: groupPostId ? (displayPosts.find((p) => p.id === groupPostId)?.title || null) : null,
         };
       });
 
       return out.sort((a, b) => (b.last?.ts || 0) - (a.last?.ts || 0));
-    }, [visibleActivity, posts, chats, lastRead, me.id]);
+    }, [visibleActivity, displayPosts, chats, lastRead, me.id]);
 
     function openGroupPrimary(g, e) {
       if (e && e.stopPropagation) e.stopPropagation();
@@ -8323,6 +8334,9 @@ const [nearText, setNearText] = useState('');
                       ) : null}
                     </div>
                     <div className="nb-activity-sub">{g.preview}</div>
+                    {g.isRemote && g.postTitle ? (
+                      <div className="nb-activity-postref">on “{g.postTitle}”</div>
+                    ) : null}
                     <div className="nb-activity-meta">{time} · {g.count} event{g.count>1?'s':''}</div>
 
                     <div className="nb-activity-footer">
