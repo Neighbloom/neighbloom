@@ -34,6 +34,7 @@ ALTER TABLE public.np_ledger ENABLE ROW LEVEL SECURITY;
 
 -- Users can read their own ledger. Public read for transparency on help awards
 -- is a product decision — for now, own-ledger only.
+DROP POLICY IF EXISTS np_ledger_select_own ON public.np_ledger;
 CREATE POLICY np_ledger_select_own
   ON public.np_ledger FOR SELECT
   USING (auth.uid() = profile_id);

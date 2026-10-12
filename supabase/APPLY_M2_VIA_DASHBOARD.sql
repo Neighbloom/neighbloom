@@ -1,11 +1,11 @@
 -- ============================================================
 -- Neighbloom Milestone 2 — Migrations (apply via Dashboard)
 -- Branch: felix/m1-auth-posts
--- Generated: 2026-10-12 (with hard-block enforcement)
+-- Generated: 2026-10-12 (idempotency fixes)
 --
 -- PREREQUISITE: Milestone 1 migrations must already be applied.
 -- TRANSACTION SAFETY: Single BEGIN/COMMIT. Any failure rolls back all.
--- IDEMPOTENCY: Safe to re-run.
+-- IDEMPOTENCY: Safe to re-run (DROP IF EXISTS / OR REPLACE / IF NOT EXISTS).
 -- ============================================================
 
 BEGIN;
@@ -319,6 +319,7 @@ ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 
 -- Conversations: only participants can see them.
+DROP POLICY IF EXISTS conversations_select_participants ON public.conversations;
 CREATE POLICY conversations_select_participants
   ON public.conversations FOR SELECT
   USING (auth.uid() = owner_id OR auth.uid() = helper_id);
@@ -327,6 +328,7 @@ CREATE POLICY conversations_select_participants
 -- No INSERT/UPDATE/DELETE policies = denied by default.
 
 -- Messages: only participants of the parent conversation can read.
+DROP POLICY IF EXISTS messages_select_participants ON public.messages;
 CREATE POLICY messages_select_participants
   ON public.messages FOR SELECT
   USING (
@@ -338,6 +340,7 @@ CREATE POLICY messages_select_participants
   );
 
 -- Messages: only participants can send, and sender_id must match.
+DROP POLICY IF EXISTS messages_insert_participants ON public.messages;
 CREATE POLICY messages_insert_participants
   ON public.messages FOR INSERT
   WITH CHECK (
@@ -459,6 +462,7 @@ ALTER TABLE public.np_ledger ENABLE ROW LEVEL SECURITY;
 
 -- Users can read their own ledger. Public read for transparency on help awards
 -- is a product decision — for now, own-ledger only.
+DROP POLICY IF EXISTS np_ledger_select_own ON public.np_ledger;
 CREATE POLICY np_ledger_select_own
   ON public.np_ledger FOR SELECT
   USING (auth.uid() = profile_id);
@@ -745,11 +749,13 @@ CREATE INDEX IF NOT EXISTS idx_reports_status ON public.reports(status, created_
 ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
 
 -- Users can see their own reports.
+DROP POLICY IF EXISTS reports_select_own ON public.reports;
 CREATE POLICY reports_select_own
   ON public.reports FOR SELECT
   USING (auth.uid() = reporter_id);
 
 -- Users can file reports.
+DROP POLICY IF EXISTS reports_insert_own ON public.reports;
 CREATE POLICY reports_insert_own
   ON public.reports FOR INSERT
   WITH CHECK (auth.uid() = reporter_id);
@@ -769,15 +775,18 @@ CREATE TABLE IF NOT EXISTS public.blocks (
 ALTER TABLE public.blocks ENABLE ROW LEVEL SECURITY;
 
 -- Users can see their own blocks.
+DROP POLICY IF EXISTS blocks_select_own ON public.blocks;
 CREATE POLICY blocks_select_own
   ON public.blocks FOR SELECT
   USING (auth.uid() = blocker_id);
 
 -- Users can block/unblock.
+DROP POLICY IF EXISTS blocks_insert_own ON public.blocks;
 CREATE POLICY blocks_insert_own
   ON public.blocks FOR INSERT
   WITH CHECK (auth.uid() = blocker_id);
 
+DROP POLICY IF EXISTS blocks_delete_own ON public.blocks;
 CREATE POLICY blocks_delete_own
   ON public.blocks FOR DELETE
   USING (auth.uid() = blocker_id);
@@ -949,10 +958,13 @@ CREATE TABLE IF NOT EXISTS public.notification_prefs (
 
 ALTER TABLE public.notification_prefs ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS notif_prefs_select_own ON public.notification_prefs;
 CREATE POLICY notif_prefs_select_own
   ON public.notification_prefs FOR SELECT USING (auth.uid() = profile_id);
+DROP POLICY IF EXISTS notif_prefs_insert_own ON public.notification_prefs;
 CREATE POLICY notif_prefs_insert_own
   ON public.notification_prefs FOR INSERT WITH CHECK (auth.uid() = profile_id);
+DROP POLICY IF EXISTS notif_prefs_update_own ON public.notification_prefs;
 CREATE POLICY notif_prefs_update_own
   ON public.notification_prefs FOR UPDATE USING (auth.uid() = profile_id);
 
@@ -974,10 +986,13 @@ CREATE TABLE IF NOT EXISTS public.push_subscriptions (
 
 ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS push_sub_select_own ON public.push_subscriptions;
 CREATE POLICY push_sub_select_own
   ON public.push_subscriptions FOR SELECT USING (auth.uid() = profile_id);
+DROP POLICY IF EXISTS push_sub_insert_own ON public.push_subscriptions;
 CREATE POLICY push_sub_insert_own
   ON public.push_subscriptions FOR INSERT WITH CHECK (auth.uid() = profile_id);
+DROP POLICY IF EXISTS push_sub_delete_own ON public.push_subscriptions;
 CREATE POLICY push_sub_delete_own
   ON public.push_subscriptions FOR DELETE USING (auth.uid() = profile_id);
 
@@ -1016,6 +1031,7 @@ CREATE INDEX IF NOT EXISTS idx_notifications_unsent
 
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS notifications_select_own ON public.notifications;
 CREATE POLICY notifications_select_own
   ON public.notifications FOR SELECT USING (auth.uid() = profile_id);
 
@@ -1148,6 +1164,7 @@ CREATE INDEX IF NOT EXISTS idx_gratitude_recent
 ALTER TABLE public.gratitude_posts ENABLE ROW LEVEL SECURITY;
 
 -- Public read (only non-hidden). This is the recognition mechanism.
+DROP POLICY IF EXISTS gratitude_select_public ON public.gratitude_posts;
 CREATE POLICY gratitude_select_public
   ON public.gratitude_posts FOR SELECT
   USING (hidden_by_helper = false);
@@ -1518,23 +1535,8 @@ CREATE POLICY "replies_select_all"
   );
 
 -- Replies INSERT: must not be blocked by post owner (in either direction).
--- We need to check the existing replies_insert policy and add the block check.
--- First, see what the current policy is; we replace it with block-aware version.
-DO $$
-DECLARE
-  v_policy_exists BOOLEAN;
-BEGIN
-  SELECT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_policy p
-    JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
-    WHERE c.relname = 'replies' AND p.polname = 'replies_insert_own'
-  ) INTO v_policy_exists;
-
-  IF v_policy_exists THEN
-    DROP POLICY "replies_insert_own" ON public.replies;
-  END IF;
-END;
-$$;
+-- Drop existing policy if present (idempotent).
+DROP POLICY IF EXISTS "replies_insert_own" ON public.replies;
 
 CREATE POLICY "replies_insert_own"
   ON public.replies FOR INSERT

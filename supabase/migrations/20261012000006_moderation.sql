@@ -49,11 +49,13 @@ CREATE INDEX IF NOT EXISTS idx_reports_status ON public.reports(status, created_
 ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
 
 -- Users can see their own reports.
+DROP POLICY IF EXISTS reports_select_own ON public.reports;
 CREATE POLICY reports_select_own
   ON public.reports FOR SELECT
   USING (auth.uid() = reporter_id);
 
 -- Users can file reports.
+DROP POLICY IF EXISTS reports_insert_own ON public.reports;
 CREATE POLICY reports_insert_own
   ON public.reports FOR INSERT
   WITH CHECK (auth.uid() = reporter_id);
@@ -73,15 +75,18 @@ CREATE TABLE IF NOT EXISTS public.blocks (
 ALTER TABLE public.blocks ENABLE ROW LEVEL SECURITY;
 
 -- Users can see their own blocks.
+DROP POLICY IF EXISTS blocks_select_own ON public.blocks;
 CREATE POLICY blocks_select_own
   ON public.blocks FOR SELECT
   USING (auth.uid() = blocker_id);
 
 -- Users can block/unblock.
+DROP POLICY IF EXISTS blocks_insert_own ON public.blocks;
 CREATE POLICY blocks_insert_own
   ON public.blocks FOR INSERT
   WITH CHECK (auth.uid() = blocker_id);
 
+DROP POLICY IF EXISTS blocks_delete_own ON public.blocks;
 CREATE POLICY blocks_delete_own
   ON public.blocks FOR DELETE
   USING (auth.uid() = blocker_id);

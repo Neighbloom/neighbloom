@@ -58,23 +58,8 @@ CREATE POLICY "replies_select_all"
   );
 
 -- Replies INSERT: must not be blocked by post owner (in either direction).
--- We need to check the existing replies_insert policy and add the block check.
--- First, see what the current policy is; we replace it with block-aware version.
-DO $$
-DECLARE
-  v_policy_exists BOOLEAN;
-BEGIN
-  SELECT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_policy p
-    JOIN pg_catalog.pg_class c ON c.oid = p.polrelid
-    WHERE c.relname = 'replies' AND p.polname = 'replies_insert_own'
-  ) INTO v_policy_exists;
-
-  IF v_policy_exists THEN
-    DROP POLICY "replies_insert_own" ON public.replies;
-  END IF;
-END;
-$$;
+-- Drop existing policy if present (idempotent).
+DROP POLICY IF EXISTS "replies_insert_own" ON public.replies;
 
 CREATE POLICY "replies_insert_own"
   ON public.replies FOR INSERT

@@ -32,10 +32,13 @@ CREATE TABLE IF NOT EXISTS public.notification_prefs (
 
 ALTER TABLE public.notification_prefs ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS notif_prefs_select_own ON public.notification_prefs;
 CREATE POLICY notif_prefs_select_own
   ON public.notification_prefs FOR SELECT USING (auth.uid() = profile_id);
+DROP POLICY IF EXISTS notif_prefs_insert_own ON public.notification_prefs;
 CREATE POLICY notif_prefs_insert_own
   ON public.notification_prefs FOR INSERT WITH CHECK (auth.uid() = profile_id);
+DROP POLICY IF EXISTS notif_prefs_update_own ON public.notification_prefs;
 CREATE POLICY notif_prefs_update_own
   ON public.notification_prefs FOR UPDATE USING (auth.uid() = profile_id);
 
@@ -57,10 +60,13 @@ CREATE TABLE IF NOT EXISTS public.push_subscriptions (
 
 ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS push_sub_select_own ON public.push_subscriptions;
 CREATE POLICY push_sub_select_own
   ON public.push_subscriptions FOR SELECT USING (auth.uid() = profile_id);
+DROP POLICY IF EXISTS push_sub_insert_own ON public.push_subscriptions;
 CREATE POLICY push_sub_insert_own
   ON public.push_subscriptions FOR INSERT WITH CHECK (auth.uid() = profile_id);
+DROP POLICY IF EXISTS push_sub_delete_own ON public.push_subscriptions;
 CREATE POLICY push_sub_delete_own
   ON public.push_subscriptions FOR DELETE USING (auth.uid() = profile_id);
 
@@ -99,6 +105,7 @@ CREATE INDEX IF NOT EXISTS idx_notifications_unsent
 
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS notifications_select_own ON public.notifications;
 CREATE POLICY notifications_select_own
   ON public.notifications FOR SELECT USING (auth.uid() = profile_id);
 
@@ -231,6 +238,7 @@ CREATE INDEX IF NOT EXISTS idx_gratitude_recent
 ALTER TABLE public.gratitude_posts ENABLE ROW LEVEL SECURITY;
 
 -- Public read (only non-hidden). This is the recognition mechanism.
+DROP POLICY IF EXISTS gratitude_select_public ON public.gratitude_posts;
 CREATE POLICY gratitude_select_public
   ON public.gratitude_posts FOR SELECT
   USING (hidden_by_helper = false);

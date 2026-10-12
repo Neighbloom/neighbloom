@@ -39,6 +39,7 @@ ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 
 -- Conversations: only participants can see them.
+DROP POLICY IF EXISTS conversations_select_participants ON public.conversations;
 CREATE POLICY conversations_select_participants
   ON public.conversations FOR SELECT
   USING (auth.uid() = owner_id OR auth.uid() = helper_id);
@@ -47,6 +48,7 @@ CREATE POLICY conversations_select_participants
 -- No INSERT/UPDATE/DELETE policies = denied by default.
 
 -- Messages: only participants of the parent conversation can read.
+DROP POLICY IF EXISTS messages_select_participants ON public.messages;
 CREATE POLICY messages_select_participants
   ON public.messages FOR SELECT
   USING (
@@ -58,6 +60,7 @@ CREATE POLICY messages_select_participants
   );
 
 -- Messages: only participants can send, and sender_id must match.
+DROP POLICY IF EXISTS messages_insert_participants ON public.messages;
 CREATE POLICY messages_insert_participants
   ON public.messages FOR INSERT
   WITH CHECK (
