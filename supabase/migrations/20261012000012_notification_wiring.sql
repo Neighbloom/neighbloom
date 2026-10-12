@@ -18,12 +18,26 @@
 --      Quiet hours SUPPRESS creation for every type: the bell is a
 --      nudge layer, not the record — the underlying post/message/NP
 --      is still in the app when the user returns.
+--      OVERLOAD CLEANUP (CI failure, run #11): migration 00008 defined
+--      queue_notification(..., p_ref_type TEXT, p_ref_id UUID), but
+--      migration 00011 redefined it as (..., p_data JSONB, p_actor_id
+--      UUID) — a DIFFERENT signature, so both overloads coexisted and
+--      short calls were ambiguous ("is not unique"). The 00011 version
+--      was also dead: nothing calls it, and it inserts into data /
+--      actor_id columns that do not exist on notifications. This
+--      migration DROPs both legacy signatures and installs ONE
+--      canonical function that keeps both behaviors: ref deep-links
+--      (00008) and the optional-actor block skip (00011).
 --   3. Wires the five product events via AFTER INSERT triggers.
 --      Every trigger function is SECURITY DEFINER and wraps the queue
 --      call in an exception handler: a notification failure can NEVER
 --      break posting, messaging, volunteering, or NP awards.
 --   4. No private data in notifications: no message bodies, no
 --      addresses — just the event and a reference id.
+--   5. Replaces post_gratitude() with an identical copy whose queue
+--      call passes the thanker as actor: the original called
+--      queue_notification with no actor, bypassing the block check
+--      even though the gratitude trigger honors it (section 4).
 --
 -- Fully idempotent: CREATE OR REPLACE + DROP TRIGGER IF EXISTS +
 -- ADD COLUMN IF NOT EXISTS throughout. Safe to rerun.
@@ -38,9 +52,14 @@ ALTER TABLE public.notification_prefs
   ADD COLUMN IF NOT EXISTS notify_gratitude BOOLEAN NOT NULL DEFAULT true;
 
 -- ─── 2. Completed queue_notification ──────────────────────────
--- Same signature as migration 20261012000008 so nothing else changes.
+-- ONE canonical signature. The two legacy overloads are dropped
+-- explicitly first: CREATE OR REPLACE alone would leave the
+-- migration-00011 (JSONB) overload in place and calls ambiguous.
 -- Still callable only by service_role / SECURITY DEFINER contexts
 -- (EXECUTE remains revoked from PUBLIC and ungranted to clients).
+
+DROP FUNCTION IF EXISTS public.queue_notification(UUID, TEXT, TEXT, TEXT, JSONB, UUID);
+DROP FUNCTION IF EXISTS public.queue_notification(UUID, TEXT, TEXT, TEXT, TEXT, UUID);
 
 CREATE OR REPLACE FUNCTION public.queue_notification(
   p_profile_id UUID,
@@ -48,7 +67,8 @@ CREATE OR REPLACE FUNCTION public.queue_notification(
   p_title TEXT,
   p_body TEXT,
   p_ref_type TEXT DEFAULT NULL,
-  p_ref_id UUID DEFAULT NULL
+  p_ref_id UUID DEFAULT NULL,
+  p_actor_id UUID DEFAULT NULL
 )
 RETURNS UUID
 LANGUAGE plpgsql SECURITY DEFINER
@@ -59,6 +79,12 @@ DECLARE
   v_notif_id UUID;
   v_local_time TIME;
 BEGIN
+  -- Block check (preserved from migration 20261012000011): never
+  -- notify a user about the actions of someone blocked either way.
+  IF p_actor_id IS NOT NULL AND public.is_blocked(p_profile_id, p_actor_id) THEN
+    RETURN NULL;
+  END IF;
+
   -- Check user preferences.
   SELECT * INTO v_prefs FROM public.notification_prefs
   WHERE profile_id = p_profile_id;
@@ -120,7 +146,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.queue_notification(UUID, TEXT, TEXT, TEXT, TEXT, UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.queue_notification(UUID, TEXT, TEXT, TEXT, TEXT, UUID, UUID) FROM PUBLIC;
 
 -- ─── 3. Event triggers ────────────────────────────────────────
 
@@ -140,7 +166,7 @@ BEGIN
         v_owner, 'volunteers',
         'Someone volunteered',
         'A neighbor offered to help with your request.',
-        'post', NEW.post_id
+        'post', NEW.post_id, NEW.author_id
       );
     EXCEPTION WHEN OTHERS THEN
       NULL; -- Notifications must never break the product action.
@@ -184,7 +210,7 @@ BEGIN
         v_recipient, 'new_message',
         'New message',
         'You have a new message in your conversation.',
-        'conversation', NEW.conversation_id
+        'conversation', NEW.conversation_id, NEW.sender_id
       );
     EXCEPTION WHEN OTHERS THEN
       NULL;
@@ -201,18 +227,24 @@ CREATE TRIGGER trg_notify_message
   EXECUTE FUNCTION public.notify_on_message();
 
 -- 3c. Help confirmed (+20 NP) → notify the helper who earned it.
+-- The actor is the post owner who confirmed the help; passing it
+-- lets queue_notification's block check suppress the notification
+-- when owner and helper have blocked each other.
 CREATE OR REPLACE FUNCTION public.notify_on_np_award()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = ''
 AS $$
+DECLARE
+  v_actor UUID;
 BEGIN
+  SELECT owner_id INTO v_actor FROM public.posts WHERE id = NEW.post_id;
   BEGIN
     PERFORM public.queue_notification(
       NEW.profile_id, 'help_confirmed',
       'Help confirmed',
       'Your help was confirmed — +20 NP. Thank you for showing up.',
-      'post', NEW.post_id
+      'post', NEW.post_id, v_actor
     );
   EXCEPTION WHEN OTHERS THEN
     NULL;
@@ -228,6 +260,12 @@ CREATE TRIGGER trg_notify_np_award
   EXECUTE FUNCTION public.notify_on_np_award();
 
 -- 3d. Public gratitude posted → notify the helper.
+-- The post_gratitude RPC (migration 20261012000008) also queues a
+-- 'gratitude' notification with ref ('post', post_id). This trigger
+-- uses the SAME ref on purpose: queue_notification's 10-minute
+-- dedup then guarantees exactly one notification per thank-you,
+-- whichever path fires first. (ref_type must stay 'post' — the
+-- notifications CHECK constraint allows only 'post'/'conversation'.)
 CREATE OR REPLACE FUNCTION public.notify_on_gratitude()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER
@@ -240,7 +278,7 @@ BEGIN
         NEW.helper_id, 'gratitude',
         'You were thanked',
         'A neighbor thanked you publicly for your help.',
-        'gratitude_post', NEW.id
+        'post', NEW.post_id, NEW.thanker_id
       );
     EXCEPTION WHEN OTHERS THEN
       NULL;
@@ -287,7 +325,7 @@ BEGIN
         r.recipient_id, 'help_nearby',
         'Help needed nearby',
         'A neighbor in your town just asked for help.',
-        'post', NEW.id
+        'post', NEW.id, NEW.owner_id
       );
     EXCEPTION WHEN OTHERS THEN
       NULL; -- One recipient's failure must not stop the others.
@@ -309,3 +347,79 @@ REVOKE ALL ON FUNCTION public.notify_on_message() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.notify_on_np_award() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.notify_on_gratitude() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.notify_on_new_post() FROM PUBLIC;
+
+-- ─── 4. post_gratitude: close the block-bypass ────────────────
+-- Migration 00008's post_gratitude() queues its notification with
+-- NO actor, so queue_notification's block check never applied on
+-- this path — and because the RPC runs after the gratitude trigger
+-- (which does honor blocks), a blocked thank-you still notified.
+-- This replacement is byte-identical to 00008's body EXCEPT the
+-- queue call, which now passes the thanker (v_caller) as actor.
+
+CREATE OR REPLACE FUNCTION public.post_gratitude(
+  p_post_id UUID,
+  p_helper_id UUID,
+  p_message TEXT
+)
+RETURNS public.gratitude_posts
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_post public.posts%ROWTYPE;
+  v_caller UUID := auth.uid();
+  v_gratitude public.gratitude_posts%ROWTYPE;
+BEGIN
+  IF v_caller IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  SELECT * INTO v_post FROM public.posts WHERE id = p_post_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Post not found';
+  END IF;
+
+  IF v_post.owner_id != v_caller THEN
+    RAISE EXCEPTION 'Only the requester can post gratitude';
+  END IF;
+
+  IF v_post.stage != 'confirmed' THEN
+    RAISE EXCEPTION 'Can only thank after help is confirmed';
+  END IF;
+
+  -- Helper must have been selected.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.jsonb_array_elements(v_post.helpers) AS h
+    WHERE (h->>'id')::UUID = p_helper_id
+  ) THEN
+    RAISE EXCEPTION 'Can only thank selected helpers';
+  END IF;
+
+  IF p_message IS NULL OR pg_catalog.char_length(p_message) < 5
+     OR pg_catalog.char_length(p_message) > 300 THEN
+    RAISE EXCEPTION 'Message must be 5-300 characters';
+  END IF;
+
+  INSERT INTO public.gratitude_posts (post_id, helper_id, thanker_id, message)
+  VALUES (p_post_id, p_helper_id, v_caller, p_message)
+  RETURNING * INTO v_gratitude;
+
+  -- Queue a notification for the helper (if they've opted in).
+  -- M3 change vs 00008: pass v_caller as the actor so the queue's
+  -- block check applies on this path too.
+  PERFORM public.queue_notification(
+    p_helper_id,
+    'gratitude',
+    'Someone thanked you publicly',
+    'A neighbor shared gratitude for your help.',
+    'post',
+    p_post_id,
+    v_caller
+  );
+
+  RETURN v_gratitude;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.post_gratitude(UUID, UUID, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.post_gratitude(UUID, UUID, TEXT) TO authenticated;

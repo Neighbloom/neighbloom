@@ -610,6 +610,20 @@ BEGIN
 END;
 $$;
 
+-- N0: Regression guard — exactly ONE queue_notification overload may exist.
+-- Migrations 00008 and 00011 defined divergent signatures; both coexisted
+-- and short calls were ambiguous ("is not unique", CI run #11). M3 drops
+-- both legacy overloads and installs a single canonical function.
+DO $$
+BEGIN
+  PERFORM public._assert(
+    (SELECT count(*) FROM pg_catalog.pg_proc p
+     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = 'queue_notification') = 1,
+    'N0: exactly one queue_notification overload exists');
+END;
+$$;
+
 -- N1: Opt-in gate — no prefs row and disabled both suppress; enabled delivers
 DO $$
 DECLARE
@@ -854,6 +868,176 @@ BEGIN
 END;
 $$;
 
+-- ============================================================
+-- N9: Block safeguards on EVERY queue path + dedup scoping
+-- Regression tests for the audit of all queue_notification callers:
+-- post_gratitude's original actor-less call bypassed the block
+-- check, and the NP-award trigger never passed an actor.
+-- D (owner, 'Elsewhere') + E (helper) run three full lifecycles.
+-- ============================================================
+
+-- Setup: E opts in (earlier sections relied on E having NO prefs;
+-- N9 runs last, so enabling E now disturbs nothing before it).
+-- Fixtures as postgres, mirroring Test 6: posts + volunteer replies.
+DO $$
+BEGIN
+  INSERT INTO public.notification_prefs (profile_id, enabled)
+  VALUES ('00000000-0000-0000-0000-000000000005', true)
+  ON CONFLICT (profile_id) DO UPDATE SET enabled = true;
+
+  INSERT INTO public.posts (id, owner_id, kind, title, details, helpers_needed) VALUES
+    ('66666666-6666-6666-6666-666666666666', '00000000-0000-0000-0000-000000000004', 'help', 'M3 N9 post one', 'test', 1),
+    ('77777777-7777-7777-7777-777777777777', '00000000-0000-0000-0000-000000000004', 'help', 'M3 N9 post two', 'test', 1),
+    ('88888888-8888-8888-8888-888888888888', '00000000-0000-0000-0000-000000000004', 'help', 'M3 N9 post three', 'test', 1)
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO public.replies (post_id, author_id, body, kind) VALUES
+    ('66666666-6666-6666-6666-666666666666', '00000000-0000-0000-0000-000000000005', 'I can help!', 'volunteer'),
+    ('77777777-7777-7777-7777-777777777777', '00000000-0000-0000-0000-000000000005', 'I can help!', 'volunteer'),
+    ('88888888-8888-8888-8888-888888888888', '00000000-0000-0000-0000-000000000005', 'I can help!', 'volunteer')
+  ON CONFLICT DO NOTHING;
+END;
+$$;
+
+-- D runs the lifecycles: P1 + P2 fully awarded; P3 stops at 'done'
+-- (its award happens later, while blocked).
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000004"}', true);
+DO $$
+BEGIN
+  PERFORM public.select_helpers('66666666-6666-6666-6666-666666666666'::UUID,
+    ARRAY['00000000-0000-0000-0000-000000000005'::UUID]);
+  PERFORM public.transition_post('66666666-6666-6666-6666-666666666666'::UUID, 'booked');
+  PERFORM public.transition_post('66666666-6666-6666-6666-666666666666'::UUID, 'started');
+  PERFORM public.transition_post('66666666-6666-6666-6666-666666666666'::UUID, 'done');
+  PERFORM public.award_np('00000000-0000-0000-0000-000000000005', 20, 'help_confirmed',
+    '66666666-6666-6666-6666-666666666666'::UUID, 'm3-n9-key-1');
+
+  PERFORM public.select_helpers('77777777-7777-7777-7777-777777777777'::UUID,
+    ARRAY['00000000-0000-0000-0000-000000000005'::UUID]);
+  PERFORM public.transition_post('77777777-7777-7777-7777-777777777777'::UUID, 'booked');
+  PERFORM public.transition_post('77777777-7777-7777-7777-777777777777'::UUID, 'started');
+  PERFORM public.transition_post('77777777-7777-7777-7777-777777777777'::UUID, 'done');
+  PERFORM public.award_np('00000000-0000-0000-0000-000000000005', 20, 'help_confirmed',
+    '77777777-7777-7777-7777-777777777777'::UUID, 'm3-n9-key-2');
+
+  PERFORM public.select_helpers('88888888-8888-8888-8888-888888888888'::UUID,
+    ARRAY['00000000-0000-0000-0000-000000000005'::UUID]);
+  PERFORM public.transition_post('88888888-8888-8888-8888-888888888888'::UUID, 'booked');
+  PERFORM public.transition_post('88888888-8888-8888-8888-888888888888'::UUID, 'started');
+  PERFORM public.transition_post('88888888-8888-8888-8888-888888888888'::UUID, 'done');
+END;
+$$;
+COMMIT;
+
+-- N9a/N9b: queue-level block check via direct calls (C receives,
+-- A is the actor; C has received exactly 2 notifications so far,
+-- so the unblocked call fits under the 3/day cap).
+DO $$
+DECLARE
+  v_c UUID := '00000000-0000-0000-0000-000000000003';
+  v_a UUID := '00000000-0000-0000-0000-000000000001';
+  v_ref UUID := '99999999-9999-9999-9999-999999999999';
+  v_id UUID;
+BEGIN
+  INSERT INTO public.blocks (blocker_id, blocked_id) VALUES (v_c, v_a)
+  ON CONFLICT DO NOTHING;
+  v_id := public.queue_notification(v_c, 'volunteers', 't', 'b', 'post', v_ref, v_a);
+  PERFORM public._assert(v_id IS NULL,
+    'N9a: queue suppresses notification when actor is blocked');
+  DELETE FROM public.blocks WHERE blocker_id = v_c AND blocked_id = v_a;
+  v_id := public.queue_notification(v_c, 'volunteers', 't', 'b', 'post', v_ref, v_a);
+  PERFORM public._assert(v_id IS NOT NULL,
+    'N9b: same call delivered once unblocked (blocked attempt left no row to dedup against)');
+END;
+$$;
+
+-- Block D and E, then D thanks E for P1 via the RPC.
+INSERT INTO public.blocks (blocker_id, blocked_id)
+VALUES ('00000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000005')
+ON CONFLICT DO NOTHING;
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000004"}', true);
+DO $$
+BEGIN
+  PERFORM public.post_gratitude('66666666-6666-6666-6666-666666666666',
+    '00000000-0000-0000-0000-000000000005', 'Thank you so much!');
+END;
+$$;
+COMMIT;
+
+DO $$
+BEGIN
+  PERFORM public._assert(
+    EXISTS (SELECT 1 FROM public.gratitude_posts
+      WHERE post_id = '66666666-6666-6666-6666-666666666666'
+        AND helper_id = '00000000-0000-0000-0000-000000000005'),
+    'N9c: gratitude itself is recorded even when blocked (only the notification is gated)');
+  PERFORM public._assert(
+    (SELECT count(*) FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000005' AND type = 'gratitude'
+        AND ref_id = '66666666-6666-6666-6666-666666666666') = 0,
+    'N9d: blocked gratitude notifies nobody — RPC path honors the block (bypass regression)');
+END;
+$$;
+
+-- Still blocked: D awards NP for P3.
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000004"}', true);
+DO $$
+BEGIN
+  PERFORM public.award_np('00000000-0000-0000-0000-000000000005', 20, 'help_confirmed',
+    '88888888-8888-8888-8888-888888888888'::UUID, 'm3-n9-key-3');
+END;
+$$;
+COMMIT;
+
+DO $$
+BEGIN
+  PERFORM public._assert(
+    (SELECT count(*) FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000005' AND type = 'help_confirmed'
+        AND ref_id = '88888888-8888-8888-8888-888888888888') = 0,
+    'N9e: NP-award notification suppressed while owner and helper are blocked');
+END;
+$$;
+
+-- Unblock, then D thanks E for P2 (a DISTINCT gratitude event:
+-- different post, so a different dedup ref — must be delivered,
+-- and exactly once even though trigger and RPC both queue it).
+DELETE FROM public.blocks
+WHERE blocker_id = '00000000-0000-0000-0000-000000000004'
+  AND blocked_id = '00000000-0000-0000-0000-000000000005';
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000004"}', true);
+DO $$
+BEGIN
+  PERFORM public.post_gratitude('77777777-7777-7777-7777-777777777777',
+    '00000000-0000-0000-0000-000000000005', 'Thank you so much!');
+END;
+$$;
+COMMIT;
+
+DO $$
+BEGIN
+  PERFORM public._assert(
+    (SELECT count(*) FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000005' AND type = 'gratitude'
+        AND ref_id = '77777777-7777-7777-7777-777777777777') = 1,
+    'N9f: distinct gratitude event delivered exactly once (trigger + RPC deduped, not suppressed)');
+  PERFORM public._assert(
+    (SELECT count(*) FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000005' AND type = 'gratitude') = 1,
+    'N9g: exactly one gratitude notification total across both events');
+END;
+$$;
+
 -- Cleanup
 DELETE FROM public.posts WHERE id = '22222222-2222-2222-2222-222222222222'::UUID;
 
@@ -861,4 +1045,4 @@ DELETE FROM public.posts WHERE id = '22222222-2222-2222-2222-222222222222'::UUID
 DROP FUNCTION IF EXISTS public._assert(BOOLEAN, TEXT);
 
 -- Success only prints if ALL tests above passed (any failure raises exception)
-SELECT 'All 41 assertions passed!' AS result;
+SELECT 'All 49 assertions passed!' AS result;
