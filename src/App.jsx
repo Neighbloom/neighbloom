@@ -6470,6 +6470,9 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
   const [details, setDetails] = useState('');
   const [message, setMessage] = useState('');
   const [prefTags, setPrefTags] = useState([]);
+  function toggleTag(t) {
+    setPrefTags((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]);
+  }
   const [photo, setPhoto] = useState('');
   const [photoBytes, setPhotoBytes] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -6769,44 +6772,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
       ? 'Write it like a text to a neighbor. Be clear about where/how (porch, curb, driveway, indoors, etc.). One solid detail beats a paragraph.'
       : 'Ask for exactly what you want. One detail about price/timing helps a lot.';
 
-  // Template keyword map for chip suggestions
-  const TEMPLATE_KEYWORDS = {
-    shovel: 'Shoveling',
-    rake: 'Rake & bag',
-    bin: 'Bins',
-    bins: 'Bins',
-    trash: 'Bins',
-    heavy: 'One heavy item',
-    furniture: 'One heavy item',
-    couch: 'One heavy item',
-    table: 'One heavy item',
-    pickup: 'Pickup/drop',
-    drop: 'Pickup/drop',
-  };
-
-  const [suggestedTemplates, setSuggestedTemplates] = useState([]);
   const messageRef = useRef(null);
-
-  // Debounced keyword detection for template chips (help only)
-  useEffect(() => {
-    if (!isHelp) {
-      setSuggestedTemplates([]);
-      return;
-    }
-    let t = null;
-    const check = () => {
-      const v = (message || '').toLowerCase();
-      const found = [];
-      for (const k of Object.keys(TEMPLATE_KEYWORDS)) {
-        if (v.includes(k) && !found.includes(TEMPLATE_KEYWORDS[k])) {
-          found.push(TEMPLATE_KEYWORDS[k]);
-        }
-      }
-      setSuggestedTemplates(found.slice(0, 3));
-    };
-    t = setTimeout(check, 300);
-    return () => clearTimeout(t);
-  }, [message, isHelp]);
 
   return (
     <div className="nb-page">
@@ -6847,33 +6813,6 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
             />
           </div>
 
-          {/* Template chips (help only, debounced) */}
-          {isHelp && suggestedTemplates && suggestedTemplates.length ? (
-            <div className="nb-card" style={{ marginTop: 12, display: 'flex', gap: 8, overflowX: 'auto' }}>
-              {suggestedTemplates.slice(0, 3).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className="nb-chip"
-                  onClick={() => {
-                    const insert = `Need help with ${s} — [where/how], [when].`;
-                    handleMessageChange(message ? `${message}\n${insert}` : insert);
-                    setErr('');
-                    setTimeout(() => {
-                      const el = messageRef.current;
-                      if (el) {
-                        el.style.height = 'auto';
-                        el.style.height = `${Math.min(400, el.scrollHeight)}px`;
-                      }
-                    }, 0);
-                  }}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          ) : null}
-
           {/* Always-visible fields row (help: helpers, photo, timing) */}
           {isHelp ? (
             <div className="nb-card" style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -6898,6 +6837,40 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
                   <option value="This week">This week</option>
                   <option value="__custom__">Pick date/time</option>
                 </select>
+              </div>
+            </div>
+          ) : null}
+
+          {!isHelp ? (
+            <div className="nb-card" style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+              <div>
+                <label className="nb-label">Category</label>
+                <select
+                  className="nb-input"
+                  value={what}
+                  onChange={(e) => { setWhat(e.target.value); setErr(''); }}
+                >
+                  <option value="">Choose a category…</option>
+                  {REC_CATEGORIES.filter((c) => c && c !== '__custom__').map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="nb-label">Quick preferences (tap to add)</label>
+                <div className="nb-seg nb-seg-compact nb-seg-scroll">
+                  {REC_PREF_TAGS.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className={`nb-segbtn ${prefTags.includes(t) ? 'is-on' : ''}`}
+                      onClick={() => toggleTag(t)}
+                      title="Tap to toggle"
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           ) : null}
