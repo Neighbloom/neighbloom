@@ -2,15 +2,23 @@
 
 ## Milestone 1 — Applied via Dashboard SQL Editor
 
-**Date:** 2026-10-11 (pending user execution)
+**Date:** 2026-10-11
 **Method:** Supabase Dashboard → SQL Editor → paste `supabase/APPLY_VIA_DASHBOARD.sql`
 **Applied by:** User (manual)
+**Result:** Success. No rows returned.
 **Transaction:** Single atomic transaction (BEGIN/COMMIT wrapper)
+
+### Project configuration:
+- Plan: Free
+- Region: East US (Ohio)
+- Data API: Enabled
+- Automatic table exposure: Disabled (explicit GRANTs in migration)
+- Automatic RLS: Enabled
 
 ### Migrations applied:
 1. `20261011000001_core_tables.sql` — profiles, posts, replies tables + indexes + triggers (incl. `handle_new_user` on `auth.users`)
-2. `20261011000002_rls_policies.sql` — Row Level Security policies (public read, owner-only write)
-3. `20261011000003_protect_np.sql` — System field protection triggers (np, stage, status, helpers)
+2. `20261011000002_rls_policies.sql` — Row Level Security policies + least-privilege GRANTs
+3. `20261011000003_protect_np.sql` — System field protection triggers (np, stage, status, helpers; INSERT defaults)
 
 ### Tracking note:
 These were applied via SQL Editor, which does NOT populate the `supabase_migrations.schema_migrations` table. The migration files in `supabase/migrations/` are the source of truth. All migrations are idempotent (IF NOT EXISTS / OR REPLACE), so future `supabase db push` will succeed as no-ops for these versions.
