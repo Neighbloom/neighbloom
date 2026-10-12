@@ -574,6 +574,286 @@ END;
 $$;
 COMMIT;
 
+-- ============================================================
+-- M3: Notification wiring tests (migration 20261012000012)
+-- Applies the wiring migration inline (twice: idempotency),
+-- then tests queue rules + all five event triggers.
+-- ============================================================
+
+-- Apply wiring (CI applies only the M1/M2 combined files before this
+-- suite, so the M3 migration is included here exactly as shipped).
+\i supabase/migrations/20261012000012_notification_wiring.sql
+-- Idempotency: second run must also succeed.
+\i supabase/migrations/20261012000012_notification_wiring.sql
+
+-- SETUP: users D (queue-rule tests) and E (no-prefs isolation test)
+DO $$
+BEGIN
+  RAISE NOTICE '=== M3 SETUP: users D and E, towns, opt-ins ===';
+  INSERT INTO auth.users (id) VALUES
+    ('00000000-0000-0000-0000-000000000004'),
+    ('00000000-0000-0000-0000-000000000005')
+  ON CONFLICT (id) DO NOTHING;
+  INSERT INTO public.profiles (id, display_name, town) VALUES
+    ('00000000-0000-0000-0000-000000000004', 'Test User D', 'Elsewhere'),
+    ('00000000-0000-0000-0000-000000000005', 'Test User E', 'Worth')
+  ON CONFLICT (id) DO NOTHING;
+  -- B moves to a different town for the help_nearby fan-out test.
+  UPDATE public.profiles SET town = 'Orland Park'
+    WHERE id = '00000000-0000-0000-0000-000000000002';
+  -- A, B, C opt in (E deliberately gets NO prefs row).
+  INSERT INTO public.notification_prefs (profile_id, enabled) VALUES
+    ('00000000-0000-0000-0000-000000000001', true),
+    ('00000000-0000-0000-0000-000000000002', true),
+    ('00000000-0000-0000-0000-000000000003', true)
+  ON CONFLICT (profile_id) DO UPDATE SET enabled = true;
+END;
+$$;
+
+-- N1: Opt-in gate — no prefs row and disabled both suppress; enabled delivers
+DO $$
+DECLARE
+  v_d UUID := '00000000-0000-0000-0000-000000000004';
+  v_id UUID;
+BEGIN
+  v_id := public.queue_notification(v_d, 'volunteers', 't', 'b');
+  PERFORM public._assert(v_id IS NULL, 'N1a: no prefs row = no notification');
+  INSERT INTO public.notification_prefs (profile_id, enabled) VALUES (v_d, false)
+  ON CONFLICT (profile_id) DO UPDATE SET enabled = false;
+  v_id := public.queue_notification(v_d, 'volunteers', 't', 'b');
+  PERFORM public._assert(v_id IS NULL, 'N1b: opted out = no notification');
+  UPDATE public.notification_prefs SET enabled = true WHERE profile_id = v_d;
+  v_id := public.queue_notification(v_d, 'volunteers', 't', 'b');
+  PERFORM public._assert(v_id IS NOT NULL, 'N1c: opted in = notification queued');
+END;
+$$;
+
+-- N2 + N3: Type toggle, then frequency cap (D reaches exactly 3, 4th suppressed)
+DO $$
+DECLARE
+  v_d UUID := '00000000-0000-0000-0000-000000000004';
+  v_id UUID;
+BEGIN
+  UPDATE public.notification_prefs SET notify_messages = false WHERE profile_id = v_d;
+  v_id := public.queue_notification(v_d, 'new_message', 't', 'b');
+  PERFORM public._assert(v_id IS NULL, 'N2a: toggled-off type suppressed');
+  UPDATE public.notification_prefs SET notify_messages = true WHERE profile_id = v_d;
+  v_id := public.queue_notification(v_d, 'volunteers', 't', 'b');
+  PERFORM public._assert(v_id IS NOT NULL, 'N2b: other type still delivered');
+  v_id := public.queue_notification(v_d, 'help_confirmed', 't', 'b');
+  PERFORM public._assert(v_id IS NOT NULL, 'N3a: third notification delivered (cap = 3/day)');
+  v_id := public.queue_notification(v_d, 'gratitude', 't', 'b');
+  PERFORM public._assert(v_id IS NULL, 'N3b: fourth suppressed by frequency cap');
+END;
+$$;
+
+-- N4: Quiet hours suppress, then allow (window computed around actual local time)
+DO $$
+DECLARE
+  v_c UUID := '00000000-0000-0000-0000-000000000003';
+  v_now TIME := (pg_catalog.now() AT TIME ZONE 'America/Chicago')::time;
+BEGIN
+  UPDATE public.notification_prefs
+    SET quiet_start = (v_now - interval '1 hour')::time,
+        quiet_end   = (v_now + interval '1 hour')::time
+    WHERE profile_id = v_c;
+END;
+$$;
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000001"}', true);
+INSERT INTO public.posts (id, owner_id, kind, title, details, helpers_needed)
+VALUES ('44444444-4444-4444-4444-444444444444', '00000000-0000-0000-0000-000000000001', 'help', 'M3 quiet-hours post', 'test', 1);
+COMMIT;
+
+DO $$
+BEGIN
+  PERFORM public._assert(
+    NOT EXISTS (SELECT 1 FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000003' AND type = 'help_nearby'),
+    'N4a: quiet hours suppress help_nearby');
+END;
+$$;
+
+DO $$
+DECLARE
+  v_now TIME := (pg_catalog.now() AT TIME ZONE 'America/Chicago')::time;
+BEGIN
+  UPDATE public.notification_prefs
+    SET quiet_start = (v_now + interval '2 hours')::time,
+        quiet_end   = (v_now + interval '3 hours')::time
+    WHERE profile_id = '00000000-0000-0000-0000-000000000003';
+END;
+$$;
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000001"}', true);
+INSERT INTO public.posts (id, owner_id, kind, title, details, helpers_needed)
+VALUES ('55555555-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000001', 'help', 'M3 after-quiet post', 'test', 1);
+COMMIT;
+
+DO $$
+BEGIN
+  PERFORM public._assert(
+    EXISTS (SELECT 1 FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000003' AND type = 'help_nearby'
+        AND ref_id = '55555555-5555-5555-5555-555555555555'),
+    'N4b: help_nearby delivered outside quiet hours (same town)');
+  PERFORM public._assert(
+    NOT EXISTS (SELECT 1 FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000001' AND type = 'help_nearby'),
+    'N4c: owner never notified about own post');
+  PERFORM public._assert(
+    NOT EXISTS (SELECT 1 FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000002' AND type = 'help_nearby'),
+    'N4d: different-town neighbor not notified');
+END;
+$$;
+
+-- N5: Volunteer event notifies the post owner
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000001"}', true);
+INSERT INTO public.posts (id, owner_id, kind, title, details, helpers_needed)
+VALUES ('33333333-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000001', 'help', 'M3 lifecycle post', 'test', 1);
+COMMIT;
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000002"}', true);
+INSERT INTO public.replies (post_id, author_id, body, kind)
+VALUES ('33333333-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000002', 'I can help', 'volunteer');
+COMMIT;
+
+DO $$
+BEGIN
+  PERFORM public._assert(
+    EXISTS (SELECT 1 FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000001' AND type = 'volunteers'
+        AND ref_id = '33333333-3333-3333-3333-333333333333'),
+    'N5: owner notified when someone volunteers');
+END;
+$$;
+
+-- N8: A recipient with NO prefs row never breaks the product action
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000005"}', true);
+INSERT INTO public.replies (post_id, author_id, body, kind)
+VALUES ('33333333-3333-3333-3333-333333333333', '00000000-0000-0000-0000-000000000005', 'E can help too', 'volunteer');
+COMMIT;
+
+DO $$
+BEGIN
+  PERFORM public._assert(
+    EXISTS (SELECT 1 FROM public.replies
+      WHERE post_id = '33333333-3333-3333-3333-333333333333'
+        AND author_id = '00000000-0000-0000-0000-000000000005'),
+    'N8: volunteer reply succeeds regardless of notification state');
+END;
+$$;
+
+-- N6: Full flow — select, transition, award, converse, dedup, privacy of content
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000001"}', true);
+DO $$
+BEGIN
+  PERFORM public.select_helpers('33333333-3333-3333-3333-333333333333',
+    ARRAY['00000000-0000-0000-0000-000000000002']::UUID[]);
+  PERFORM public.transition_post('33333333-3333-3333-3333-333333333333', 'booked');
+  PERFORM public.transition_post('33333333-3333-3333-3333-333333333333', 'started');
+  PERFORM public.transition_post('33333333-3333-3333-3333-333333333333', 'done');
+  PERFORM public.award_np('00000000-0000-0000-0000-000000000002', 20, 'help_confirmed',
+    '33333333-3333-3333-3333-333333333333', 'm3-award-1');
+  PERFORM public.create_conversation('33333333-3333-3333-3333-333333333333',
+    '00000000-0000-0000-0000-000000000002');
+END;
+$$;
+COMMIT;
+
+DO $$
+BEGIN
+  PERFORM public._assert(
+    EXISTS (SELECT 1 FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000002' AND type = 'help_confirmed'
+        AND ref_id = '33333333-3333-3333-3333-333333333333'),
+    'N6a: helper notified on help_confirmed (+20 NP)');
+END;
+$$;
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000001"}', true);
+INSERT INTO public.messages (conversation_id, sender_id, body)
+SELECT id, '00000000-0000-0000-0000-000000000001', 'hello B'
+FROM public.conversations
+WHERE post_id = '33333333-3333-3333-3333-333333333333'
+  AND helper_id = '00000000-0000-0000-0000-000000000002';
+COMMIT;
+
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000002"}', true);
+INSERT INTO public.messages (conversation_id, sender_id, body)
+SELECT id, '00000000-0000-0000-0000-000000000002', 'M3 secret body one'
+FROM public.conversations
+WHERE post_id = '33333333-3333-3333-3333-333333333333'
+  AND helper_id = '00000000-0000-0000-0000-000000000002';
+INSERT INTO public.messages (conversation_id, sender_id, body)
+SELECT id, '00000000-0000-0000-0000-000000000002', 'M3 secret body two'
+FROM public.conversations
+WHERE post_id = '33333333-3333-3333-3333-333333333333'
+  AND helper_id = '00000000-0000-0000-0000-000000000002';
+COMMIT;
+
+DO $$
+DECLARE
+  v_conv UUID;
+BEGIN
+  SELECT id INTO v_conv FROM public.conversations
+    WHERE post_id = '33333333-3333-3333-3333-333333333333'
+      AND helper_id = '00000000-0000-0000-0000-000000000002';
+  PERFORM public._assert(
+    EXISTS (SELECT 1 FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000002' AND type = 'new_message'
+        AND ref_id = v_conv),
+    'N6b: helper notified on new message');
+  PERFORM public._assert(
+    (SELECT count(*) FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000001' AND type = 'new_message'
+        AND ref_id = v_conv) = 1,
+    'N6c: message burst deduped to exactly one notification');
+  PERFORM public._assert(
+    NOT EXISTS (SELECT 1 FROM public.notifications
+      WHERE body LIKE '%M3 secret body%'),
+    'N6d: notification bodies never contain message content');
+END;
+$$;
+
+-- N7: Gratitude event notifies the helper
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000001"}', true);
+DO $$
+BEGIN
+  PERFORM public.post_gratitude('33333333-3333-3333-3333-333333333333',
+    '00000000-0000-0000-0000-000000000002', 'Thank you so much!');
+END;
+$$;
+COMMIT;
+
+DO $$
+BEGIN
+  PERFORM public._assert(
+    EXISTS (SELECT 1 FROM public.notifications
+      WHERE profile_id = '00000000-0000-0000-0000-000000000002' AND type = 'gratitude'),
+    'N7: helper notified on public gratitude');
+END;
+$$;
+
 -- Cleanup
 DELETE FROM public.posts WHERE id = '22222222-2222-2222-2222-222222222222'::UUID;
 
@@ -581,4 +861,4 @@ DELETE FROM public.posts WHERE id = '22222222-2222-2222-2222-222222222222'::UUID
 DROP FUNCTION IF EXISTS public._assert(BOOLEAN, TEXT);
 
 -- Success only prints if ALL tests above passed (any failure raises exception)
-SELECT 'All 23 assertions passed!' AS result;
+SELECT 'All 41 assertions passed!' AS result;
