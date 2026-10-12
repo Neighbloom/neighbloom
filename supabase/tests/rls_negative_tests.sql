@@ -46,7 +46,12 @@
 -- INSERT INTO posts (owner_id, kind, title)
 -- VALUES ('<TEST_USER_B_UUID>', 'help', 'Impersonation attempt');
 
--- TEST 10: award_np works when called (trusted path) -----------------------
--- Expected: SUCCEEDS (this is the legitimate server-side path)
+-- TEST 10: award_np is revoked from all user roles ---------------------------
+-- Expected: ERROR "permission denied for function award_np"
+-- (Run as authenticated user via Supabase RPC / SQL)
 -- SELECT award_np(auth.uid(), 20);
--- Then verify: SELECT np FROM profiles WHERE id = auth.uid(); -- increased by 20
+
+-- TEST 11: award_np cannot be called by anon --------------------------------
+-- Expected: ERROR "permission denied for function award_np"
+-- (Run without authentication)
+-- SELECT award_np(gen_random_uuid(), 20);

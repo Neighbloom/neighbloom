@@ -203,5 +203,11 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- restrict this further via a dedicated service role or tighter logic).
 -- For Milestone 1, the function exists but the app does not call it;
 -- NP awards remain client-side demo until Milestone 2 migrates them.
+--
+-- SECURITY: Revoked from everyone. No ordinary user can invoke this via RPC.
+-- Milestone 2 will introduce a properly authorized, transaction-safe,
+-- exactly-once award mechanism with its own GRANT.
 REVOKE ALL ON FUNCTION award_np(UUID, INTEGER) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION award_np(UUID, INTEGER) TO authenticated;
+REVOKE ALL ON FUNCTION award_np(UUID, INTEGER) FROM anon;
+REVOKE ALL ON FUNCTION award_np(UUID, INTEGER) FROM authenticated;
+-- No GRANT. Only service_role and postgres superuser can execute.
