@@ -6428,6 +6428,9 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
   const [helpersNeeded, setHelpersNeeded] = useState(1);
   const [details, setDetails] = useState('');
   const [message, setMessage] = useState('');
+  const [whenMode, setWhenMode] = useState(''); // "", preset, "__custom__"
+  const [whenCustom, setWhenCustom] = useState('');
+  const [photoErr, setPhotoErr] = useState('');
   const [prefTags, setPrefTags] = useState([]);
   function toggleTag(t) {
     setPrefTags((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]);
@@ -6467,8 +6470,15 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
         }
       }
       // Only consider drafts that have meaningful content (not just default area)
-      const hasContent = (obj.what && String(obj.what).trim()) || (obj.details && String(obj.details).trim());
-      if (hasContent) setDraftAvailable(true);
+      const hasContent = (obj.what && String(obj.what).trim()) || (obj.details && String(obj.details).trim()) || (obj.message && String(obj.message).trim());
+      if (hasContent) {
+        // Auto-restore draft into form fields
+        if (obj.message) setMessage(obj.message);
+        if (obj.what) setWhat(obj.what);
+        if (obj.details) setDetails(obj.details);
+        if (obj.area) setArea(obj.area);
+        setDraftAvailable(true);
+      }
       else {
         try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
         setDraftAvailable(false);
@@ -6480,13 +6490,13 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
   function saveDraft() {
     try {
-      const hasContent = (what && String(what).trim()) || (details && String(details).trim());
+      const hasContent = (what && String(what).trim()) || (details && String(details).trim()) || (message && String(message).trim());
       if (!hasContent) {
         try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
         setDraftAvailable(false);
         return;
       }
-      const payload = { what: what || '', area: area || '', details: details || '', savedAt: Date.now() };
+      const payload = { what: what || '', area: area || '', details: details || '', message: message || '', savedAt: Date.now() };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
       setDraftAvailable(true);
     } catch (e) {}
@@ -7052,8 +7062,6 @@ useEffect(() => {
 const [nearText, setNearText] = useState('');
 
     // Premium Timing: single selector + optional custom field (no chip spam)
-    const [whenMode, setWhenMode] = useState(''); // "", preset, "__custom__"
-    const [whenCustom, setWhenCustom] = useState('');
     useEffect(() => {
       if (category === 'Curb-to-curb move' && helpersNeeded < 2) {
         setHelpersNeeded(2);
@@ -7097,9 +7105,6 @@ const [nearText, setNearText] = useState('');
       t = setTimeout(check, 300);
       return () => clearTimeout(t);
     }, [message]);
-    const [photo, setPhoto] = useState(null); // dataURL (local demo only)
-    const [err, setErr] = useState('');
-    const [photoErr, setPhotoErr] = useState('');
 
     function clearPhoto() {
       setPhoto(null);
