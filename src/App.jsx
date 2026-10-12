@@ -2996,8 +2996,16 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     }
   }
 
-  // Final gate for BOTH help + rec (prevents opening locked drawers)
-  if (!canOpenChatForPost(post, otherUserId)) return;
+  // Final gate for BOTH help + rec (prevents opening locked drawers).
+  // Server-backed help posts skip the local gate: selection state
+  // lives server-side, and getSelectedHelperIds reads local-only
+  // fields (selectedUserIds) that real posts never carry — so the
+  // local check is always false for them and would lock every real
+  // chat. The M2 get-or-create below is the authorization instead:
+  // its RPC only succeeds for the owner / selected helpers, and
+  // message reads are RLS-scoped to conversation participants.
+  const serverHelp = m2Ready && post._supabase && post.kind === 'help';
+  if (!serverHelp && !canOpenChatForPost(post, otherUserId)) return;
 
   // Phase 2: Try to get/create a real conversation via M2 backend.
   let conversationId = null;
