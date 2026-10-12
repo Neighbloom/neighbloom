@@ -1,0 +1,77 @@
+diff --git a/src/App.jsx b/src/App.jsx
+index 4a487c9..5571c75 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -18,6 +18,8 @@ import {
+   confirmHelpAndAward as m2ConfirmHelpAndAward,
+   dailyCheckIn as m2DailyCheckIn,
+   fetchNPBalance as m2FetchNPBalance,
++  fetchInAppNotifications as m2FetchNotifications,
++  markNotificationRead as m2MarkNotificationRead,
+ } from './m2.js';
+ 
+ /* ---------- NB: show fatal errors on-screen (prod-friendly) ---------- */
+@@ -1664,6 +1666,63 @@ function App() {
+     });
+   });
+ 
++  // Phase 3 (M3): server notifications -> Activity feed.
++  // The Activity tab historically rendered only the local V1 event log,
++  // so cross-user notifications (volunteers, messages, confirmations,
++  // gratitude) created by the M3 triggers were invisible. This loader
++  // merges them into the same activity state, deduped by id (safe
++  // across the localStorage persistence of `activity`). Any failure —
++  // e.g. the notifications table not existing yet — degrades silently
++  // to the local-only feed, matching the m2 graceful-degrade pattern.
++  const refreshRemoteNotifications = React.useCallback(async () => {
++    if (!isAuthenticated || !authConfigured || !m2Ready || !me?.id) return;
++    try {
++      const rows = await m2FetchNotifications(20);
++      if (!Array.isArray(rows) || !rows.length) return;
++      const items = rows.map((n) => ({
++        id: `sb-${n.id}`,
++        type: n.type || 'notice',
++        text: [n.title, n.body].filter(Boolean).join(' — '),
++        ts: n.created_at ? new Date(n.created_at).getTime() : NOW(),
++        audienceIds: [me.id],
++        actorId: me.id,
++        postId: n.ref_type === 'post' ? n.ref_id : null,
++        remoteId: n.id,
++        readAt: n.read_at || null,
++      }));
++      setActivity((prev) => {
++        const list = Array.isArray(prev) ? prev : [];
++        const existing = new Set(list.map((a) => a?.id));
++        const fresh = items.filter((it) => !existing.has(it.id));
++        return fresh.length ? [...fresh, ...list] : prev;
++      });
++    } catch {}
++  }, [isAuthenticated, authConfigured, m2Ready, me?.id]);
++
++  useEffect(() => {
++    if (m2Ready) refreshRemoteNotifications();
++  }, [m2Ready, refreshRemoteNotifications]);
++
++  // Opening the Activity tab: refresh, then mark remote notifications
++  // read server-side (mark-read is idempotent; local flags update too).
++  useEffect(() => {
++    if (activeTab !== 'activity' || !m2Ready) return;
++    refreshRemoteNotifications();
++    setActivity((prev) => {
++      if (!Array.isArray(prev)) return prev;
++      let changed = false;
++      const next = prev.map((a) => {
++        if (a && a.remoteId && !a.readAt) {
++          changed = true;
++          m2MarkNotificationRead(a.remoteId).catch(() => {});
++          return { ...a, readAt: new Date().toISOString() };
++        }
++        return a;
++      });
++      return changed ? next : prev;
++    });
++  }, [activeTab, m2Ready, refreshRemoteNotifications]);
++
+   // modal: reply or confirm actions
+   const [modal, setModal] = useState(null); // {type, postId, mode}
+   // share modal state (opened by sharePost)
