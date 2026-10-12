@@ -601,6 +601,19 @@ BEGIN
   -- B moves to a different town for the help_nearby fan-out test.
   UPDATE public.profiles SET town = 'Orland Park'
     WHERE id = '00000000-0000-0000-0000-000000000002';
+  -- Pin every other test user's town deterministically. The M1
+  -- signup trigger auto-creates a profile (town NULL) the moment an
+  -- auth.users row appears, so the INSERT ... ON CONFLICT DO NOTHING
+  -- seeds (here and in the workflow) never actually set a town —
+  -- towns only stick via UPDATE. (CI runs #12/#13: A's town was
+  -- NULL, the help_nearby fan-out matched zero neighbors, and N4b
+  -- failed while N4a passed vacuously.)
+  UPDATE public.profiles SET town = 'Worth'
+    WHERE id IN ('00000000-0000-0000-0000-000000000001',
+                 '00000000-0000-0000-0000-000000000003',
+                 '00000000-0000-0000-0000-000000000005');
+  UPDATE public.profiles SET town = 'Elsewhere'
+    WHERE id = '00000000-0000-0000-0000-000000000004';
   -- A, B, C opt in (E deliberately gets NO prefs row).
   INSERT INTO public.notification_prefs (profile_id, enabled) VALUES
     ('00000000-0000-0000-0000-000000000001', true),
@@ -707,38 +720,6 @@ SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000
 INSERT INTO public.posts (id, owner_id, kind, title, details, helpers_needed)
 VALUES ('55555555-5555-5555-5555-555555555555', '00000000-0000-0000-0000-000000000001', 'help', 'M3 after-quiet post', 'test', 1);
 COMMIT;
-
--- TEMP DIAGNOSTIC (remove after N4b investigation): dump the runtime
--- state every gate sees, then attempt the exact call the trigger makes.
-DO $$
-DECLARE
-  v_c UUID := '00000000-0000-0000-0000-000000000003';
-  v_a UUID := '00000000-0000-0000-0000-000000000001';
-  v_prefs public.notification_prefs%ROWTYPE;
-  v_id UUID;
-  v_recipients TEXT;
-BEGIN
-  SELECT * INTO v_prefs FROM public.notification_prefs WHERE profile_id = v_c;
-  RAISE NOTICE 'DIAG prefs: enabled=% nearby=% quiet=%-% tz=%',
-    v_prefs.enabled, v_prefs.notify_help_nearby, v_prefs.quiet_start, v_prefs.quiet_end, v_prefs.timezone;
-  RAISE NOTICE 'DIAG gates: is_blocked(C,A)=% is_blocked(A,C)=% can_send(C)=% notif_count(C)=%',
-    public.is_blocked(v_c, v_a), public.is_blocked(v_a, v_c),
-    public.can_send_notification(v_c),
-    (SELECT count(*) FROM public.notifications WHERE profile_id = v_c);
-  SELECT string_agg(p.id::text, ',') INTO v_recipients
-    FROM public.profiles p
-    WHERE p.town = (SELECT town FROM public.profiles WHERE id = v_a)
-      AND p.id <> v_a AND NOT public.is_blocked(v_a, p.id);
-  RAISE NOTICE 'DIAG loop recipients for a new A post: %', v_recipients;
-  BEGIN
-    v_id := public.queue_notification(v_c, 'help_nearby', 'diag', 'diag',
-      'post', '55555555-5555-5555-5555-555555555555', v_a);
-    RAISE NOTICE 'DIAG direct queue call returned: %', v_id;
-  EXCEPTION WHEN OTHERS THEN
-    RAISE NOTICE 'DIAG direct queue call ERRORED: %', SQLERRM;
-  END;
-END;
-$$;
 
 DO $$
 BEGIN
@@ -963,23 +944,23 @@ END;
 $$;
 COMMIT;
 
--- N9a/N9b: queue-level block check via direct calls (C receives,
--- A is the actor; C has received exactly 2 notifications so far,
--- so the unblocked call fits under the 3/day cap).
+-- N9a/N9b: queue-level block check via direct calls (A receives,
+-- C is the actor; A has received exactly 2 notifications so far —
+-- N5 volunteers + N6 message — so the unblocked call fits the cap).
 DO $$
 DECLARE
-  v_c UUID := '00000000-0000-0000-0000-000000000003';
-  v_a UUID := '00000000-0000-0000-0000-000000000001';
+  v_recipient UUID := '00000000-0000-0000-0000-000000000001';
+  v_actor UUID := '00000000-0000-0000-0000-000000000003';
   v_ref UUID := '99999999-9999-9999-9999-999999999999';
   v_id UUID;
 BEGIN
-  INSERT INTO public.blocks (blocker_id, blocked_id) VALUES (v_c, v_a)
+  INSERT INTO public.blocks (blocker_id, blocked_id) VALUES (v_recipient, v_actor)
   ON CONFLICT DO NOTHING;
-  v_id := public.queue_notification(v_c, 'volunteers', 't', 'b', 'post', v_ref, v_a);
+  v_id := public.queue_notification(v_recipient, 'volunteers', 't', 'b', 'post', v_ref, v_actor);
   PERFORM public._assert(v_id IS NULL,
     'N9a: queue suppresses notification when actor is blocked');
-  DELETE FROM public.blocks WHERE blocker_id = v_c AND blocked_id = v_a;
-  v_id := public.queue_notification(v_c, 'volunteers', 't', 'b', 'post', v_ref, v_a);
+  DELETE FROM public.blocks WHERE blocker_id = v_recipient AND blocked_id = v_actor;
+  v_id := public.queue_notification(v_recipient, 'volunteers', 't', 'b', 'post', v_ref, v_actor);
   PERFORM public._assert(v_id IS NOT NULL,
     'N9b: same call delivered once unblocked (blocked attempt left no row to dedup against)');
 END;
