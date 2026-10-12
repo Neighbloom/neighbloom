@@ -38,6 +38,17 @@ DECLARE
   v_user_b UUID := '00000000-0000-0000-0000-000000000002';
 BEGIN
   RAISE NOTICE '=== SETUP: Configuring test profiles ===';
+
+  -- Ensure auth.users table exists (for FK compliance in CI mock)
+  CREATE TABLE IF NOT EXISTS auth.users (
+    id UUID PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  -- Ensure test users exist in auth.users (for FK)
+  INSERT INTO auth.users (id) VALUES (v_user_a), (v_user_b)
+  ON CONFLICT (id) DO NOTHING;
+
   UPDATE public.profiles
   SET intro = 'Private intro - B should NOT see this',
       intro_visible = false,
