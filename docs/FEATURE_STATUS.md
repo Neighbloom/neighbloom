@@ -68,4 +68,11 @@
 
 ## Missing entirely
 
-Real auth, database, RLS, server-side permissions, moderation queue, push notifications, automated tests, production error monitoring.
+Real auth, database, RLS, server-side permissions, moderation queue, push notifications, production error monitoring.
+
+## Test coverage (as of 2026-10-11)
+
+- **20 Vitest unit tests** in `src/utils.test.js` — all passing. Covers: input sanitization (`normalizeText`), link detection (`containsLink`), phone masking (`maskPhones`), NP badge thresholds (`badgeFor`), rec title generation (`buildRecTitle`), relative timestamps (`timeAgo`).
+- **10 SQL negative authorization tests** in `supabase/tests/rls_negative_tests.sql` — for manual execution against Supabase after migrations.
+- **Manual regression checklist** in `docs/TESTING.md` — to be executed before Supabase cutover.
+- **Not yet covered:** UI component tests, E2E browser tests (Playwright planned for Milestone 2).
