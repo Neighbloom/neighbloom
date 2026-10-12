@@ -75,10 +75,11 @@ async function main() {
     if (data.np === 999999) throw new Error('NP was actually changed!');
   });
 
-  // TEST 2: Alice cannot call award_np via RPC
-  await test('T2: award_np RPC blocked', async () => {
+  // TEST 2: award_np does not exist (no RPC to exploit)
+  await test('T2: award_np function does not exist', async () => {
     const { error } = await alice.rpc('award_np', { target_user_id: aliceId, amount: 1000 });
-    if (error) throw error;
+    if (error && error.message.includes('does not exist')) throw error; // expected
+    if (!error) throw new Error('award_np should not exist!');
   });
 
   // TEST 3: Alice cannot update Bob's profile
@@ -145,6 +146,25 @@ async function main() {
     const { error } = await alice.from('posts').insert({
       owner_id: aliceId, kind: 'help', title: 'Alice needs help'
     });
+    if (error) throw error;
+  }, false);
+
+  // TEST 11: Alice cannot modify post stage directly (system field)
+  const { data: alicePost } = await alice.from('posts').select('id').eq('owner_id', aliceId).limit(1).single();
+  await test('T11: Direct stage modification blocked', async () => {
+    const { error } = await alice.from('posts').update({ stage: 'done' }).eq('id', alicePost.id);
+    if (error) throw error;
+  });
+
+  // TEST 12: Alice cannot modify helpers directly (system field)
+  await test('T12: Direct helpers modification blocked', async () => {
+    const { error } = await alice.from('posts').update({ helpers: [{ id: 'fake' }] }).eq('id', alicePost.id);
+    if (error) throw error;
+  });
+
+  // TEST 13: Alice CAN update legitimate post fields
+  await test('T13: Legitimate post field update allowed', async () => {
+    const { error } = await alice.from('posts').update({ title: 'Updated by Alice' }).eq('id', alicePost.id);
     if (error) throw error;
   }, false);
 

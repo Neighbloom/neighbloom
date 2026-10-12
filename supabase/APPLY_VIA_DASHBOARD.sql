@@ -1,21 +1,39 @@
+-- ============================================================
+-- Neighbloom Milestone 1 — Combined Migration Script
+-- Branch: felix/m1-auth-posts
+-- Generated: 2026-10-12T03:19:40Z
+--
+-- IMPORTANT:
+-- - This script creates a trigger on auth.users (handle_new_user)
+--   that automatically inserts into public.profiles on signup.
+-- - All statements are idempotent (IF NOT EXISTS / OR REPLACE).
+-- - Executes atomically within a single transaction.
+-- - Safe for a newly created, empty Supabase development project.
+-- ============================================================
+
+BEGIN;
+
 -- Milestone 1: Core tables for Neighbloom (profiles, posts, replies)
 -- All tables have Row Level Security enabled with restrictive policies.
+--
+-- NOTE: This migration creates a trigger on auth.users (handle_new_user)
+-- that automatically inserts into public.profiles on signup.
 
 -- Profiles: one row per authenticated user, created on signup via trigger.
-CREATE TABLE IF NOT EXISTS profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   display_name TEXT NOT NULL,
   handle TEXT UNIQUE,
   town TEXT,
   avatar_url TEXT,
   np INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT pg_catalog.now()
 );
 
 -- Posts: help requests and recommendations.
-CREATE TABLE IF NOT EXISTS posts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  owner_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS public.posts (
+  id UUID PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid(),
+  owner_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   kind TEXT NOT NULL CHECK (kind IN ('help', 'rec')),
   title TEXT NOT NULL,
   details TEXT,
@@ -26,35 +44,35 @@ CREATE TABLE IF NOT EXISTS posts (
   helpers JSONB NOT NULL DEFAULT '[]',
   stage TEXT NOT NULL DEFAULT 'open',
   status TEXT NOT NULL DEFAULT 'open',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT pg_catalog.now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT pg_catalog.now()
 );
 
-CREATE INDEX IF NOT EXISTS posts_owner_idx ON posts(owner_id);
-CREATE INDEX IF NOT EXISTS posts_kind_idx ON posts(kind);
-CREATE INDEX IF NOT EXISTS posts_created_idx ON posts(created_at DESC);
-CREATE INDEX IF NOT EXISTS posts_area_idx ON posts(area);
+CREATE INDEX IF NOT EXISTS posts_owner_idx ON public.posts(owner_id);
+CREATE INDEX IF NOT EXISTS posts_kind_idx ON public.posts(kind);
+CREATE INDEX IF NOT EXISTS posts_created_idx ON public.posts(created_at DESC);
+CREATE INDEX IF NOT EXISTS posts_area_idx ON public.posts(area);
 
 -- Replies: volunteer offers and recommendation responses.
-CREATE TABLE IF NOT EXISTS replies (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  post_id UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-  author_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS public.replies (
+  id UUID PRIMARY KEY DEFAULT pg_catalog.gen_random_uuid(),
+  post_id UUID NOT NULL REFERENCES public.posts(id) ON DELETE CASCADE,
+  author_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   body TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'suggestion' CHECK (kind IN ('volunteer', 'suggestion')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT pg_catalog.now()
 );
 
-CREATE INDEX IF NOT EXISTS replies_post_idx ON replies(post_id);
-CREATE INDEX IF NOT EXISTS replies_author_idx ON replies(author_id);
+CREATE INDEX IF NOT EXISTS replies_post_idx ON public.replies(post_id);
+CREATE INDEX IF NOT EXISTS replies_author_idx ON public.replies(author_id);
 
 -- Auto-create profile on signup.
--- SECURITY: SET search_path prevents search_path hijacking attacks
--- where a malicious user creates a同名 function in a schema earlier in the path.
-CREATE OR REPLACE FUNCTION handle_new_user()
+-- SECURITY DEFINER with empty search_path (Supabase recommended hardening).
+-- This trigger fires on auth.users INSERT and writes to public.profiles.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO profiles (id, display_name, handle)
+  INSERT INTO public.profiles (id, display_name, handle)
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'display_name', 'Neighbor'),
@@ -62,154 +80,165 @@ BEGIN
   );
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- Updated-at trigger for posts.
-CREATE OR REPLACE FUNCTION set_updated_at()
+CREATE OR REPLACE FUNCTION public.set_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.updated_at = NOW();
+  NEW.updated_at = pg_catalog.now();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = '';
 
-DROP TRIGGER IF EXISTS posts_updated_at ON posts;
+DROP TRIGGER IF EXISTS posts_updated_at ON public.posts;
 CREATE TRIGGER posts_updated_at
-  BEFORE UPDATE ON posts
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+  BEFORE UPDATE ON public.posts
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
 -- Milestone 1: Row Level Security policies.
 -- Principle: public read, owner-only write. No service-role bypass needed for app flows.
 
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE replies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.replies ENABLE ROW LEVEL SECURITY;
 
 -- PROFILES ---------------------------------------------------------------
 -- Anyone can read profiles (needed for feed display names, avatars).
-DROP POLICY IF EXISTS "profiles_select_all" ON profiles;
+DROP POLICY IF EXISTS "profiles_select_all" ON public.profiles;
 CREATE POLICY "profiles_select_all"
-  ON profiles FOR SELECT
+  ON public.profiles FOR SELECT
   USING (true);
 
 -- Users can only update their own profile.
-DROP POLICY IF EXISTS "profiles_update_own" ON profiles;
+-- Note: the np column is further protected by the prevent_np_tampering trigger.
+DROP POLICY IF EXISTS "profiles_update_own" ON public.profiles;
 CREATE POLICY "profiles_update_own"
-  ON profiles FOR UPDATE
+  ON public.profiles FOR UPDATE
   USING (auth.uid() = id)
   WITH CHECK (auth.uid() = id);
 
 -- Profiles are created by the signup trigger, not by clients.
 -- No INSERT policy for authenticated users (trigger uses SECURITY DEFINER).
+-- No DELETE policy: users cannot delete their profile.
 
 -- POSTS ------------------------------------------------------------------
 -- Anyone (including anonymous) can read posts — public neighborhood feed.
-DROP POLICY IF EXISTS "posts_select_all" ON posts;
+DROP POLICY IF EXISTS "posts_select_all" ON public.posts;
 CREATE POLICY "posts_select_all"
-  ON posts FOR SELECT
+  ON public.posts FOR SELECT
   USING (true);
 
 -- Authenticated users can create posts. owner_id must match their own id.
-DROP POLICY IF EXISTS "posts_insert_own" ON posts;
+-- System fields (stage, status, helpers) default on insert; the
+-- prevent_post_system_field_tampering trigger blocks direct modification.
+DROP POLICY IF EXISTS "posts_insert_own" ON public.posts;
 CREATE POLICY "posts_insert_own"
-  ON posts FOR INSERT
+  ON public.posts FOR INSERT
   WITH CHECK (auth.uid() = owner_id);
 
--- Only the owner can update their posts.
-DROP POLICY IF EXISTS "posts_update_own" ON posts;
+-- Only the owner can update their posts (editable fields only;
+-- system fields protected by trigger).
+DROP POLICY IF EXISTS "posts_update_own" ON public.posts;
 CREATE POLICY "posts_update_own"
-  ON posts FOR UPDATE
+  ON public.posts FOR UPDATE
   USING (auth.uid() = owner_id)
   WITH CHECK (auth.uid() = owner_id);
 
 -- Only the owner can delete their posts.
-DROP POLICY IF EXISTS "posts_delete_own" ON posts;
+DROP POLICY IF EXISTS "posts_delete_own" ON public.posts;
 CREATE POLICY "posts_delete_own"
-  ON posts FOR DELETE
+  ON public.posts FOR DELETE
   USING (auth.uid() = owner_id);
 
 -- REPLIES ----------------------------------------------------------------
 -- Anyone can read replies.
-DROP POLICY IF EXISTS "replies_select_all" ON replies;
+DROP POLICY IF EXISTS "replies_select_all" ON public.replies;
 CREATE POLICY "replies_select_all"
-  ON replies FOR SELECT
+  ON public.replies FOR SELECT
   USING (true);
 
 -- Authenticated users can reply. author_id must match their own id.
-DROP POLICY IF EXISTS "replies_insert_own" ON replies;
+DROP POLICY IF EXISTS "replies_insert_own" ON public.replies;
 CREATE POLICY "replies_insert_own"
-  ON replies FOR INSERT
+  ON public.replies FOR INSERT
   WITH CHECK (auth.uid() = author_id);
 
 -- Only the author can update their replies.
-DROP POLICY IF EXISTS "replies_update_own" ON replies;
+DROP POLICY IF EXISTS "replies_update_own" ON public.replies;
 CREATE POLICY "replies_update_own"
-  ON replies FOR UPDATE
+  ON public.replies FOR UPDATE
   USING (auth.uid() = author_id)
   WITH CHECK (auth.uid() = author_id);
 
 -- Only the author can delete their replies.
-DROP POLICY IF EXISTS "replies_delete_own" ON replies;
+DROP POLICY IF EXISTS "replies_delete_own" ON public.replies;
 CREATE POLICY "replies_delete_own"
-  ON replies FOR DELETE
+  ON public.replies FOR DELETE
   USING (auth.uid() = author_id);
--- Milestone 1: Protect the np column from direct user manipulation.
---
--- Problem: RLS restricts which ROWS a user can update, not which COLUMNS.
--- The profiles_update_own policy lets users update their own row, which
--- means a user could run UPDATE profiles SET np = 999999 WHERE id = auth.uid().
---
--- Fix: A trigger blocks any direct change to np. Only the award_np()
--- SECURITY DEFINER function (called server-side) can change balances.
--- There is no DELETE policy on profiles, so users cannot delete/recreate
--- to reset np either.
 
--- 1. Trigger: block direct np modification -------------------------------
-CREATE OR REPLACE FUNCTION prevent_np_tampering()
+-- Milestone 1: Protect system-controlled fields from direct user manipulation.
+--
+-- RLS restricts which ROWS a user can update, not which COLUMNS.
+-- These triggers block direct modification of fields that must only change
+-- through trusted server-side workflows (Milestone 2+).
+--
+-- Protected fields:
+--   profiles.np             — Neighbor Points balance
+--   posts.stage             — help lifecycle stage (open → booked → started → done → confirmed)
+--   posts.status            — post status
+--   posts.helpers           — selected helper assignments (JSONB)
+--
+-- Legitimate user-editable fields (NOT blocked):
+--   profiles: display_name, handle, town, avatar_url
+--   posts: title, details, area, category, pref_tags, helpers_needed
+--   replies: body, kind
+--
+-- No award_np() function is created in Milestone 1. NP awards are not
+-- implemented; the np column is immutable via API until Milestone 2
+-- introduces the authorized award mechanism.
+
+-- 1. Block direct np modification ----------------------------------------
+CREATE OR REPLACE FUNCTION public.prevent_np_tampering()
 RETURNS TRIGGER AS $$
 BEGIN
   IF OLD.np IS DISTINCT FROM NEW.np THEN
-    -- Only allow when the trusted award function has set the session flag.
-    IF current_setting('app.allow_np_change', true) IS DISTINCT FROM 'true' THEN
-      RAISE EXCEPTION 'Direct NP modification is not allowed';
-    END IF;
+    RAISE EXCEPTION 'Direct NP modification is not allowed';
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = '';
 
-DROP TRIGGER IF EXISTS protect_np_column ON profiles;
+DROP TRIGGER IF EXISTS protect_np_column ON public.profiles;
 CREATE TRIGGER protect_np_column
-  BEFORE UPDATE OF np ON profiles
-  FOR EACH ROW EXECUTE FUNCTION prevent_np_tampering();
+  BEFORE UPDATE OF np ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.prevent_np_tampering();
 
--- 2. Trusted award function (Milestone 2 will call this server-side) ------
--- SECURITY DEFINER: runs as the function owner, bypasses RLS.
--- Sets a transaction-local flag so the trigger allows this one change.
-CREATE OR REPLACE FUNCTION award_np(target_user_id UUID, amount INTEGER)
-RETURNS VOID AS $$
+-- 2. Block direct modification of post system fields ----------------------
+CREATE OR REPLACE FUNCTION public.prevent_post_system_field_tampering()
+RETURNS TRIGGER AS $$
 BEGIN
-  IF amount IS NULL OR amount = 0 THEN
-    RETURN;
+  IF OLD.stage IS DISTINCT FROM NEW.stage THEN
+    RAISE EXCEPTION 'Direct stage modification is not allowed';
   END IF;
-  PERFORM set_config('app.allow_np_change', 'true', true);
-  UPDATE profiles SET np = np + amount WHERE id = target_user_id;
+  IF OLD.status IS DISTINCT FROM NEW.status THEN
+    RAISE EXCEPTION 'Direct status modification is not allowed';
+  END IF;
+  IF OLD.helpers IS DISTINCT FROM NEW.helpers THEN
+    RAISE EXCEPTION 'Direct helpers modification is not allowed';
+  END IF;
+  RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = '';
 
--- Only authenticated users can call award_np directly (Milestone 2 will
--- restrict this further via a dedicated service role or tighter logic).
--- For Milestone 1, the function exists but the app does not call it;
--- NP awards remain client-side demo until Milestone 2 migrates them.
---
--- SECURITY: Revoked from everyone. No ordinary user can invoke this via RPC.
--- Milestone 2 will introduce a properly authorized, transaction-safe,
--- exactly-once award mechanism with its own GRANT.
-REVOKE ALL ON FUNCTION award_np(UUID, INTEGER) FROM PUBLIC;
-REVOKE ALL ON FUNCTION award_np(UUID, INTEGER) FROM anon;
-REVOKE ALL ON FUNCTION award_np(UUID, INTEGER) FROM authenticated;
--- No GRANT. Only service_role and postgres superuser can execute.
+DROP TRIGGER IF EXISTS protect_post_system_fields ON public.posts;
+CREATE TRIGGER protect_post_system_fields
+  BEFORE UPDATE OF stage, status, helpers ON public.posts
+  FOR EACH ROW EXECUTE FUNCTION public.prevent_post_system_field_tampering();
+
+COMMIT;

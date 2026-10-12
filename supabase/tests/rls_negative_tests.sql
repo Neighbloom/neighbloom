@@ -46,12 +46,19 @@
 -- INSERT INTO posts (owner_id, kind, title)
 -- VALUES ('<TEST_USER_B_UUID>', 'help', 'Impersonation attempt');
 
--- TEST 10: award_np is revoked from all user roles ---------------------------
--- Expected: ERROR "permission denied for function award_np"
--- (Run as authenticated user via Supabase RPC / SQL)
+-- TEST 10: award_np function does not exist --------------------------------
+-- Expected: ERROR "function award_np does not exist"
+-- (Milestone 1 does not implement NP awards; no executable reward function)
 -- SELECT award_np(auth.uid(), 20);
 
--- TEST 11: award_np cannot be called by anon --------------------------------
--- Expected: ERROR "permission denied for function award_np"
--- (Run without authentication)
--- SELECT award_np(gen_random_uuid(), 20);
+-- TEST 11: User cannot modify post stage directly ---------------------------
+-- Expected: ERROR "Direct stage modification is not allowed"
+-- UPDATE posts SET stage = 'done' WHERE id = '<OWN_POST_UUID>';
+
+-- TEST 12: User cannot modify post helpers directly --------------------------
+-- Expected: ERROR "Direct helpers modification is not allowed"
+-- UPDATE posts SET helpers = '[{"id": "fake"}]' WHERE id = '<OWN_POST_UUID>';
+
+-- TEST 13: User CAN update legitimate post fields ------------------------------
+-- Expected: SUCCEEDS (title, details, area are user-editable)
+-- UPDATE posts SET title = 'Updated title' WHERE id = '<OWN_POST_UUID>';
