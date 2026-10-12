@@ -18,6 +18,8 @@ import {
   confirmHelpAndAward as m2ConfirmHelpAndAward,
   dailyCheckIn as m2DailyCheckIn,
   fetchNPBalance as m2FetchNPBalance,
+  fetchInAppNotifications as m2FetchNotifications,
+  markNotificationRead as m2MarkNotificationRead,
 } from './m2.js';
 
 /* ---------- NB: show fatal errors on-screen (prod-friendly) ---------- */
@@ -1664,6 +1666,109 @@ function App() {
     });
   });
 
+  // Phase 3 (M3/M4): server notifications -> Activity feed.
+  // The Activity tab historically rendered only the local V1 event log,
+  // so cross-user notifications (volunteers, messages, confirmations,
+  // gratitude) created by the M3 triggers were invisible. This loader
+  // merges them into the same activity state, deduped by id (safe
+  // across the localStorage persistence of `activity`). On re-fetch,
+  // server truth wins for read state and link resolution.
+  //
+  // Read semantics are explicit: opening the tab does NOT blanket-mark
+  // everything read. A group is marked read when the user opens it, or
+  // via "Mark all read". Fetch failures surface as a sync state so the
+  // UI can be honest instead of silently stale.
+  const [notifSync, setNotifSync] = useState('idle'); // idle | loading | ok | error
+
+  const refreshRemoteNotifications = React.useCallback(async () => {
+    if (!isAuthenticated || !authConfigured || !m2Ready || !me?.id) return;
+    setNotifSync((st) => (st === 'ok' || st === 'error' ? st : 'loading'));
+    try {
+      const [rows, convs] = await Promise.all([
+        m2FetchNotifications(30),
+        m2FetchConversations().catch(() => []),
+      ]);
+      // conversation id -> { postId, otherId }, so message notifications
+      // can deep-link straight into their chat.
+      const convById = {};
+      for (const c of Array.isArray(convs) ? convs : []) {
+        if (!c?.id) continue;
+        convById[c.id] = {
+          postId: c.post_id || c.post?.id || null,
+          otherId: c.owner_id === me.id ? c.helper_id : c.owner_id,
+        };
+      }
+      const items = (Array.isArray(rows) ? rows : []).map((n) => {
+        const conv = n.ref_type === 'conversation' ? convById[n.ref_id] : null;
+        return {
+          id: `sb-${n.id}`,
+          type: n.type || 'notice',
+          text: [n.title, n.body].filter(Boolean).join(' — '),
+          ts: n.created_at ? new Date(n.created_at).getTime() : NOW(),
+          audienceIds: [me.id],
+          actorId: null,
+          postId: n.ref_type === 'post' ? n.ref_id : (conv?.postId || null),
+          conversationId: n.ref_type === 'conversation' ? n.ref_id : null,
+          chatOtherId: conv?.otherId || null,
+          remoteId: n.id,
+          readAt: n.read_at || null,
+        };
+      });
+      setActivity((prev) => {
+        const list = Array.isArray(prev) ? prev : [];
+        const next = [...list];
+        let changed = false;
+        for (const it of items) {
+          const idx = next.findIndex((a) => a?.id === it.id);
+          if (idx === -1) {
+            next.push(it);
+            changed = true;
+          } else {
+            const ex = next[idx];
+            if (!!ex.readAt !== !!it.readAt || ex.conversationId !== it.conversationId || ex.chatOtherId !== it.chatOtherId || (!ex.postId && it.postId)) {
+              next[idx] = { ...ex, readAt: it.readAt, conversationId: it.conversationId, chatOtherId: it.chatOtherId, postId: ex.postId || it.postId };
+              changed = true;
+            }
+          }
+        }
+        if (!changed) return prev;
+        return next.sort((a, b) => (b?.ts || 0) - (a?.ts || 0));
+      });
+      setNotifSync('ok');
+    } catch {
+      setNotifSync('error');
+    }
+  }, [isAuthenticated, authConfigured, m2Ready, me?.id]);
+
+  useEffect(() => {
+    if (m2Ready) refreshRemoteNotifications();
+  }, [m2Ready, refreshRemoteNotifications]);
+
+  // Opening the Activity tab refreshes the feed (no auto mark-read).
+  useEffect(() => {
+    if (activeTab === 'activity' && m2Ready) refreshRemoteNotifications();
+  }, [activeTab, m2Ready, refreshRemoteNotifications]);
+
+  // Mark specific server notifications read (local state + server).
+  const markRemoteRead = React.useCallback((remoteIds) => {
+    const ids = (Array.isArray(remoteIds) ? remoteIds : []).filter(Boolean);
+    if (!ids.length) return;
+    const nowIso = new Date().toISOString();
+    setActivity((prev) => {
+      if (!Array.isArray(prev)) return prev;
+      let changed = false;
+      const next = prev.map((a) => {
+        if (a && a.remoteId && ids.includes(a.remoteId) && !a.readAt) {
+          changed = true;
+          return { ...a, readAt: nowIso };
+        }
+        return a;
+      });
+      return changed ? next : prev;
+    });
+    ids.forEach((id) => { m2MarkNotificationRead(id).catch(() => {}); });
+  }, []);
+
   // modal: reply or confirm actions
   const [modal, setModal] = useState(null); // {type, postId, mode}
   // share modal state (opened by sharePost)
@@ -1900,7 +2005,13 @@ const chatsById = chats;
   const activityNewCount = useMemo(() => {
     const ts = lastSeen.activityTs || 0;
     const list = Array.isArray(activity) ? activity : [];
-    return list.filter((a) => a && a.ts > ts && Array.isArray(a.audienceIds) && a.audienceIds.includes(me.id)).length;
+    const mine = list.filter((a) => a && Array.isArray(a.audienceIds) && a.audienceIds.includes(me.id));
+    // Local events count as new since the last visit; server
+    // notifications count while truly unread, so the tab badge always
+    // matches the unread indicators inside the tab.
+    const localNew = mine.filter((a) => !a.remoteId && a.ts > ts).length;
+    const remoteUnread = mine.filter((a) => a.remoteId && !a.readAt).length;
+    return localNew + remoteUnread;
   }, [activity, me.id, lastSeen.activityTs]);
 
   // Profile badge is disabled for now (avoids TDZ crash from followersByUser)
@@ -2316,6 +2427,18 @@ const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
       { id: uid('a'), ts: NOW(), ...evt, audienceIds },
       ...prev,
     ]);
+  }
+
+  function notifGlyph(type) {
+    switch (type) {
+      case 'volunteers': return '🤝';
+      case 'new_message': return '💬';
+      case 'help_confirmed': return '✅';
+      case 'gratitude': return '💛';
+      case 'help_nearby': return '📍';
+      case 'weekly_digest': return '🌿';
+      default: return '🔔';
+    }
   }
 
   function otherIdFromActivity(a, viewerId) {
@@ -8069,7 +8192,7 @@ const [nearText, setNearText] = useState('');
     const groups = useMemo(() => {
       const map = new Map();
       for (const a of visibleActivity) {
-        const key = a?.postId ? String(a.postId) : `x_${a?.actorId}_${a?.type}`;
+        const key = a?.postId ? String(a.postId) : a?.conversationId ? `c_${a.conversationId}` : `x_${a?.actorId}_${a?.type}`;
         const arr = map.get(key) || [];
         arr.push(a);
         map.set(key, arr);
@@ -8088,9 +8211,9 @@ const [nearText, setNearText] = useState('');
         let primary = { type: 'view', postId: groupPostId };
 
         for (const ev of events) {
-          const isChatEvent = ev?.type === 'chat_unlocked' || ev?.type === 'chat_message';
+          const isChatEvent = ev?.type === 'chat_unlocked' || ev?.type === 'chat_message' || !!(ev?.conversationId && ev?.chatOtherId);
           const post = ev?.postId ? posts.find((p) => p.id === ev.postId) : null;
-          const otherId = otherIdFromActivity(ev, me.id);
+          const otherId = ev?.chatOtherId || otherIdFromActivity(ev, me.id);
           if (isChatEvent && post && otherId && canOpenChatForPost(post, otherId)) {
             const viewerChatId = getChatId(post.id, me.id, otherId);
             unread += unreadCount(viewerChatId, me.id);
@@ -8108,6 +8231,8 @@ const [nearText, setNearText] = useState('');
           unread,
           primary,
           count: events.length,
+          remoteUnread: events.filter((ev) => ev?.remoteId && !ev.readAt).length,
+          isRemote: !!last?.remoteId,
         };
       });
 
@@ -8117,6 +8242,8 @@ const [nearText, setNearText] = useState('');
     function openGroupPrimary(g, e) {
       if (e && e.stopPropagation) e.stopPropagation();
       trackEvent('activity_primary_cta', { type: g.primary?.type, postId: g.postId });
+      const unreadIds = (g.events || []).filter((ev) => ev?.remoteId && !ev.readAt).map((ev) => ev.remoteId);
+      if (unreadIds.length) markRemoteRead(unreadIds);
       if (g.primary?.type === 'chat' && g.primary.otherId) {
         console.debug('Activity: open chat', g.primary);
         openChat(g.primary.postId, g.primary.otherId);
@@ -8137,6 +8264,12 @@ const [nearText, setNearText] = useState('');
       sendChatMessage(g.primary.postId, g.primary.otherId, text);
     }
 
+    const remoteUnreadTotal = visibleActivity.filter((a) => a?.remoteId && !a.readAt).length;
+    const markAllRemoteRead = () => {
+      const ids = visibleActivity.filter((a) => a?.remoteId && !a.readAt).map((a) => a.remoteId);
+      if (ids.length) markRemoteRead(ids);
+    };
+
     return (
       <div className="nb-page">
         <div className="nb-section">
@@ -8144,7 +8277,26 @@ const [nearText, setNearText] = useState('');
           <div className="nb-section-sub">Replies, chat unlocks, and resolution updates show up here.</div>
         </div>
 
-        {groups.length === 0 ? (
+        {notifSync === 'error' ? (
+          <div className="nb-notif-sync nb-notif-sync--error" role="status">
+            <span>Couldn't refresh your updates — showing what's already on this device.</span>
+            <button type="button" className="nb-btn nb-btn-sm" onClick={() => refreshRemoteNotifications()}>Retry</button>
+          </div>
+        ) : null}
+
+        {remoteUnreadTotal > 0 ? (
+          <div className="nb-notif-sync">
+            <span>{remoteUnreadTotal} unread update{remoteUnreadTotal > 1 ? 's' : ''}</span>
+            <button type="button" className="nb-btn nb-btn-sm" onClick={markAllRemoteRead}>Mark all read</button>
+          </div>
+        ) : null}
+
+        {groups.length === 0 && notifSync === 'loading' ? (
+          <EmptyState
+            title="Checking for updates"
+            body="Pulling your latest replies, messages, and thank-yous."
+          />
+        ) : groups.length === 0 ? (
           <EmptyState
             title="Your activity starts here"
             body="Create a post to see replies and updates."
@@ -8167,7 +8319,7 @@ const [nearText, setNearText] = useState('');
               return (
                 <div
                   key={g.id}
-                  className="nb-activity-group"
+                  className={`nb-activity-group${g.remoteUnread ? ' has-unread' : ''}`}
                   role="group"
                   tabIndex={0}
                   onClick={() => openGroupPrimary(g)}
@@ -8176,6 +8328,9 @@ const [nearText, setNearText] = useState('');
                   }}
                 >
                   <div className="nb-activity-left">
+                    {g.isRemote ? (
+                      <div className="nb-activity-glyph" aria-hidden="true">{notifGlyph(g.last?.type)}</div>
+                    ) : (
                     <img
                       src={avatar}
                       alt={actor?.name || ''}
@@ -8183,14 +8338,17 @@ const [nearText, setNearText] = useState('');
                       loading="lazy"
                       onLoad={(ev) => ev.currentTarget.classList.remove('is-loading')}
                     />
+                    )}
                   </div>
 
                   <div className="nb-activity-main">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div className="nb-activity-title" style={{ flex: 1 }}>{title}</div>
-                      <div className="nb-activity-token" title={badgeParts(badgeFor(actorPoints)).name}>
-                        {badgeParts(badgeFor(actorPoints)).emoji}
-                      </div>
+                      <div className="nb-activity-title" style={{ flex: 1 }}>{g.remoteUnread ? <span className="nb-unread-dot" aria-label="Unread" /> : null}{title}</div>
+                      {!g.isRemote ? (
+                        <div className="nb-activity-token" title={badgeParts(badgeFor(actorPoints)).name}>
+                          {badgeParts(badgeFor(actorPoints)).emoji}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="nb-activity-sub">{g.preview}</div>
                     <div className="nb-activity-meta">{time} · {g.count} event{g.count>1?'s':''}</div>
