@@ -5,6 +5,20 @@ import pkg from '../package.json';
 import { normalizeText, containsLink, maskPhones, buildRecTitle, badgeFor, timeAgo } from './utils.js';
 import { useAuth } from './auth.jsx';
 import { AuthScreen } from './AuthScreen.jsx';
+// Phase 2: M2 backend — lifecycle, messaging, NP. All gracefully degrade
+// when the M2 migrations haven't been applied yet (m2Ready=false).
+import {
+  transitionPost as m2TransitionPost,
+  selectHelpers as m2SelectHelpers,
+  getOrCreateConversation as m2GetOrCreateConversation,
+  fetchConversations as m2FetchConversations,
+  fetchMessages as m2FetchMessages,
+  sendMessage as m2SendMessage,
+  subscribeToMessages as m2SubscribeToMessages,
+  confirmHelpAndAward as m2ConfirmHelpAndAward,
+  dailyCheckIn as m2DailyCheckIn,
+  fetchNPBalance as m2FetchNPBalance,
+} from './m2.js';
 
 /* ---------- NB: show fatal errors on-screen (prod-friendly) ---------- */
 function nbFormatErr(err) {
@@ -1306,7 +1320,53 @@ function useLocalStorageJsonState(key, fallbackValue) {
 
 function App() {
   // Supabase Auth (Milestone 1) — falls back to demo mode if not configured
-  const { user: authUser, profile: authProfile, loading: authLoading, isConfigured: authConfigured, isAuthenticated } = useAuth();
+  const { user: authUser, profile: authProfile, loading: authLoading, isConfigured: authConfigured, isAuthenticated, signOut } = useAuth();
+
+  // Phase 2: M2 backend availability probe. True only when authenticated AND
+  // the M2 migrations have been applied (np_ledger table exists).
+  // All M2 calls gracefully fall back to local behavior when false.
+  const [m2Ready, setM2Ready] = useState(false);
+  useEffect(() => {
+    if (!isAuthenticated || !authConfigured) { setM2Ready(false); return; }
+    (async () => {
+      try {
+        const { getSupabase } = await import('./supabase.js');
+        const sb = getSupabase();
+        const { error } = await sb.from('np_ledger').select('id').limit(1);
+        setM2Ready(!error);
+      } catch { setM2Ready(false); }
+    })();
+  }, [isAuthenticated, authConfigured]);
+
+  // Phase 2: Shared Supabase post refetch (server = source of truth).
+  const refreshSupabasePosts = React.useCallback(async () => {
+    if (!isAuthenticated || !authConfigured) return;
+    try {
+      const { fetchPosts } = await import('./posts.js');
+      const data = await fetchPosts();
+      const converted = data.map(p => ({
+        id: p.id, kind: p.kind, title: p.title, details: p.details,
+        area: p.area, category: p.category, prefTags: p.pref_tags,
+        helpersNeeded: p.helpers_needed, helpers: p.helpers,
+        selectedUserIds: Array.isArray(p.helpers) ? p.helpers.map(h => h.id || h) : [],
+        stage: p.stage, status: p.status,
+        createdAt: new Date(p.created_at).getTime(),
+        ownerId: p.owner_id, ownerName: p.owner?.display_name,
+        ownerAvatar: p.owner?.avatar_url, _supabase: true,
+      }));
+      setSupabasePosts(converted);
+    } catch (e) {
+      console.error('[Supabase] refreshSupabasePosts failed:', e.message);
+    }
+  }, [isAuthenticated, authConfigured]);
+
+  // Phase 2: Real NP balance refresh.
+  const [realNp, setRealNp] = useState(null);
+  const refreshRealNp = React.useCallback(async () => {
+    if (!isAuthenticated || !authConfigured || !m2Ready) return;
+    try { setRealNp(await m2FetchNPBalance()); } catch {}
+  }, [isAuthenticated, authConfigured, m2Ready]);
+  useEffect(() => { if (m2Ready) refreshRealNp(); }, [m2Ready, refreshRealNp]);
 
   // -------------------- LOAD SAVED STATE (V1) --------------------
   const saved = useMemo(() => loadAppState(), []);
@@ -1325,18 +1385,49 @@ function App() {
     setHomeRefreshing(true);
 
     try {
-      // Simulate a network refresh (swap this later for real fetch)
-      await sleep(650);
+      // Phase 1: Real refetch from Supabase when authenticated.
+      // Falls back to simulated delay in demo mode.
+      if (isAuthenticated && authConfigured) {
+        const { fetchPosts } = await import('./posts.js');
+        const data = await fetchPosts();
+        const converted = data.map(p => ({
+          id: p.id, kind: p.kind, title: p.title, details: p.details,
+          area: p.area, category: p.category, prefTags: p.pref_tags,
+          helpersNeeded: p.helpers_needed, helpers: p.helpers,
+          selectedUserIds: Array.isArray(p.helpers) ? p.helpers.map(h => h.id || h) : [],
+          stage: p.stage, status: p.status,
+          createdAt: new Date(p.created_at).getTime(),
+          ownerId: p.owner_id, ownerName: p.owner?.display_name,
+          ownerAvatar: p.owner?.avatar_url, _supabase: true,
+        }));
+        setSupabasePosts(converted);
+      } else {
+        await sleep(650);
+      }
+    } catch (e) {
+      console.error('[Supabase] Refresh failed:', e.message);
     } finally {
       homeRefreshingRef.current = false;
       setHomeRefreshing(false);
     }
-  }, []);
+  }, [isAuthenticated, authConfigured]);
   const [meId, setMeId] = useState('me'); // tiny demo switcher (optional)
-  const me = useMemo(
-    () => USERS_SEED.find((u) => u.id === meId) || USERS_SEED[0],
-    [meId]
-  );
+  // Phase 1: Real identity — authenticated users see their Supabase profile,
+  // not the seed demo user. Demo mode (unauthenticated) keeps seed behavior.
+  const me = useMemo(() => {
+    if (isAuthenticated && authProfile) {
+      return {
+        id: authProfile.id,
+        name: authProfile.display_name || 'Neighbor',
+        handle: authProfile.handle || '',
+        avatar: authProfile.avatar_url || AVATAR,
+        location: authProfile.town || 'Your neighborhood',
+        tagline: '',
+        _real: true, // marks this as a real authenticated identity
+      };
+    }
+    return USERS_SEED.find((u) => u.id === meId) || USERS_SEED[0];
+  }, [meId, isAuthenticated, authProfile]);
 
   const [posts, setPosts] = useState(() =>
     normalizePostsForRecSocial(saved?.posts ?? seedPosts())
@@ -1824,7 +1915,11 @@ const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
     };
   }, [homeNewCount, activityNewCount, profileNewCount]);
 
-  const npPoints = npPointsByUser[me.id] || 0;
+  // Phase 1: Real NP — authenticated users see their actual Supabase NP balance.
+  // Demo mode keeps the local simulation.
+  const npPoints = (isAuthenticated && authProfile)
+    ? (realNp ?? authProfile.np ?? 0)
+    : (npPointsByUser[me.id] || 0);
   const myBadge = badgeFor(npPoints);
 
   const usersById = useMemo(() => {
@@ -2369,7 +2464,7 @@ function setCheckInFor(uid, next) {
   }
 }
 
-  function dailyCheckIn() {
+  async function dailyCheckIn() {
     const uid = me?.id || 'me';
 const ci = getCheckInFor(uid);
 const today = todayKey();
@@ -2382,6 +2477,17 @@ const nextStreak =
     : 1;
 
 setCheckInFor(uid, { lastDate: today, streak: nextStreak });
+
+    // Phase 2: Real NP award via M2 backend (idempotent per day).
+    if (m2Ready && isAuthenticated) {
+      try {
+        await m2DailyCheckIn();
+        await refreshRealNp();
+      } catch (e) {
+        // Idempotency: already checked in today is fine, local state already updated.
+        console.log('[M2] Check-in award:', e.message);
+      }
+    }
 
     setNpPointsByUser((prev) => {
       const base = prev && typeof prev === 'object' ? prev : {};
@@ -2743,8 +2849,8 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     return false;
   }
 
-  function openChat(postId, otherUserId) {
-  const post = posts.find((p) => p.id === postId);
+  async function openChat(postId, otherUserId) {
+  const post = displayPosts.find((p) => p.id === postId) || posts.find((p) => p.id === postId);
   if (!post || !otherUserId) return;
 
   // never open a chat with yourself
@@ -2764,7 +2870,25 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   // Final gate for BOTH help + rec (prevents opening locked drawers)
   if (!canOpenChatForPost(post, otherUserId)) return;
 
-  setChat({ postId, otherUserId });
+  // Phase 2: Try to get/create a real conversation via M2 backend.
+  let conversationId = null;
+  if (m2Ready && post._supabase && post.kind === 'help') {
+    try {
+      if (me.id === post.ownerId) {
+        // Owner creates (idempotent) or gets the conversation.
+        const conv = await m2GetOrCreateConversation(post.id, otherUserId);
+        conversationId = conv?.id || null;
+      } else {
+        // Helper looks up their conversation for this post.
+        const convs = await m2FetchConversations();
+        conversationId = convs.find(c => c.post_id === post.id)?.id || null;
+      }
+    } catch (e) {
+      console.log('[M2] Conversation lookup failed, using local chat:', e.message);
+    }
+  }
+
+  setChat({ postId, otherUserId, conversationId });
 }
 
   function sendChatMessage(postId, otherUserId, text) {
@@ -2868,7 +2992,7 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     return Math.max(0, 12 - (cur.count || 0));
   }
 
-  function submitReply(postId, mode, text) {
+  async function submitReply(postId, mode, text) {
     const clean = normalizeText(text);
 
     if (!clean) return { ok: false, error: 'Reply can’t be empty.' };
@@ -2885,7 +3009,8 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
           'Links aren’t supported yet — share the name + why you recommend them.',
       };
 
-    const post = posts.find((p) => p.id === postId);
+    // Phase 2: Look up post from displayPosts (Supabase) or local posts.
+    const post = displayPosts.find((p) => p.id === postId) || posts.find((p) => p.id === postId);
     if (!post) return { ok: false, error: 'Post not found.' };
 
     // enforce rate limits for rec
@@ -2918,6 +3043,18 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
       topPick: false,
       hidden: false,
     };
+
+    // Phase 2: Persist volunteer replies to Supabase so select_helpers RPC
+    // can verify volunteering. Other reply types stay local for now.
+    if (isAuthenticated && authConfigured && post._supabase && reply.type === 'volunteer') {
+      try {
+        const { createReply } = await import('./posts.js');
+        await createReply({ postId: post.id, body: reply.text, kind: 'volunteer' });
+      } catch (e) {
+        console.error('[Supabase] Failed to persist volunteer reply:', e.message);
+        return { ok: false, error: 'Could not save your reply. Please try again.' };
+      }
+    }
 
     setPosts((prev) =>
       prev.map((p) =>
@@ -3277,8 +3414,23 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   awardHelpers(postId, selectedIds);
 }
 
-  function awardHelpers(postId, selectedIds) {
+  async function awardHelpers(postId, selectedIds) {
     console.log('awardHelpers called', { postId, selectedIds });
+    // Phase 2: Real NP awards via M2 backend (idempotent, server-authorized).
+    if (m2Ready) {
+      try {
+        await m2ConfirmHelpAndAward(postId, selectedIds);
+        await refreshSupabasePosts();
+        await refreshRealNp();
+        showToast(`+${selectedIds.length * 20} NP awarded. Great job!`);
+        setTimeout(() => setModal({ type: 'thank_you', postId, helperIds: selectedIds }), 1500);
+        return;
+      } catch (e) {
+        showToast(e.message || 'Award failed. Please try again.');
+        return;
+      }
+    }
+    // Local fallback (demo mode)
     setNpPointsByUser((prev) => {
       const next = { ...prev };
       for (const helperId of selectedIds) {
@@ -4546,7 +4698,24 @@ function pushActivity(arg, meta = {}) {
     return getBlockedSet(me.id).has(otherUserId);
   }
 
-  function toggleBlockUser(otherUserId) {
+  async function toggleBlockUser(otherUserId) {
+    const currentlyBlocked = isBlockedUser(otherUserId);
+
+    // Phase 3: Real server-side blocking when M2 backend is available.
+    if (m2Ready && isAuthenticated) {
+      try {
+        const { blockUser, unblockUser } = await import('./m2.js');
+        if (currentlyBlocked) {
+          await unblockUser(otherUserId);
+        } else {
+          await blockUser(otherUserId);
+        }
+      } catch (e) {
+        notify(e.message || 'Could not update block.', { type: 'error' });
+        return;
+      }
+    }
+
     setBlockedByUser((prev) => {
       const base = prev && typeof prev === 'object' ? prev : {};
       const cur = new Set(Array.isArray(base[me.id]) ? base[me.id] : []);
@@ -4559,18 +4728,36 @@ function pushActivity(arg, meta = {}) {
     setChat((c) => (c?.otherUserId === otherUserId ? null : c));
 
     notify(
-      isBlockedUser(otherUserId) ? 'User unblocked.' : 'User blocked.',
+      currentlyBlocked ? 'User unblocked.' : 'User blocked.',
       { type: 'user_block', otherUserId }
     );
   }
 
-  function reportUser(otherUserId) {
-    const reason = window.prompt('Report reason (short):');
+  async function reportUser(otherUserId) {
+    const reason = window.prompt('Report reason (spam, harassment, inappropriate, scam, safety, other):');
     if (!reason) return;
 
-    const clean = normalizeText(reason);
-    if (!clean) return;
+    const clean = normalizeText(reason).toLowerCase().trim();
+    const validReasons = ['spam', 'harassment', 'inappropriate', 'scam', 'safety', 'other'];
+    const mappedReason = validReasons.includes(clean) ? clean : 'other';
 
+    // Phase 3: Real server-side reporting when M2 backend is available.
+    if (m2Ready && isAuthenticated) {
+      try {
+        const { fileReport } = await import('./m2.js');
+        await fileReport({ profileId: otherUserId, reason: mappedReason });
+        notify('Report submitted. Our team will review it.', {
+          type: 'user_report',
+          otherUserId,
+        });
+        return;
+      } catch (e) {
+        notify(e.message || 'Could not submit report.', { type: 'error' });
+        return;
+      }
+    }
+
+    // Local fallback (demo mode)
     setReports((prev) => [
       {
         id: uid('rep'),
@@ -4633,6 +4820,29 @@ function pushActivity(arg, meta = {}) {
     });
   }
 
+  // Phase 2: Server-authorized lifecycle transition via M2 backend.
+  // Falls back to local stage update when M2 isn't available.
+  async function doTransition(postId, toStage) {
+    if (m2Ready) {
+      try {
+        await m2TransitionPost(postId, toStage);
+        await refreshSupabasePosts();
+        showToast(`Post → ${toStage}`);
+        return;
+      } catch (e) {
+        showToast(e.message || 'Transition failed');
+        return;
+      }
+    }
+    // Local fallback
+    setPosts((prev) =>
+      (Array.isArray(prev) ? prev : []).map((p) =>
+        p && p.id === postId ? { ...p, stage: toStage, status: toStage } : p
+      )
+    );
+    notify(`Post moved to: ${toStage}`, { type: 'post_status', postId });
+  }
+
   function nextLifecycle(cur) {
     if (cur === 'open') return 'in_progress';
     if (cur === 'in_progress') return 'completed';
@@ -4641,7 +4851,35 @@ function pushActivity(arg, meta = {}) {
   }
 
   // ---------------- EDIT / DELETE ----------------
-  function updatePost(postId, patch) {
+  // Phase 1: Real Supabase wiring — authenticated users' edits/deletes
+  // persist to the database. Demo mode keeps local behavior.
+  async function updatePost(postId, patch) {
+    if (isAuthenticated && authConfigured) {
+      try {
+        const { updatePost: sbUpdatePost } = await import('./posts.js');
+        await sbUpdatePost(postId, patch);
+        // Refetch to get the authoritative state
+        const { fetchPosts } = await import('./posts.js');
+        const data = await fetchPosts();
+        const converted = data.map(p => ({
+          id: p.id, kind: p.kind, title: p.title, details: p.details,
+          area: p.area, category: p.category, prefTags: p.pref_tags,
+          helpersNeeded: p.helpers_needed, helpers: p.helpers,
+          selectedUserIds: Array.isArray(p.helpers) ? p.helpers.map(h => h.id || h) : [],
+          stage: p.stage, status: p.status,
+          createdAt: new Date(p.created_at).getTime(),
+          ownerId: p.owner_id, ownerName: p.owner?.display_name,
+          ownerAvatar: p.owner?.avatar_url, _supabase: true,
+        }));
+        setSupabasePosts(converted);
+        notify('Post updated.', { type: 'post_edit', postId });
+      } catch (e) {
+        console.error('[Supabase] Failed to update post:', e.message);
+        notify('Could not update post. Please try again.', { type: 'error' });
+      }
+      return;
+    }
+    // Demo mode: local only
     setPosts((prev) =>
       (Array.isArray(prev) ? prev : []).map((p) =>
         p && p.id === postId ? { ...p, ...patch } : p
@@ -4650,12 +4888,31 @@ function pushActivity(arg, meta = {}) {
     notify('Post updated.', { type: 'post_edit', postId });
   }
 
-  function deletePost(postId) {
+  async function deletePost(postId) {
     const ok = window.confirm(
-      'Delete this post? This cannot be undone (local demo).'
+      'Delete this post? This cannot be undone.'
     );
     if (!ok) return;
 
+    if (isAuthenticated && authConfigured) {
+      try {
+        const { deletePost: sbDeletePost } = await import('./posts.js');
+        await sbDeletePost(postId);
+        setSupabasePosts((prev) => prev.filter((p) => p.id !== postId));
+        notify('Post deleted.', { type: 'post_delete', postId });
+      } catch (e) {
+        console.error('[Supabase] Failed to delete post:', e.message);
+        notify('Could not delete post. Please try again.', { type: 'error' });
+      }
+      // Clean UI state
+      setExpandedThreads((prev) => {
+        const next = { ...(prev || {}) };
+        delete next[postId];
+        return next;
+      });
+      return;
+    }
+    // Demo mode: local only
     setPosts((prev) => (Array.isArray(prev) ? prev : []).filter((p) => p?.id !== postId));
 
     // Clean UI state so you don’t get “ghost thread/chat”
@@ -4848,6 +5105,38 @@ function pushActivity(arg, meta = {}) {
                 })()}
               />
             </div>
+
+            {/* Phase 2: Lifecycle action buttons (M2 backend or local fallback) */}
+            {isOwner && post.kind === 'help' && post._supabase ? (
+              <div className="nb-helpflow" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                {post.stage === 'open' && selectedHelperIds.length > 0 && (
+                  <button className="nb-btn nb-btn-primary nb-btn-sm"
+                    onClick={() => doTransition(post.id, 'booked')}>
+                    Book helpers
+                  </button>
+                )}
+                {post.stage === 'booked' && (
+                  <button className="nb-btn nb-btn-primary nb-btn-sm"
+                    onClick={() => doTransition(post.id, 'started')}>
+                    Start
+                  </button>
+                )}
+                {post.stage === 'started' && (
+                  <button className="nb-btn nb-btn-primary nb-btn-sm"
+                    onClick={() => doTransition(post.id, 'done')}>
+                    Mark done
+                  </button>
+                )}
+                {post.stage && !['confirmed', 'cancelled'].includes(post.stage) && (
+                  <button className="nb-btn nb-btn-ghost nb-btn-sm"
+                    onClick={() => {
+                      if (window.confirm('Cancel this post?')) doTransition(post.id, 'cancelled');
+                    }}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            ) : null}
 
             {isOwner && post.kind === 'help' && (selectedHelperIds.length > 0) ? (
               <div className="nb-helpflow">
@@ -6007,18 +6296,52 @@ function OnboardingModal() {
   }
 
   function ChatDrawer() {
+    // Phase 2: Real message state — must be before early returns (hooks rule).
+    const [realMsgs, setRealMsgs] = useState(null); // null = local mode
+    const chatConvId = chat?.conversationId;
+
+    useEffect(() => {
+      if (!chatConvId || !m2Ready) { setRealMsgs(null); return; }
+      let cancelled = false;
+      let unsub = null;
+      (async () => {
+        try {
+          const msgs = await m2FetchMessages(chatConvId);
+          if (cancelled) return;
+          setRealMsgs(msgs.map(m => ({
+            id: m.id, fromId: m.sender_id, text: m.body,
+            ts: new Date(m.created_at).getTime(), _real: true,
+          })));
+          unsub = m2SubscribeToMessages(chatConvId, (row) => {
+            if (cancelled) return;
+            setRealMsgs(prev => [...(prev || []), {
+              id: row.id, fromId: row.sender_id, text: row.body,
+              ts: new Date(row.created_at).getTime(), _real: true,
+            }]);
+          });
+        } catch (e) {
+          console.log('[M2] Failed to load messages:', e.message);
+          if (!cancelled) setRealMsgs(null);
+        }
+      })();
+      return () => { cancelled = true; if (unsub) unsub(); };
+    }, [chatConvId, m2Ready]);
+
     if (!chat) return null;
-    const post = posts.find((p) => p.id === chat.postId);
+    const post = displayPosts.find((p) => p.id === chat.postId) || posts.find((p) => p.id === chat.postId);
     if (!post) return null;
 
     const other = usersById[chat.otherUserId];
     const chatId = getChatId(post.id, me.id, chat.otherUserId);
     const rawMsgs = chats?.[chatId];
-    const msgs = Array.isArray(rawMsgs)
-      ? rawMsgs.filter(
-          (m) => m && typeof m === 'object' && typeof m.text === 'string'
-        )
-      : [];
+    // Phase 2: Prefer real messages when available, fall back to local.
+    const msgs = realMsgs !== null ? realMsgs : (
+      Array.isArray(rawMsgs)
+        ? rawMsgs.filter(
+            (m) => m && typeof m === 'object' && typeof m.text === 'string'
+          )
+        : []
+    );
 
     // guard: only show if gated properly
 if (!canOpenChatForPost(post, chat.otherUserId)) {
@@ -6078,7 +6401,20 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
         </div>
 
         <ChatComposer
-          onSend={(text) => sendChatMessage(post.id, chat.otherUserId, text)}
+          onSend={async (text) => {
+            // Phase 2: Send via M2 backend when in a real conversation.
+            // The realtime subscription will append the echo.
+            if (chat.conversationId && m2Ready) {
+              try {
+                await m2SendMessage(chat.conversationId, text);
+                return;
+              } catch (e) {
+                showToast(e.message || 'Could not send message');
+                return;
+              }
+            }
+            sendChatMessage(post.id, chat.otherUserId, text);
+          }}
         />
       </div>
     );
@@ -6286,6 +6622,65 @@ function setUserAvailability(userId, on, note) {
   m[userId] = { on: !!on, note: String(note || ''), ts: Date.now() };
   setAvailabilityMap(m);
 }
+
+  // SmartHero: Shows WelcomeHero for new users, HomeHero for established.
+  // New = authenticated, no intro written, joined in last 7 days.
+  function SmartHero() {
+    const [showWelcome, setShowWelcome] = useState(false);
+    const [welcomeChecked, setWelcomeChecked] = useState(false);
+
+    useEffect(() => {
+      if (!isAuthenticated || !authProfile) {
+        setWelcomeChecked(true);
+        return;
+      }
+      // Show welcome if: no intro AND joined recently AND not dismissed
+      const hasIntro = !!(authProfile.intro && authProfile.intro.trim());
+      const joinedAt = authProfile.created_at ? new Date(authProfile.created_at) : null;
+      const daysSinceJoin = joinedAt
+        ? (Date.now() - joinedAt.getTime()) / (1000 * 60 * 60 * 24)
+        : 999;
+      const dismissed = (() => {
+        try {
+          return localStorage.getItem(`nb_welcome_dismissed_${authProfile.id}`) === '1';
+        } catch { return false; }
+      })();
+
+      setShowWelcome(!hasIntro && daysSinceJoin < 7 && !dismissed);
+      setWelcomeChecked(true);
+    }, [isAuthenticated, authProfile]);
+
+    if (!welcomeChecked) return null;
+
+    if (showWelcome && isAuthenticated) {
+      return (
+        <WelcomeHeroWrapper
+          town={authProfile?.town}
+          displayName={authProfile?.display_name}
+          hasIntro={!!(authProfile?.intro && authProfile.intro.trim())}
+          onIntroduce={() => setModal({ type: 'intro_composer' })}
+          onDismiss={() => {
+            try {
+              localStorage.setItem(`nb_welcome_dismissed_${authProfile.id}`, '1');
+            } catch {}
+            setShowWelcome(false);
+          }}
+        />
+      );
+    }
+
+    return <HomeHero />;
+  }
+
+  // Lazy wrapper for WelcomeHero (code-split, only loaded for new users).
+  function WelcomeHeroWrapper(props) {
+    const [Comp, setComp] = useState(null);
+    useEffect(() => {
+      import('./Welcome.jsx').then(m => setComp(() => m.WelcomeHero));
+    }, []);
+    if (!Comp) return null;
+    return <Comp {...props} onAnswerQuestion={props.onDismiss} />;
+  }
 
   function HomeHero() {
     const ci = getCheckInFor(me?.id || 'me');
@@ -6772,9 +7167,8 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
     const post = isHelp ? buildHelpPost() : buildRecPost();
 
-    setPosts((prev) => [post, ...(Array.isArray(prev) ? prev : [])]);
-
-    // Milestone 1: Save to Supabase when authenticated (shared persistent posts)
+    // Phase 1: Atomic creation — authenticated users save to Supabase FIRST.
+    // Only add to local state on success (or in demo mode). No phantom posts.
     if (isAuthenticated && authConfigured) {
       try {
         const { createPost } = await import('./posts.js');
@@ -6811,8 +7205,12 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
         setSupabasePosts(converted);
       } catch (e) {
         console.error('[Supabase] Failed to save post:', e.message);
-        setErr('Post saved locally, but failed to sync: ' + e.message);
+        setErr('Could not publish your post. Please check your connection and try again.');
+        return; // Don't navigate away on failure — let them retry
       }
+    } else {
+      // Demo mode: local only
+      setPosts((prev) => [post, ...(Array.isArray(prev) ? prev : [])]);
     }
 
     // Make it feel instant: go home and focus the relevant chip. Do not auto-expand threads.
@@ -7018,6 +7416,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
             View badges & points
           </button>
 
+          {!isAuthenticated && (
           <button
             className="nb-btn nb-btn-ghost"
             onClick={() => {
@@ -7034,6 +7433,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
           >
             Reset demo data
           </button>
+          )}
         </div>
 
         <div style={{ marginTop: 16 }}>
@@ -8341,7 +8741,23 @@ const [nearText, setNearText] = useState('');
 
               <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button className="nb-btn nb-btn-ghost" onClick={() => setModal({ type: 'badges' })}>View badges & points</button>
-                <button className="nb-btn nb-btn-ghost" onClick={() => { resetDemoData(); showToast('Demo data reset'); }}>Reset demo data</button>
+                {!isAuthenticated && (
+                  <button className="nb-btn nb-btn-ghost" onClick={() => { resetDemoData(); showToast('Demo data reset'); }}>Reset demo data</button>
+                )}
+                {isAuthenticated && (
+                  <button
+                    className="nb-btn nb-btn-ghost"
+                    onClick={async () => {
+                      const ok = window.confirm('Log out of Neighbloom?');
+                      if (!ok) return;
+                      try { await signOut(); } catch (e) {
+                        console.error('[Auth] Sign out failed:', e.message);
+                      }
+                    }}
+                  >
+                    Log out
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -8396,7 +8812,8 @@ const [nearText, setNearText] = useState('');
           </div>
         </div>
 
-        {/* Demo user switcher (optional but useful for testing) */}
+        {/* Demo user switcher — hidden for authenticated users (real identity only) */}
+        {!isAuthenticated && (
         <div className="nb-section">
           <div className="nb-section-title">Demo user</div>
           <div className="nb-section-sub">
@@ -8416,6 +8833,7 @@ const [nearText, setNearText] = useState('');
             ))}
           </select>
         </div>
+        )}
 
         <div className="nb-section">
           <div className="nb-section-title">Discover neighbors</div>
@@ -8638,7 +9056,7 @@ const blockedSet = getBlockedSet(me.id);
 
       {activeTab === 'home' ? (
   <HomeScreen
-    Hero={HomeHero}
+    Hero={SmartHero}
     Chips={Chips}
     EmptyState={EmptyState}
     PostCard={PostCard}
