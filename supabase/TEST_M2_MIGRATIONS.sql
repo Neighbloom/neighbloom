@@ -304,11 +304,9 @@ $$;
 COMMIT;
 
 -- ============================================================
--- CLEANUP
+-- CLEANUP (after Test 5, before Test 6)
 -- ============================================================
-DROP FUNCTION IF EXISTS public._assert(BOOLEAN, TEXT);
-
-SELECT 'All 23 assertions passed!' AS result;
+-- (Test 6-7 follow below)
 
 -- ============================================================
 -- TEST 6: Multi-helper NP awards (requires post lifecycle)
@@ -323,7 +321,11 @@ DECLARE
 BEGIN
   RAISE NOTICE '=== SETUP: Creating test post for multi-helper ===';
 
-  -- Ensure user C exists
+  -- Ensure user C exists (auth.users first for FK, then profile)
+  INSERT INTO auth.users (id)
+  VALUES (v_user_c)
+  ON CONFLICT (id) DO NOTHING;
+
   INSERT INTO public.profiles (id, display_name, town)
   VALUES (v_user_c, 'Test User C', 'Worth')
   ON CONFLICT (id) DO NOTHING;
@@ -530,4 +532,8 @@ COMMIT;
 DELETE FROM public.posts WHERE id IN (SELECT id FROM _test_post2);
 DROP TABLE IF EXISTS _test_post2;
 
-SELECT 'All 22 assertions passed!' AS result;
+-- Final cleanup: remove assert helper
+DROP FUNCTION IF EXISTS public._assert(BOOLEAN, TEXT);
+
+-- Success only prints if ALL tests above passed (any failure raises exception)
+SELECT 'All 23 assertions passed!' AS result;
