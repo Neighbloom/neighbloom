@@ -21,7 +21,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 DROP TRIGGER IF EXISTS protect_np_column ON profiles;
 CREATE TRIGGER protect_np_column
@@ -40,7 +40,7 @@ BEGIN
   PERFORM set_config('app.allow_np_change', 'true', true);
   UPDATE profiles SET np = np + amount WHERE id = target_user_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Only authenticated users can call award_np directly (Milestone 2 will
 -- restrict this further via a dedicated service role or tighter logic).

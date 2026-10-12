@@ -49,6 +49,8 @@ CREATE INDEX IF NOT EXISTS replies_post_idx ON replies(post_id);
 CREATE INDEX IF NOT EXISTS replies_author_idx ON replies(author_id);
 
 -- Auto-create profile on signup.
+-- SECURITY: SET search_path prevents search_path hijacking attacks
+-- where a malicious user creates a同名 function in a schema earlier in the path.
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -60,7 +62,7 @@ BEGIN
   );
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
@@ -74,7 +76,7 @@ BEGIN
   NEW.updated_at = NOW();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = public;
 
 DROP TRIGGER IF EXISTS posts_updated_at ON posts;
 CREATE TRIGGER posts_updated_at
