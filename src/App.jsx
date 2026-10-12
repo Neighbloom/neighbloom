@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState, useLayoutEffect } from 're
 import { createPortal } from 'react-dom';
 import './App.css';
 import pkg from '../package.json';
+import { normalizeText, containsLink, maskPhones, buildRecTitle, badgeFor, timeAgo } from './utils.js';
 
 /* ---------- NB: show fatal errors on-screen (prod-friendly) ---------- */
 function nbFormatErr(err) {
@@ -170,16 +171,7 @@ const BUSINESS_MODE = false; // set true when you're ready for local ads/sponsor
 const NOW = () => Date.now();
 const uid = (p = 'id') => `${p}_${Math.random().toString(36).slice(2, 10)}`;
 
-function timeAgo(ts) {
-  const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
-}
+// (moved to src/utils.js for testability)
 
 // Lightweight telemetry helper (buffers to window and logs to console).
 function trackEvent(name, payload = {}) {
@@ -193,36 +185,7 @@ function trackEvent(name, payload = {}) {
   } catch (_) {}
 }
 
-function containsLink(text) {
-  return /(https?:\/\/|www\.)/i.test(text || '');
-}
-
-function maskPhones(text) {
-  if (!text) return '';
-  // mask common US phone patterns, keep last4
-  return text.replace(
-    /(\+?1[\s.-]?)?(\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}/g,
-    (m) => {
-      const digits = m.replace(/\D/g, '');
-      const last4 = digits.slice(-4);
-      return `***-***-${last4}`;
-    }
-  );
-}
-
-function normalizeText(t) {
-  return (t || '').trim().replace(/\s+/g, ' ');
-}
-
-function buildRecTitle(recCategory, area) {
-  const cat = normalizeText(recCategory);
-  const loc = normalizeText(area);
-
-  if (cat && loc) return `Need a ${cat} in ${loc}`;
-  if (cat) return `Need a ${cat} recommendation`;
-  if (loc) return `Recommendation in ${loc}`;
-  return 'Recommendation';
-}
+// (moved to src/utils.js for testability)
 
 function effectiveRecPrefTags(post) {
   const tags = Array.isArray(post?.prefTags) ? post.prefTags : [];
@@ -355,11 +318,7 @@ const BADGE_DETAILS = {
   Oak: 'Proven cornerstone. A long track record of confirmed help—consistent, calm, reliable.',
 };
 
-function badgeFor(points) {
-  let b = BADGES[0];
-  for (const x of BADGES) if (points >= x.min) b = x;
-  return b.name;
-}
+// (moved to src/utils.js for testability)
 
 function badgeParts(label) {
   const parts = String(label || '').split(' ');
