@@ -40,8 +40,10 @@ BEGIN
   RAISE NOTICE '=== SETUP: Configuring test profiles ===';
 
   -- Ensure auth.users table exists (for FK compliance in CI mock)
+  -- Include raw_user_meta_data for the handle_new_user trigger
   CREATE TABLE IF NOT EXISTS auth.users (
     id UUID PRIMARY KEY,
+    raw_user_meta_data JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW()
   );
 
@@ -342,10 +344,11 @@ BEGIN
   ON CONFLICT (id) DO NOTHING;
 
   -- Create a post in 'done' stage with 2 helpers selected
-  INSERT INTO public.posts (id, owner_id, title, details, stage, status, helpers, helpers_needed)
+  INSERT INTO public.posts (id, owner_id, kind, title, details, stage, status, helpers, helpers_needed)
   VALUES (
     gen_random_uuid(),
     v_user_a,
+    'help',
     'Test help request',
     'Need help moving',
     'done',
@@ -483,8 +486,8 @@ DECLARE
   v_post_id UUID;
   v_user_a UUID := '00000000-0000-0000-0000-000000000001';
 BEGIN
-  INSERT INTO public.posts (id, owner_id, title, stage, status, helpers_needed)
-  VALUES (gen_random_uuid(), v_user_a, 'Transition test', 'open', 'open', 1)
+  INSERT INTO public.posts (id, owner_id, kind, title, stage, status, helpers_needed)
+  VALUES (gen_random_uuid(), v_user_a, 'help', 'Transition test', 'open', 'open', 1)
   RETURNING id INTO v_post_id;
 
   CREATE TEMP TABLE IF NOT EXISTS _test_post2 (id UUID);
