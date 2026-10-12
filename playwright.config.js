@@ -11,6 +11,9 @@ export default defineConfig({
     baseURL: 'http://localhost:5173',
     trace: 'on-first-retry',
     channel: 'chromium', // use full chromium (headless shell download fails in this env)
+    proxy: {
+      server: process.env.HTTPS_PROXY || process.env.https_proxy,
+    },
   },
   projects: [
     {
