@@ -1,11 +1,12 @@
 -- ============================================================
 -- Neighbloom Milestone 1 — Combined Migration Script
 -- Branch: felix/m1-auth-posts
--- Generated: 2026-10-12T03:19:40Z
+-- Generated: 2026-10-12T03:45:22Z
 --
 -- IMPORTANT:
 -- - This script creates a trigger on auth.users (handle_new_user)
 --   that automatically inserts into public.profiles on signup.
+-- - Includes explicit GRANTs (required: auto-expose new tables is OFF).
 -- - All statements are idempotent (IF NOT EXISTS / OR REPLACE).
 -- - Executes atomically within a single transaction.
 -- - Safe for a newly created, empty Supabase development project.
@@ -182,6 +183,21 @@ CREATE POLICY "replies_delete_own"
   ON public.replies FOR DELETE
   USING (auth.uid() = author_id);
 
+-- GRANTS (required because "Automatically expose new tables" is OFF) -----
+-- Least privilege: anon gets read-only; authenticated gets what RLS allows.
+-- RLS policies remain the primary enforcement; these GRANTs only control
+-- table-level API visibility, not row-level access.
+
+-- anon: public read-only feed access
+GRANT SELECT ON public.profiles TO anon;
+GRANT SELECT ON public.posts TO anon;
+GRANT SELECT ON public.replies TO anon;
+
+-- authenticated: read + write (RLS restricts to own rows; no profile INSERT/DELETE)
+GRANT SELECT, UPDATE ON public.profiles TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.posts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.replies TO authenticated;
+
 -- Milestone 1: Protect system-controlled fields from direct user manipulation.
 --
 -- RLS restricts which ROWS a user can update, not which COLUMNS.
@@ -240,5 +256,23 @@ DROP TRIGGER IF EXISTS protect_post_system_fields ON public.posts;
 CREATE TRIGGER protect_post_system_fields
   BEFORE UPDATE OF stage, status, helpers ON public.posts
   FOR EACH ROW EXECUTE FUNCTION public.prevent_post_system_field_tampering();
+
+-- 3. Force system field defaults on INSERT ---------------------------------
+-- A user could try to set stage='done' or helpers=[...] during INSERT.
+-- This trigger silently enforces safe defaults, ignoring malicious input.
+CREATE OR REPLACE FUNCTION public.enforce_post_defaults_on_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.stage := 'open';
+  NEW.status := 'open';
+  NEW.helpers := '[]'::jsonb;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = '';
+
+DROP TRIGGER IF EXISTS enforce_post_defaults ON public.posts;
+CREATE TRIGGER enforce_post_defaults
+  BEFORE INSERT ON public.posts
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_post_defaults_on_insert();
 
 COMMIT;

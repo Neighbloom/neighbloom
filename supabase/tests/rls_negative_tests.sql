@@ -62,3 +62,10 @@
 -- TEST 13: User CAN update legitimate post fields ------------------------------
 -- Expected: SUCCEEDS (title, details, area are user-editable)
 -- UPDATE posts SET title = 'Updated title' WHERE id = '<OWN_POST_UUID>';
+
+-- TEST 14: System fields forced to defaults on INSERT -------------------------
+-- Expected: stage='open', status='open', helpers='[]' regardless of input
+-- INSERT INTO posts (owner_id, kind, title, stage, status, helpers)
+-- VALUES (auth.uid(), 'help', 'Test', 'done', 'done', '[{"id":"x"}]')
+-- RETURNING stage, status, helpers;
+-- Verify returned values are 'open', 'open', '[]'.

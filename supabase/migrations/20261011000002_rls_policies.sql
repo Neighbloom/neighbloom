@@ -78,3 +78,18 @@ DROP POLICY IF EXISTS "replies_delete_own" ON public.replies;
 CREATE POLICY "replies_delete_own"
   ON public.replies FOR DELETE
   USING (auth.uid() = author_id);
+
+-- GRANTS (required because "Automatically expose new tables" is OFF) -----
+-- Least privilege: anon gets read-only; authenticated gets what RLS allows.
+-- RLS policies remain the primary enforcement; these GRANTs only control
+-- table-level API visibility, not row-level access.
+
+-- anon: public read-only feed access
+GRANT SELECT ON public.profiles TO anon;
+GRANT SELECT ON public.posts TO anon;
+GRANT SELECT ON public.replies TO anon;
+
+-- authenticated: read + write (RLS restricts to own rows; no profile INSERT/DELETE)
+GRANT SELECT, UPDATE ON public.profiles TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.posts TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.replies TO authenticated;

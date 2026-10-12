@@ -168,6 +168,18 @@ async function main() {
     if (error) throw error;
   }, false);
 
+  // TEST 14: System fields forced to defaults on INSERT
+  await test('T14: INSERT system fields forced to defaults', async () => {
+    const { data, error } = await alice.from('posts').insert({
+      owner_id: aliceId, kind: 'help', title: 'Test defaults',
+      stage: 'done', status: 'done', helpers: [{ id: 'fake' }]
+    }).select('stage, status, helpers').single();
+    if (error) throw error;
+    if (data.stage !== 'open') throw new Error(`stage was ${data.stage}, expected open`);
+    if (data.status !== 'open') throw new Error(`status was ${data.status}, expected open`);
+    if (JSON.stringify(data.helpers) !== '[]') throw new Error(`helpers was modified!`);
+  }, false);
+
   // Cleanup
   console.log('\nCleaning up...');
   await alice.from('posts').delete().eq('owner_id', aliceId);

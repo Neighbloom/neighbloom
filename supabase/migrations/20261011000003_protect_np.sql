@@ -56,3 +56,21 @@ DROP TRIGGER IF EXISTS protect_post_system_fields ON public.posts;
 CREATE TRIGGER protect_post_system_fields
   BEFORE UPDATE OF stage, status, helpers ON public.posts
   FOR EACH ROW EXECUTE FUNCTION public.prevent_post_system_field_tampering();
+
+-- 3. Force system field defaults on INSERT ---------------------------------
+-- A user could try to set stage='done' or helpers=[...] during INSERT.
+-- This trigger silently enforces safe defaults, ignoring malicious input.
+CREATE OR REPLACE FUNCTION public.enforce_post_defaults_on_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.stage := 'open';
+  NEW.status := 'open';
+  NEW.helpers := '[]'::jsonb;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = '';
+
+DROP TRIGGER IF EXISTS enforce_post_defaults ON public.posts;
+CREATE TRIGGER enforce_post_defaults
+  BEFORE INSERT ON public.posts
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_post_defaults_on_insert();
