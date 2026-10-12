@@ -75,9 +75,12 @@ BEGIN
   END IF;
 
   -- Build idempotency key if not provided.
+  -- Note: Using pg_catalog.date_part('epoch', ...) instead of extract(epoch FROM ...)
+  -- because EXTRACT with schema-qualified function name has parser issues with
+  -- the EPOCH keyword in some PostgreSQL versions.
   v_key := COALESCE(
     p_idempotency_key,
-    p_reason || ':' || p_profile_id::TEXT || ':' || pg_catalog.extract(epoch FROM pg_catalog.now())::TEXT
+    p_reason || ':' || p_profile_id::TEXT || ':' || pg_catalog.date_part('epoch', pg_catalog.now())::TEXT
   );
 
   -- Idempotency: return existing entry if this award was already processed.

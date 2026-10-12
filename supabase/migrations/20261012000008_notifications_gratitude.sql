@@ -180,7 +180,7 @@ BEGIN
   END IF;
 
   -- Check quiet hours (simplified: uses server time; client should adjust).
-  v_hour := pg_catalog.extract(hour FROM pg_catalog.now());
+  v_hour := pg_catalog.date_part('hour', pg_catalog.now());
   -- Quiet hours wrap midnight; simplified check.
   -- Full implementation would use user's timezone from profile.
 

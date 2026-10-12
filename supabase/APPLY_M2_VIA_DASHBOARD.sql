@@ -500,9 +500,12 @@ BEGIN
   END IF;
 
   -- Build idempotency key if not provided.
+  -- Note: Using pg_catalog.date_part('epoch', ...) instead of extract(epoch FROM ...)
+  -- because EXTRACT with schema-qualified function name has parser issues with
+  -- the EPOCH keyword in some PostgreSQL versions.
   v_key := COALESCE(
     p_idempotency_key,
-    p_reason || ':' || p_profile_id::TEXT || ':' || pg_catalog.extract(epoch FROM pg_catalog.now())::TEXT
+    p_reason || ':' || p_profile_id::TEXT || ':' || pg_catalog.date_part('epoch', pg_catalog.now())::TEXT
   );
 
   -- Idempotency: return existing entry if this award was already processed.
@@ -1094,7 +1097,7 @@ BEGIN
   END IF;
 
   -- Check quiet hours (simplified: uses server time; client should adjust).
-  v_hour := pg_catalog.extract(hour FROM pg_catalog.now());
+  v_hour := pg_catalog.date_part('hour', pg_catalog.now());
   -- Quiet hours wrap midnight; simplified check.
   -- Full implementation would use user's timezone from profile.
 
@@ -1368,13 +1371,17 @@ FROM public.profiles;
 -- the view to be the controlled access path. Grant to all.
 GRANT SELECT ON public.visible_profiles TO anon, authenticated;
 
--- CRITICAL: Views are security_invoker by default, meaning they check the
--- CALLER's privileges on underlying tables. Since we revoked intro/skills
--- columns from anon/authenticated, the view would fail with permission denied.
--- SET (security_invoker = false) makes the view run as the OWNER (postgres),
--- bypassing caller column restrictions. The view's CASE logic still enforces
--- intro_visible at the database level.
--- Requires PostgreSQL 15+ (Supabase uses PG 15+).
+-- CRITICAL: PostgreSQL views run as the OWNER by default (like SECURITY DEFINER
+-- functions), unless security_invoker=true is set (PG 15+).
+-- This means the view CAN read intro/skills columns even though we revoked them
+-- from anon/authenticated — it bypasses those revokes as the owner.
+-- The explicit SET (security_invoker = false) below documents this intent.
+--
+-- auth.uid() still returns the CALLER's ID (it's read from the JWT session,
+-- not from the role), so the CASE logic correctly enforces visibility:
+--   - Owner (auth.uid() = id): sees own intro/skills
+--   - Others: sees intro/skills only if intro_visible=true
+--   - Anon (auth.uid() IS NULL): sees intro/skills only if intro_visible=true
 ALTER VIEW public.visible_profiles SET (security_invoker = false);
 
 -- 2. SECURITY DEFINER function for directory queries.
