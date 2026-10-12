@@ -344,9 +344,11 @@ BEGIN
   ON CONFLICT (id) DO NOTHING;
 
   -- Create a post in 'done' stage with 2 helpers selected
+  -- Using fixed UUID so tests can reference it without temp tables
+  -- (temp tables aren't accessible after SET ROLE)
   INSERT INTO public.posts (id, owner_id, kind, title, details, stage, status, helpers, helpers_needed)
   VALUES (
-    gen_random_uuid(),
+    '11111111-1111-1111-1111-111111111111'::UUID,
     v_user_a,
     'help',
     'Test help request',
@@ -359,14 +361,9 @@ BEGIN
     ),
     2
   )
-  RETURNING id INTO v_post_id;
+  ON CONFLICT (id) DO NOTHING;
 
-  -- Store post ID for tests (using a temp table)
-  CREATE TEMP TABLE IF NOT EXISTS _test_post (id UUID);
-  DELETE FROM _test_post;
-  INSERT INTO _test_post VALUES (v_post_id);
-
-  RAISE NOTICE 'Test post created: %', v_post_id;
+  RAISE NOTICE 'Test post created: 11111111-1111-1111-1111-111111111111';
 END;
 $$;
 
@@ -379,7 +376,7 @@ DECLARE
   v_post_id UUID;
   v_result RECORD;
 BEGIN
-  SELECT id INTO v_post_id FROM _test_post LIMIT 1;
+  v_post_id := '11111111-1111-1111-1111-111111111111'::UUID;
   SELECT * INTO v_result FROM public.award_np(
     '00000000-0000-0000-0000-000000000002',  -- User B
     20,
@@ -409,7 +406,7 @@ DECLARE
   v_post_id UUID;
   v_result RECORD;
 BEGIN
-  SELECT id INTO v_post_id FROM _test_post LIMIT 1;
+  v_post_id := '11111111-1111-1111-1111-111111111111'::UUID;
   SELECT * INTO v_result FROM public.award_np(
     '00000000-0000-0000-0000-000000000003',  -- User C
     20,
@@ -435,7 +432,7 @@ DECLARE
   v_count1 INT;
   v_count2 INT;
 BEGIN
-  SELECT id INTO v_post_id FROM _test_post LIMIT 1;
+  v_post_id := '11111111-1111-1111-1111-111111111111'::UUID;
   SELECT COUNT(*) INTO v_count1 FROM public.np_ledger
   WHERE idempotency_key = 'test-key-1';
 
@@ -474,8 +471,7 @@ $$;
 COMMIT;
 
 -- Cleanup test post
-DELETE FROM public.posts WHERE id IN (SELECT id FROM _test_post);
-DROP TABLE IF EXISTS _test_post;
+DELETE FROM public.posts WHERE id = '11111111-1111-1111-1111-111111111111'::UUID;
 
 -- ============================================================
 -- TEST 7: State transitions (audit log correctness)
@@ -487,12 +483,8 @@ DECLARE
   v_user_a UUID := '00000000-0000-0000-0000-000000000001';
 BEGIN
   INSERT INTO public.posts (id, owner_id, kind, title, stage, status, helpers_needed)
-  VALUES (gen_random_uuid(), v_user_a, 'help', 'Transition test', 'open', 'open', 1)
-  RETURNING id INTO v_post_id;
-
-  CREATE TEMP TABLE IF NOT EXISTS _test_post2 (id UUID);
-  DELETE FROM _test_post2;
-  INSERT INTO _test_post2 VALUES (v_post_id);
+  VALUES ('22222222-2222-2222-2222-222222222222'::UUID, v_user_a, 'help', 'Transition test', 'open', 'open', 1)
+  ON CONFLICT (id) DO NOTHING;
 END;
 $$;
 
@@ -506,7 +498,7 @@ DECLARE
   v_from TEXT;
   v_to TEXT;
 BEGIN
-  SELECT id INTO v_post_id FROM _test_post2 LIMIT 1;
+  v_post_id := '22222222-2222-2222-2222-222222222222'::UUID;
   PERFORM public.transition_post(v_post_id, 'cancelled');
 
   -- Verify audit log has correct from_stage (was buggy: both were 'to')
@@ -531,7 +523,7 @@ DO $$
 DECLARE
   v_post_id UUID;
 BEGIN
-  SELECT id INTO v_post_id FROM _test_post2 LIMIT 1;
+  v_post_id := '22222222-2222-2222-2222-222222222222'::UUID;
   BEGIN
     PERFORM public.transition_post(v_post_id, 'confirmed');  -- Invalid: cancelled -> confirmed
     PERFORM public._assert(false, '7b: Invalid transition should fail');
@@ -543,8 +535,7 @@ $$;
 COMMIT;
 
 -- Cleanup
-DELETE FROM public.posts WHERE id IN (SELECT id FROM _test_post2);
-DROP TABLE IF EXISTS _test_post2;
+DELETE FROM public.posts WHERE id = '22222222-2222-2222-2222-222222222222'::UUID;
 
 -- Final cleanup: remove assert helper
 DROP FUNCTION IF EXISTS public._assert(BOOLEAN, TEXT);
