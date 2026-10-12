@@ -46,8 +46,10 @@ export function AuthProvider({ children }) {
 
   const fetchProfile = async (userId) => {
     try {
+      // Use visible_profiles view (DB-enforces intro_visible privacy).
+      // Owner sees their own intro via auth.uid() = id in the view.
       const { data, error } = await supabase
-        .from('profiles')
+        .from('visible_profiles')
         .select('*')
         .eq('id', userId)
         .single();
