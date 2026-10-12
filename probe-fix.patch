@@ -1,0 +1,23 @@
+diff --git a/src/App.jsx b/src/App.jsx
+index 2afd2cb..7550443 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -1332,9 +1332,15 @@ function App() {
+     if (!isAuthenticated || !authConfigured) { setM2Ready(false); return; }
+     (async () => {
+       try {
+-        const { getSupabase } = await import('./supabase.js');
+-        const sb = getSupabase();
+-        const { error } = await sb.from('np_ledger').select('id').limit(1);
++        // NOTE: supabase.js exports the client as `supabase` — there is
++        // no getSupabase export there (m2.js has its own internal one).
++        // A wrong import name here throws, lands in the catch, and
++        // silently disables EVERY M2 feature (notifications, real NP,
++        // server transitions, real chat) — that bug hid for the whole
++        // M2/M3 era behind the local fallbacks. Keep this import exact.
++        const { supabase } = await import('./supabase.js');
++        if (!supabase) { setM2Ready(false); return; }
++        const { error } = await supabase.from('np_ledger').select('id').limit(1);
+         setM2Ready(!error);
+       } catch { setM2Ready(false); }
+     })();
