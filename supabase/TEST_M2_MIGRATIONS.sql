@@ -324,48 +324,88 @@ COMMIT;
 -- ============================================================
 -- TEST 6: Multi-helper NP awards (requires post lifecycle)
 -- ============================================================
--- Setup: Create a test post with 2 helpers (as postgres)
+-- Setup: Follow the REAL application lifecycle (as postgres for fixtures,
+-- then as authenticated users for the actual workflow steps)
+-- 
+-- Real workflow:
+--   1. Owner creates post (trigger forces stage='open', helpers='[]')
+--   2. Helpers volunteer via replies (kind='volunteer')
+--   3. Owner selects helpers via select_helpers()
+--   4. Owner transitions: open -> booked -> started -> done
+--   5. Owner awards NP via award_np() (requires stage='done')
+--
+-- The enforce_post_defaults trigger PREVENTS bypassing this by INSERTing
+-- directly into 'done' stage. This is correct security behavior.
+
 DO $$
 DECLARE
-  v_post_id UUID;
-  v_user_a UUID := '00000000-0000-0000-0000-000000000001';
-  v_user_b UUID := '00000000-0000-0000-0000-000000000002';
   v_user_c UUID := '00000000-0000-0000-0000-000000000003';
 BEGIN
-  RAISE NOTICE '=== SETUP: Creating test post for multi-helper ===';
+  RAISE NOTICE '=== SETUP: Creating test users and post ===';
 
   -- Ensure user C exists (auth.users first for FK, then profile)
-  INSERT INTO auth.users (id)
-  VALUES (v_user_c)
+  INSERT INTO auth.users (id, raw_user_meta_data)
+  VALUES (v_user_c, '{"display_name": "Test User C"}')
   ON CONFLICT (id) DO NOTHING;
 
   INSERT INTO public.profiles (id, display_name, town)
   VALUES (v_user_c, 'Test User C', 'Worth')
   ON CONFLICT (id) DO NOTHING;
 
-  -- Create a post in 'done' stage with 2 helpers selected
-  -- Using fixed UUID so tests can reference it without temp tables
-  -- (temp tables aren't accessible after SET ROLE)
-  INSERT INTO public.posts (id, owner_id, kind, title, details, stage, status, helpers, helpers_needed)
+  -- Create post (trigger will force stage='open', helpers='[]')
+  -- This is what a real user does - they cannot set stage directly
+  INSERT INTO public.posts (id, owner_id, kind, title, details, helpers_needed)
   VALUES (
     '11111111-1111-1111-1111-111111111111'::UUID,
-    v_user_a,
+    '00000000-0000-0000-0000-000000000001'::UUID,
     'help',
     'Test help request',
     'Need help moving',
-    'done',
-    'done',
-    jsonb_build_array(
-      jsonb_build_object('id', v_user_b, 'selected_at', now()),
-      jsonb_build_object('id', v_user_c, 'selected_at', now())
-    ),
     2
   )
   ON CONFLICT (id) DO NOTHING;
 
-  RAISE NOTICE 'Test post created: 11111111-1111-1111-1111-111111111111';
+  -- Create volunteer replies from B and C (required before select_helpers)
+  INSERT INTO public.replies (post_id, author_id, body, kind)
+  VALUES
+    ('11111111-1111-1111-1111-111111111111'::UUID, '00000000-0000-0000-0000-000000000002'::UUID, 'I can help!', 'volunteer'),
+    ('11111111-1111-1111-1111-111111111111'::UUID, '00000000-0000-0000-0000-000000000003'::UUID, 'Count me in!', 'volunteer')
+  ON CONFLICT DO NOTHING;
+
+  RAISE NOTICE 'Test fixtures created';
 END;
 $$;
+
+-- Step 1: Owner selects helpers (as User A)
+-- This is the legitimate way to set helpers - not via direct INSERT
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000001"}', true);
+DO $$
+BEGIN
+  PERFORM public.select_helpers(
+    '11111111-1111-1111-1111-111111111111'::UUID,
+    ARRAY['00000000-0000-0000-0000-000000000002'::UUID, '00000000-0000-0000-0000-000000000003'::UUID]
+  );
+  RAISE NOTICE 'Helpers selected';
+END;
+$$;
+COMMIT;
+
+-- Step 2: Owner transitions through lifecycle (as User A)
+-- open -> booked -> started -> done
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-000000000001"}', true);
+DO $$
+BEGIN
+  PERFORM public.transition_post('11111111-1111-1111-1111-111111111111'::UUID, 'booked');
+  PERFORM public.transition_post('11111111-1111-1111-1111-111111111111'::UUID, 'started');
+  PERFORM public.transition_post('11111111-1111-1111-1111-111111111111'::UUID, 'done');
+  RAISE NOTICE 'Post transitioned to done via legitimate lifecycle';
+END;
+$$;
+COMMIT;
 
 -- Test 6a: Award NP to first helper (advances done -> confirmed)
 BEGIN;
