@@ -8,7 +8,7 @@
     "build": "vite build && cp dist/index.html dist/404.html",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run src/"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.3",
