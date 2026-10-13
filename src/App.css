@@ -34,7 +34,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .nb-quickbtn:focus-visible,
 .nb-herolink:focus-visible,
 .nb-card-title:focus-visible,
-.nb-card-details:focus-visible {
+.nb-card-details:focus-visible,
+.nb-avatar:focus-visible {
   outline: 2px solid rgba(255,106,61,.55);
   outline-offset: 2px;
 }

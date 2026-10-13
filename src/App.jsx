@@ -4507,9 +4507,12 @@ expandedOtherVols,
             className="nb-avatar"
             src={owner?.avatar}
             alt={owner?.name}
+            role="button"
+            tabIndex={0}
             onClick={() =>
               setModal({ type: 'user_profile', userId: post.ownerId })
             }
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ type: 'user_profile', userId: post.ownerId }); } }}
             style={{ cursor: 'pointer' }}
             title="View profile"
           />
@@ -4746,9 +4749,12 @@ expandedOtherVols,
                 className="nb-avatar sm"
                 src={u?.avatar}
                 alt={u?.name || 'Neighbor'}
+                role="button"
+                tabIndex={0}
                 onClick={() =>
                   setModal({ type: 'user_profile', userId: r.authorId })
                 }
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ type: 'user_profile', userId: r.authorId }); } }}
                 style={{ cursor: 'pointer' }}
                 title="View profile"
               />
@@ -9184,7 +9190,10 @@ const [nearText, setNearText] = useState('');
                     className="nb-avatar sm"
                     src={u.avatar}
                     alt={u.name}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setModal({ type: 'user_profile', userId: u.id })}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ type: 'user_profile', userId: u.id }); } }}
                     style={{ cursor: 'pointer' }}
                     title="View profile"
                   />
