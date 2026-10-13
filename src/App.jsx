@@ -2042,8 +2042,18 @@ const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
   const usersById = useMemo(() => {
     const m = {};
     USERS_SEED.forEach((u) => (m[u.id] = u));
+    // Overlay real identities on the demo directory: server post
+    // owners and my own authenticated profile. Without this, real
+    // neighbors resolve to nothing (the chat header showed "Chat
+    // with" + a tier badge and no name for a real helper).
+    for (const p of supabasePosts || []) {
+      if (p?.ownerId && p.ownerName && !m[p.ownerId]) {
+        m[p.ownerId] = { id: p.ownerId, name: p.ownerName, avatar: p.ownerAvatar || AVATAR, handle: '' };
+      }
+    }
+    if (isAuthenticated && me?._real) m[me.id] = me;
     return m;
-  }, []);
+  }, [supabasePosts, isAuthenticated, me]);
 
   // -------------------- FOLLOW (Phase 1) --------------------
   const [followsByUser, setFollowsByUser] = useState(
@@ -3676,11 +3686,14 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   }, [filteredFeed, homeQuery]);
 
   const myPosts = useMemo(() => {
-    const list = posts
+    // Merged feed source: the local posts array holds only demo
+    // posts, so Profile claimed "haven't posted" for real users
+    // with live server posts.
+    const list = displayPosts
       .filter((p) => p.ownerId === me.id)
       .sort((a, b) => b.createdAt - a.createdAt);
     return list;
-  }, [posts, me.id]);
+  }, [displayPosts, me.id]);
 
   // Close modal on tab change for sanity
   useEffect(() => {
@@ -6414,6 +6427,36 @@ function OnboardingModal() {
     const [realMsgs, setRealMsgs] = useState(null); // null = local mode
     const chatConvId = chat?.conversationId;
 
+    // Peer identity for server chats: if the directory doesn't know
+    // this user (real neighbors aren't in the demo seed), fetch their
+    // public profile so the header shows a name, not a blank.
+    const [peerProfile, setPeerProfile] = useState(null);
+    useEffect(() => {
+      setPeerProfile(null);
+      const otherId = chat?.otherUserId;
+      if (!otherId || usersById[otherId] || !m2Ready) return;
+      let cancelled = false;
+      (async () => {
+        try {
+          const { supabase } = await import('./supabase.js');
+          const { data } = await supabase
+            .from('profiles')
+            .select('id, display_name, handle, avatar_url')
+            .eq('id', otherId)
+            .single();
+          if (!cancelled && data) {
+            setPeerProfile({
+              id: data.id,
+              name: data.display_name || 'Neighbor',
+              handle: data.handle || '',
+              avatar: data.avatar_url || AVATAR,
+            });
+          }
+        } catch { /* directory fallback stands */ }
+      })();
+      return () => { cancelled = true; };
+    }, [chat?.otherUserId, m2Ready]);
+
     useEffect(() => {
       if (!chatConvId || !m2Ready) { setRealMsgs(null); return; }
       let cancelled = false;
@@ -6445,7 +6488,7 @@ function OnboardingModal() {
     const post = displayPosts.find((p) => p.id === chat.postId) || posts.find((p) => p.id === chat.postId);
     if (!post) return null;
 
-    const other = usersById[chat.otherUserId];
+    const other = usersById[chat.otherUserId] || peerProfile;
     const chatId = getChatId(post.id, me.id, chat.otherUserId);
     const rawMsgs = chats?.[chatId];
     // Phase 2: Prefer real messages when available, fall back to local.
@@ -8872,7 +8915,9 @@ const [nearText, setNearText] = useState('');
       ? followsByUser[me.id].filter(Boolean).length
       : 0;
 
-    const discover = USERS_SEED.filter((u) => u.id !== me.id && !isBlockedUser(u.id));
+    // Authenticated users never see demo people: discovery opens
+    // with the real launch cohort, not the seed directory.
+    const discover = isAuthenticated ? [] : USERS_SEED.filter((u) => u.id !== me.id && !isBlockedUser(u.id));
 
     return (
       <div className="nb-page nb-scroll" ref={scrollRef}>
@@ -8955,14 +9000,23 @@ const [nearText, setNearText] = useState('');
             <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
               {(() => {
                 const list = [];
-                // recent posts
-                for (const p of (posts || []).slice().reverse()) {
-                  if (p.ownerId === me.id) list.push({ text: `Posted: ${p.title || p.title || p.kind}`, ts: p.createdAt });
+                // recent posts (merged feed — includes my server posts)
+                for (const p of (displayPosts || []).slice().reverse()) {
+                  if (p.ownerId === me.id) list.push({ text: `Posted: ${p.title || p.kind}`, ts: p.createdAt });
                 }
-                // activity entries
+                // activity entries (local events I caused)
                 for (const a of (activity || []).slice().reverse()) {
                   if (a && a.actorId === me.id) list.push({ text: a.title || a.action || a.label || a.msg || 'Activity', ts: a.activityTs || a.ts || 0 });
                 }
+                // my server notifications (merged into activity with
+                // remoteId set; their actorId is null so the loop
+                // above skips them)
+                if (isAuthenticated) {
+                  for (const a of (activity || []).slice().reverse()) {
+                    if (a && a.remoteId) list.push({ text: a.title || 'Update', ts: a.activityTs || a.ts || 0 });
+                  }
+                }
+                list.sort((x, y) => (y.ts || 0) - (x.ts || 0));
                 // limit
                 const out = list.slice(0, 5);
                 if (out.length === 0) return <div style={{ color: 'var(--muted)' }}>No recent activity</div>;
@@ -9000,8 +9054,13 @@ const [nearText, setNearText] = useState('');
         <div className="nb-section">
           <div className="nb-section-title">Discover neighbors</div>
           <div className="nb-section-sub">
-            Follow someone to enable the “Following” feed filter.
+            {isAuthenticated ? 'Your town’s neighbors, as they join.' : 'Follow someone to enable the “Following” feed filter.'}
           </div>
+          {isAuthenticated ? (
+            <div style={{ color: 'var(--muted)', fontWeight: 850, marginBottom: 10 }}>
+              Real neighbor discovery opens with the Worth launch cohort. For now, you’ll meet neighbors through their posts and replies.
+            </div>
+          ) : null}
 
           <div style={{ display: 'grid', gap: 10 }}>
             {discover.map((u) => {
@@ -9182,6 +9241,22 @@ const blockedSet = getBlockedSet(me.id);
         <p style={{ opacity: 0.7, textAlign: 'center', maxWidth: 320 }}>
           This application requires Supabase configuration. Demo mode is not available in production.
         </p>
+      </div>
+    );
+  }
+
+  // While the session restores, show a neutral splash — rendering
+  // the app shell here briefly flashed the demo identity (name,
+  // avatar, NP) before the real user settled.
+  if (authConfigured && authLoading) {
+    return (
+      <div className="nb-auth-screen" style={{
+        minHeight: '100dvh', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', padding: 24,
+        background: '#031628', color: '#fff',
+      }}>
+        <div style={{ fontWeight: 980, fontSize: 28 }}>Neighbloom</div>
+        <div style={{ marginTop: 10, opacity: 0.7, fontWeight: 700 }}>Loading your neighborhood…</div>
       </div>
     );
   }
