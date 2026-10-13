@@ -211,3 +211,100 @@ export function NeighborCard({ neighbor, helpCount, onTap }) {
     </div>
   );
 }
+
+/**
+ * TownAsk: the one setup question that matters (B2).
+ * New profiles have town = NULL, and without a town the welcome
+ * hero can't name the place or count its neighbors — so we ask
+ * plainly, once, with the launch town preselected. Skippable for
+ * the session; it returns next visit until answered.
+ */
+const TOWN_OPTIONS = [
+  'Worth', 'Palos Hills', 'Palos Heights', 'Palos Park', 'Hickory Hills',
+  'Oak Lawn', 'Orland Park', 'Orland Hills', 'Tinley Park', 'Homer Glen',
+  'Lemont', 'Lockport', 'New Lenox', 'Mokena', 'Frankfort',
+];
+
+export function TownAsk({ displayName, onSave, onSkip }) {
+  const [town, setTown] = useState('Worth');
+  const [custom, setCustom] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const chosen = town === '__other' ? custom.trim() : town;
+  const firstName = (displayName || '').split(' ')[0];
+
+  const submit = async () => {
+    if (!chosen || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await onSave(chosen);
+    } catch (e) {
+      setError(e.message || 'Could not save your town — try again.');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="nb-welcome-hero">
+      <div className="nb-welcome-title">Welcome{firstName ? `, ${firstName}` : ''} 🏡</div>
+      <div className="nb-welcome-sub">
+        Neighbloom runs town by town — your town decides which neighbors and posts you see first.
+        Which town do you call home?
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
+        {TOWN_OPTIONS.map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={`nb-chip ${town === t ? 'is-active' : ''}`}
+            onClick={() => setTown(t)}
+          >
+            {t}
+          </button>
+        ))}
+        <button
+          type="button"
+          className={`nb-chip ${town === '__other' ? 'is-active' : ''}`}
+          onClick={() => setTown('__other')}
+        >
+          Another town
+        </button>
+      </div>
+
+      {town === '__other' ? (
+        <input
+          type="text"
+          placeholder="Your town"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          className="nb-input"
+          style={{ width: '100%', marginTop: 12 }}
+          autoComplete="address-level2"
+        />
+      ) : null}
+
+      {error ? <div className="nb-error" style={{ marginTop: 12 }}>{error}</div> : null}
+
+      <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center' }}>
+        <button
+          type="button"
+          className="nb-btn nb-btn-primary"
+          onClick={submit}
+          disabled={!chosen || busy}
+        >
+          {busy ? 'Saving…' : `This is my town`}
+        </button>
+        <button
+          type="button"
+          className="nb-btn nb-btn-ghost"
+          onClick={onSkip}
+          disabled={busy}
+        >
+          I'll set this later
+        </button>
+      </div>
+    </div>
+  );
+}

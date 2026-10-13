@@ -6789,6 +6789,8 @@ function setUserAvailability(userId, on, note) {
   function SmartHero() {
     const [showWelcome, setShowWelcome] = useState(false);
     const [welcomeChecked, setWelcomeChecked] = useState(false);
+    const [townSkipped, setTownSkipped] = useState(false);
+    const { updateProfile } = useAuth();
 
     useEffect(() => {
       if (!isAuthenticated || !authProfile) {
@@ -6813,6 +6815,21 @@ function setUserAvailability(userId, on, note) {
 
     if (!welcomeChecked) return null;
 
+    // B2: ask the town plainly before the welcome hero — new
+    // profiles have no town, and without one the hero can't name
+    // the place or count its neighbors (the app otherwise guesses
+    // towns from free text in several places). Skippable per
+    // session; returns next visit until answered.
+    if (isAuthenticated && authProfile && !authProfile.town && !townSkipped) {
+      return (
+        <TownAskWrapper
+          displayName={authProfile?.display_name}
+          onSave={async (town) => { await updateProfile({ town }); }}
+          onSkip={() => setTownSkipped(true)}
+        />
+      );
+    }
+
     if (showWelcome && isAuthenticated) {
       return (
         <WelcomeHeroWrapper
@@ -6831,6 +6848,16 @@ function setUserAvailability(userId, on, note) {
     }
 
     return <HomeHero />;
+  }
+
+  // Lazy wrapper for TownAsk (same code-split pattern as WelcomeHero).
+  function TownAskWrapper(props) {
+    const [Comp, setComp] = useState(null);
+    useEffect(() => {
+      import('./Welcome.jsx').then(m => setComp(() => m.TownAsk));
+    }, []);
+    if (!Comp) return null;
+    return <Comp {...props} />;
   }
 
   // Lazy wrapper for WelcomeHero (code-split, only loaded for new users).
