@@ -1,0 +1,55 @@
+diff --git a/src/App.css b/src/App.css
+index af99ed7..33fbf82 100644
+--- a/src/App.css
++++ b/src/App.css
+@@ -34,7 +34,8 @@ button { -webkit-tap-highlight-color: transparent; }
+ .nb-quickbtn:focus-visible,
+ .nb-herolink:focus-visible,
+ .nb-card-title:focus-visible,
+-.nb-card-details:focus-visible {
++.nb-card-details:focus-visible,
++.nb-avatar:focus-visible {
+   outline: 2px solid rgba(255,106,61,.55);
+   outline-offset: 2px;
+ }
+diff --git a/src/App.jsx b/src/App.jsx
+index 3616125..c43d713 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -4507,9 +4507,12 @@ expandedOtherVols,
+             className="nb-avatar"
+             src={owner?.avatar}
+             alt={owner?.name}
++            role="button"
++            tabIndex={0}
+             onClick={() =>
+               setModal({ type: 'user_profile', userId: post.ownerId })
+             }
++            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ type: 'user_profile', userId: post.ownerId }); } }}
+             style={{ cursor: 'pointer' }}
+             title="View profile"
+           />
+@@ -4746,9 +4749,12 @@ expandedOtherVols,
+                 className="nb-avatar sm"
+                 src={u?.avatar}
+                 alt={u?.name || 'Neighbor'}
++                role="button"
++                tabIndex={0}
+                 onClick={() =>
+                   setModal({ type: 'user_profile', userId: r.authorId })
+                 }
++                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ type: 'user_profile', userId: r.authorId }); } }}
+                 style={{ cursor: 'pointer' }}
+                 title="View profile"
+               />
+@@ -9189,7 +9195,10 @@ const [nearText, setNearText] = useState('');
+                     className="nb-avatar sm"
+                     src={u.avatar}
+                     alt={u.name}
++                    role="button"
++                    tabIndex={0}
+                     onClick={() => setModal({ type: 'user_profile', userId: u.id })}
++                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ type: 'user_profile', userId: u.id }); } }}
+                     style={{ cursor: 'pointer' }}
+                     title="View profile"
+                   />
