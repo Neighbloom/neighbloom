@@ -9284,9 +9284,12 @@ const [nearText, setNearText] = useState('');
                 for (const p of (displayPosts || []).slice().reverse()) {
                   if (p.ownerId === me.id) list.push({ text: `Posted: ${p.title || p.kind}`, ts: p.createdAt });
                 }
-                // activity entries (local events I caused)
+                // activity entries (local events I caused). NOTE:
+                // local entries carry their message in `text` — the
+                // old chain never checked it, so text-only entries
+                // rendered as the literal word "Activity".
                 for (const a of (activity || []).slice().reverse()) {
-                  if (a && a.actorId === me.id) list.push({ text: a.title || a.action || a.label || a.msg || 'Activity', ts: a.activityTs || a.ts || 0 });
+                  if (a && a.actorId === me.id) list.push({ text: a.title || a.text || a.body || a.action || a.label || a.msg || 'Update', ts: a.activityTs || a.ts || 0 });
                 }
                 // my server notifications (merged into activity with
                 // remoteId set; their actorId is null so the loop
