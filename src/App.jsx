@@ -5,6 +5,7 @@ import pkg from '../package.json';
 import { normalizeText, containsLink, maskPhones, buildRecTitle, badgeFor, timeAgo } from './utils.js';
 import { useAuth } from './auth.jsx';
 import { AuthScreen, PasswordResetScreen } from './AuthScreen.jsx';
+import { BUILD_ID } from './buildId.js';
 // Phase 2: M2 backend — lifecycle, messaging, NP. All gracefully degrade
 // when the M2 migrations haven't been applied yet (m2Ready=false).
 import {
@@ -1327,6 +1328,30 @@ function App() {
   // the M2 migrations have been applied (np_ledger table exists).
   // All M2 calls gracefully fall back to local behavior when false.
   const [m2Ready, setM2Ready] = useState(false);
+
+  // Stale-build shield: every build stamps BUILD_ID into the bundle
+  // and serves the same id at /version.json. If they ever disagree,
+  // this browser is running a cached old copy (which once presented
+  // as a broken app) — offer a refresh instead of failing silently.
+  const [servedBuild, setServedBuild] = useState(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const r = await fetch('/version.json', { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (!cancelled && j && typeof j.build === 'string') setServedBuild(j.build);
+      } catch { /* offline or dev preview — no opinion */ }
+    };
+    check();
+    const onVis = () => { if (document.visibilityState === 'visible') check(); };
+    document.addEventListener('visibilitychange', onVis);
+    const t = setInterval(check, 10 * 60 * 1000);
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVis); clearInterval(t); };
+  }, []);
+  const updateReady = !!servedBuild && servedBuild !== BUILD_ID && !updateDismissed;
   useEffect(() => {
     if (!isAuthenticated || !authConfigured) { setM2Ready(false); return; }
     (async () => {
@@ -8927,6 +8952,26 @@ const blockedSet = getBlockedSet(me.id);
       {toastMsg ? (
         <div className="nb-toast" role="status" aria-live="polite">
           {toastMsg}
+        </div>
+      ) : null}
+
+      {updateReady ? (
+        <div
+          role="status"
+          style={{
+            position: 'fixed', left: 12, right: 12, bottom: 86, zIndex: 1200,
+            display: 'flex', alignItems: 'center', gap: 10,
+            background: '#123524', color: '#eaf5ec', border: '1px solid rgba(255,255,255,.18)',
+            borderRadius: 14, padding: '10px 12px', boxShadow: '0 10px 30px rgba(0,0,0,.35)',
+          }}
+        >
+          <span style={{ flex: 1, fontWeight: 750, fontSize: 14 }}>A fresher Neighbloom is ready.</span>
+          <button type="button" className="nb-btn nb-btn-primary nb-btn-sm" onClick={() => window.location.reload()}>
+            Refresh
+          </button>
+          <button type="button" className="nb-x" aria-label="Dismiss" onClick={() => setUpdateDismissed(true)} style={{ color: '#eaf5ec' }}>
+            ✕
+          </button>
         </div>
       ) : null}
 

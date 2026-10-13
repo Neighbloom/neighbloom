@@ -8,7 +8,8 @@
     "build": "vite build && cp dist/index.html dist/404.html",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run src/"
+    "test": "vitest run src/",
+    "prebuild": "node scripts/write-version.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.3",
