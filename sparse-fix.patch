@@ -1,0 +1,165 @@
+diff --git a/src/App.jsx b/src/App.jsx
+index ada2a8c..ba0ca15 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -19,6 +19,7 @@ import {
+   confirmHelpAndAward as m2ConfirmHelpAndAward,
+   dailyCheckIn as m2DailyCheckIn,
+   fetchNPBalance as m2FetchNPBalance,
++  getNeighborCount as m2GetNeighborCount,
+   fetchInAppNotifications as m2FetchNotifications,
+   markNotificationRead as m2MarkNotificationRead,
+ } from './m2.js';
+@@ -767,6 +768,8 @@ function HomeScreen({
+   Hero,
+   Chips,
+   EmptyState,
++  SparseTownPanel,
++  isSparseTown,
+   PostCard,
+   homeChip,
+   refreshing,
+@@ -1253,6 +1256,9 @@ onRefresh,
+       ) : null}
+ 
+       {visibleFeed.length === 0 ? (
++        isSparseTown && !homeFollowOnly && !hasQuery ? (
++          <SparseTownPanel />
++        ) : (
+         <>
+           {!hasQuery && radiusPreset !== 'all' ? (
+             <div style={{ marginTop: 10 }}>
+@@ -1287,10 +1293,10 @@ onRefresh,
+               homeFollowOnly
+                 ? 'Follow neighbors to see posts that matter to you.'
+                 : homeChip === 'help'
+-                ? 'Ask for help — neighbors often pitch in quickly.'
++                ? 'Post what you need — neighbors in your town will see it here and can offer a hand.'
+                 : homeChip === 'rec'
+-                ? 'Ask a specific question and get useful recommendations.'
+-                : 'Be the first to share — post a question or request and get neighbors involved.'
++                ? 'Ask a specific question — neighbors in your town can answer here.'
++                : 'Be the first to share — post a question or request to get things started.'
+             }
+             ctaLabel={
+               homeFollowOnly
+@@ -1317,6 +1323,7 @@ onRefresh,
+             }}
+           />
+         </>
++        )
+       ) : (
+         <div className="nb-feed">
+           {visibleFeed.map((p) => (
+@@ -4401,6 +4408,89 @@ expandedOtherVols,
+     );
+   }
+ 
++  // SparseTownPanel: the honest first-run for a town with no posts
++  // at all. Rendered by HomeScreen only when the unfiltered feed is
++  // empty for an authenticated user. Every factual line is real:
++  // the neighbor count comes from the server (and is omitted when
++  // it can't be loaded), and the copy promises nothing about speed
++  // or response — in a new town, nobody can. It stages the two
++  // meaningful zero-network actions: ask for help, and introduce
++  // yourself (or ask a recommendation once you have).
++  function SparseTownPanel() {
++    const town = authProfile?.town || null;
++    const hasIntro = !!(authProfile?.intro && authProfile.intro.trim());
++    const [neighborCount, setNeighborCount] = useState(null);
++
++    useEffect(() => {
++      if (!town) return;
++      let live = true;
++      m2GetNeighborCount(town)
++        .then((n) => { if (live && typeof n === 'number') setNeighborCount(n); })
++        .catch(() => {});
++      return () => { live = false; };
++    }, [town]);
++
++    // The count includes the viewer; "neighbors here" must not.
++    const others = neighborCount !== null ? Math.max(0, neighborCount - 1) : null;
++    const place = town || 'your town';
++
++    return (
++      <div className="nb-empty">
++        <div className="nb-empty-card">
++          <div className="nb-empty-title">
++            {town ? `${town} is just getting started` : 'Your neighborhood is just getting started'}
++          </div>
++          {others !== null ? (
++            <div className="nb-empty-body">
++              {others === 0
++                ? `You're the first neighbor in ${place}.`
++                : others === 1
++                ? `There's 1 other neighbor in ${place} so far — nobody has posted yet.`
++                : `There are ${others} other neighbors in ${place} so far — nobody has posted yet.`}
++            </div>
++          ) : null}
++          <div className="nb-empty-body">
++            Neighbloom is where neighbors ask for a hand with everyday things — moving a couch,
++            borrowing a ladder, an extra pair of hands — and help each other out.
++          </div>
++          <div className="nb-empty-body">
++            Post an ask and it shows here for neighbors in {place}. When someone can help,
++            they offer right here. Every neighborhood starts with a first ask.
++          </div>
++          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 6 }}>
++            <button
++              className="nb-btn nb-btn-primary"
++              onClick={() => {
++                setActiveTab('post');
++                setPostFlow({ step: 'form', kind: 'help' });
++              }}
++            >
++              Ask for help
++            </button>
++            {hasIntro ? (
++              <button
++                className="nb-btn nb-btn-ghost"
++                onClick={() => {
++                  setActiveTab('post');
++                  setPostFlow({ step: 'form', kind: 'rec' });
++                }}
++              >
++                Ask for a local recommendation
++              </button>
++            ) : (
++              <button
++                className="nb-btn nb-btn-ghost"
++                onClick={() => setModal({ type: 'intro_composer' })}
++              >
++                Introduce yourself
++              </button>
++            )}
++          </div>
++        </div>
++      </div>
++    );
++  }
++
+   function PostMetaLine({ post }) {
+     const owner = usersById[post.ownerId];
+     const statusLabel =
+@@ -9304,6 +9394,8 @@ const blockedSet = getBlockedSet(me.id);
+     away={{ asks: awayAsks, updates: activityNewCount }}
+     Chips={Chips}
+     EmptyState={EmptyState}
++    SparseTownPanel={SparseTownPanel}
++    isSparseTown={isAuthenticated && displayPosts.length === 0}
+     PostCard={PostCard}
+     homeChip={homeChip}
+     refreshing={homeRefreshing}
+diff --git a/src/Welcome.jsx b/src/Welcome.jsx
+index 18c6bf1..dfaf826 100644
+--- a/src/Welcome.jsx
++++ b/src/Welcome.jsx
+@@ -101,7 +101,7 @@ export function WelcomeHero({ town, displayName, onAnswerQuestion, onIntroduce,
+       <div className="nb-welcome-note">
+         {isPioneer
+           ? "Early neighborhoods are special — you'll know everyone here."
+-          : "Real neighbors, real help, right around the corner."}
++          : "Real neighbors, real help, one small favor at a time."}
+       </div>
+     </div>
+   );
