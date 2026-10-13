@@ -1953,6 +1953,56 @@ function App() {
   }
   // chat drawer
   const [chat, setChat] = useState(null); // {postId, otherUserId}
+
+  // General modal keyboard + focus management (a11y round 3):
+  // every modal-state dialog gets Escape-to-close, initial focus
+  // inside the dialog (preferring its first form field), a Tab
+  // trap, and focus restoration on close. The share modal has its
+  // own implementation and is excluded; the chat drawer gets
+  // Escape-to-close only.
+  useEffect(() => {
+    if (shareModalOpen) return undefined;
+    if (!modal && !chat) return undefined;
+    const prevFocus = document.activeElement;
+    let raf = 0;
+    if (modal) {
+      raf = requestAnimationFrame(() => {
+        try {
+          const root = document.querySelector('.nb-modal');
+          if (!root) return;
+          const field = root.querySelector('textarea:not([disabled]), input:not([disabled]), select:not([disabled])');
+          const first = field || root.querySelector('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])');
+          if (first && first.focus) first.focus();
+        } catch {}
+      });
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        if (modal) setModal(null);
+        else if (chat) setChat(null);
+        return;
+      }
+      if (e.key !== 'Tab' || !modal) return;
+      const root = document.querySelector('.nb-modal');
+      if (!root) return;
+      const nodes = Array.prototype.slice
+        .call(root.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+        .filter((n) => n.offsetParent !== null);
+      if (!nodes.length) return;
+      const firstEl = nodes[0];
+      const lastEl = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
+      else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('keydown', onKey);
+      try { if (prevFocus && prevFocus.isConnected && prevFocus.focus) prevFocus.focus(); } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modal, chat, shareModalOpen]);
+
   const didAutoOpenChatOnActivity = useRef(false);
   // Lightweight toast + deep-link guards (share / referrals / post links)
   const [toastMsg, setToastMsg] = useState(null);
