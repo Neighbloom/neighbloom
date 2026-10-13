@@ -119,13 +119,21 @@ export function AuthProvider({ children }) {
     const filtered = Object.fromEntries(
       Object.entries(updates).filter(([k]) => allowed.includes(k))
     );
-    const { data, error } = await supabase
+    // NOTE: direct SELECT on profiles is revoked (privacy
+    // enforcement) — chaining .select() here made every profile
+    // edit fail with 42501 for real users. Write first, then
+    // re-read through the visible_profiles view like fetchProfile.
+    const { error } = await supabase
       .from('profiles')
       .update(filtered)
-      .eq('id', user.id)
-      .select()
-      .single();
+      .eq('id', user.id);
     if (error) throw error;
+    const { data, error: readError } = await supabase
+      .from('visible_profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+    if (readError) throw readError;
     setProfile(data);
     return data;
   };
