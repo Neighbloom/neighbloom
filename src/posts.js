@@ -35,6 +35,44 @@ export async function fetchPosts({ kind = null, limit = 50 } = {}) {
 }
 
 /**
+ * Convert a raw Supabase post row (with owner join) to the app's
+ * post shape. THE single conversion — every loader in App.jsx uses
+ * it, so fields like selectedUserIds can never drift between
+ * refresh paths again (the initial-load and create-post paths once
+ * shipped without selectedUserIds, silently breaking helper
+ * selection state for posts loaded through them).
+ */
+export function toAppPost(p) {
+  return {
+    id: p.id,
+    kind: p.kind,
+    title: p.title,
+    details: p.details,
+    area: p.area,
+    category: p.category,
+    prefTags: p.pref_tags,
+    helpersNeeded: p.helpers_needed,
+    helpers: p.helpers,
+    selectedUserIds: Array.isArray(p.helpers) ? p.helpers.map(h => h.id || h) : [],
+    stage: p.stage,
+    status: p.status,
+    createdAt: new Date(p.created_at).getTime(),
+    ownerId: p.owner_id,
+    ownerName: p.owner?.display_name,
+    ownerAvatar: p.owner?.avatar_url,
+    _supabase: true,
+  };
+}
+
+/**
+ * Fetch posts and convert them to the app shape in one call.
+ */
+export async function fetchAppPosts(opts) {
+  const data = await fetchPosts(opts);
+  return data.map(toAppPost);
+}
+
+/**
  * Create a new post. owner_id is set from the authenticated user.
  * System fields (stage, status, helpers) are forced to defaults by DB trigger.
  */
