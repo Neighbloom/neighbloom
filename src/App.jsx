@@ -3594,7 +3594,7 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
 
     return list;
   }, [
-    posts,
+    displayPosts,
     homeChip,
     homeShowAll,
     homeFollowOnly,
