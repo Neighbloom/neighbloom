@@ -1,0 +1,53 @@
+diff --git a/src/App.jsx b/src/App.jsx
+index b5ffe1a..4b14291 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -3227,6 +3227,13 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
+         p.id === postId ? { ...p, replies: [...(p.replies || []), reply] } : p
+       )
+     );
++    if (post._supabase) {
++      setSupabasePosts((prev) =>
++        prev.map((p) =>
++          p.id === postId ? { ...p, replies: [...(p.replies || []), reply] } : p
++        )
++      );
++    }
+ 
+     pushActivity({
+       type: 'reply_sent',
+@@ -6718,17 +6725,32 @@ function setUserAvailability(userId, on, note) {
+     useEffect(() => {
+       import('./Welcome.jsx').then(m => setComp(() => m.TownAsk));
+     }, []);
+-    if (!Comp) return null;
++    if (!Comp) return <HeroLoadingFrame />;
+     return <Comp {...props} />;
+   }
+ 
++  // Branded placeholder while a lazy hero chunk loads — the hero
++  // slot used to render nothing, so Home's first paint opened on
++  // whatever came next and the hero "popped in" (or appeared
++  // missing in screenshots).
++  function HeroLoadingFrame() {
++    return (
++      <div className="nb-hero">
++        <div className="nb-hero-card">
++          <div className="nb-hero-card-title">🌼 Neighbloom</div>
++          <div className="nb-hero-card-sub">Meeting your neighbors…</div>
++        </div>
++      </div>
++    );
++  }
++
+   // Lazy wrapper for WelcomeHero (code-split, only loaded for new users).
+   function WelcomeHeroWrapper(props) {
+     const [Comp, setComp] = useState(null);
+     useEffect(() => {
+       import('./Welcome.jsx').then(m => setComp(() => m.WelcomeHero));
+     }, []);
+-    if (!Comp) return null;
++    if (!Comp) return <HeroLoadingFrame />;
+     return <Comp {...props} onAnswerQuestion={props.onDismiss} />;
+   }
+ 

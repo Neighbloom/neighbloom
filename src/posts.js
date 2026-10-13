@@ -69,7 +69,17 @@ export function toAppPost(p) {
  */
 export async function fetchAppPosts(opts) {
   const data = await fetchPosts(opts);
-  return data.map(toAppPost);
+  const appPosts = data.map(toAppPost);
+  // Attach replies (app shape) so volunteers/recommendations are
+  // visible and actionable on real posts, not just demo ones.
+  try {
+    const byPost = await fetchRepliesForPosts(appPosts.map((p) => p.id));
+    for (const p of appPosts) p.replies = byPost[p.id] || [];
+  } catch (e) {
+    console.error('[Supabase] Failed to fetch replies:', e.message);
+    for (const p of appPosts) p.replies = [];
+  }
+  return appPosts;
 }
 
 /**
@@ -141,26 +151,78 @@ export async function deletePost(postId) {
 }
 
 /**
- * Fetch replies for a post.
+ * Convert a raw replies row (with author join) to the app's reply
+ * shape. THE single conversion — the app model speaks `type`,
+ * `text`, `authorId`; the table speaks `kind`, `body`,
+ * `author_id`. Server replies were historically never converted
+ * NOR loaded into post objects at all, which made volunteers
+ * invisible on real posts (owners saw "No volunteers yet" while
+ * the replies table held real offers, and could not select or
+ * book anyone — the helping loop stalled at its first step).
+ */
+export function toAppReply(r) {
+  return {
+    id: r.id,
+    type: r.kind || 'suggestion',
+    authorId: r.author_id,
+    authorName: r.author?.display_name || null,
+    authorAvatar: r.author?.avatar_url || null,
+    text: r.body || '',
+    createdAt: r.created_at ? new Date(r.created_at).getTime() : 0,
+    hearts: [],
+    comments: [],
+    helpful: false,
+    topPick: false,
+    hidden: false,
+    _supabase: true,
+  };
+}
+
+const REPLY_SELECT = `
+  *,
+  author:profiles!replies_author_id_fkey (
+    id,
+    display_name,
+    avatar_url
+  )
+`;
+
+/**
+ * Fetch replies for many posts in one query, grouped by post id,
+ * in app shape. Returns { [postId]: [appReply, ...] }.
+ */
+export async function fetchRepliesForPosts(postIds) {
+  const ids = (postIds || []).filter(Boolean);
+  if (!isSupabaseConfigured() || ids.length === 0) return {};
+
+  const { data, error } = await supabase
+    .from('replies')
+    .select(REPLY_SELECT)
+    .in('post_id', ids)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+  const byPost = {};
+  for (const row of data || []) {
+    (byPost[row.post_id] ||= []).push(toAppReply(row));
+  }
+  return byPost;
+}
+
+/**
+ * Fetch replies for a post (app shape).
  */
 export async function fetchReplies(postId) {
   if (!isSupabaseConfigured()) return [];
-  
+
   const { data, error } = await supabase
     .from('replies')
-    .select(`
-      *,
-      author:profiles!replies_author_id_fkey (
-        id,
-        display_name,
-        avatar_url
-      )
-    `)
+    .select(REPLY_SELECT)
     .eq('post_id', postId)
     .order('created_at', { ascending: true });
-  
+
   if (error) throw error;
-  return data || [];
+  return (data || []).map(toAppReply);
 }
 
 /**
