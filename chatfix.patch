@@ -1,0 +1,130 @@
+diff --git a/src/App.jsx b/src/App.jsx
+index c43d713..c17e0eb 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -6000,6 +6000,17 @@ function pushActivity(arg, meta = {}) {
+     const [area, setArea] = useState(post?.area || '');
+     const [err, setErr] = useState('');
+ 
++    // Late-arriving post data: if the feed object gains its area
++    // after this modal mounted (feed refresh racing the open), an
++    // untouched empty Area field adopts it — saving a real post
++    // must never be blocked by a prefill the data actually has.
++    // (Observed live 2026-10-13: Edit opened with Area empty for a
++    // post whose area is "Worth" on the server and on its card.)
++    useEffect(() => {
++      if (!area && post?.area) setArea(post.area);
++      // eslint-disable-next-line react-hooks/exhaustive-deps
++    }, [post?.area]);
++
+     if (!post) return null;
+ 
+     return (
+@@ -6435,6 +6446,49 @@ function pushActivity(arg, meta = {}) {
+       return () => { cancelled = true; };
+     }, [chat?.otherUserId, m2Ready]);
+ 
++    // Server-conversation resolution (anti-impersonation): if this
++    // drawer was opened for a server help post WITHOUT a resolved
++    // conversation — openChat's lookup can fail transiently (an
++    // auth-refresh race is enough) — resolve it HERE rather than
++    // silently rendering the local thread as if it were the real
++    // one. Verified failure (2026-10-13): the owner's drawer showed
++    // "No messages yet" for a conversation whose messages were
++    // provably on the server.
++    const chatPostForResolve = chat
++      ? (displayPosts.find((p) => p.id === chat.postId) || posts.find((p) => p.id === chat.postId))
++      : null;
++    const needsServerConv = !!(
++      chat && !chat.conversationId && m2Ready &&
++      chatPostForResolve?._supabase && chatPostForResolve.kind === 'help'
++    );
++    const [convFailed, setConvFailed] = useState(false);
++    const [resolveNonce, setResolveNonce] = useState(0);
++    useEffect(() => {
++      if (!needsServerConv) return;
++      let cancelled = false;
++      (async () => {
++        try {
++          let cid = null;
++          if (me.id === chatPostForResolve.ownerId) {
++            const conv = await m2GetOrCreateConversation(chatPostForResolve.id, chat.otherUserId);
++            cid = conv?.id || null;
++          } else {
++            const convs = await m2FetchConversations();
++            cid = convs.find((c) => c.post_id === chatPostForResolve.id)?.id || null;
++          }
++          if (cancelled) return;
++          if (cid) {
++            setConvFailed(false);
++            setChat((prev) => (prev && !prev.conversationId ? { ...prev, conversationId: cid } : prev));
++          } else {
++            setConvFailed(true);
++          }
++        } catch { if (!cancelled) setConvFailed(true); }
++      })();
++      return () => { cancelled = true; };
++      // eslint-disable-next-line react-hooks/exhaustive-deps
++    }, [needsServerConv, resolveNonce, chat?.postId, chat?.otherUserId]);
++
+     useEffect(() => {
+       if (!chatConvId || !m2Ready) { setRealMsgs(null); return; }
+       let cancelled = false;
+@@ -6483,7 +6537,7 @@ function pushActivity(arg, meta = {}) {
+     // RPC in openChat) authorizes the thread for server posts —
+     // the local selection check can't see server-side selection.
+     const serverChat = !!(m2Ready && post._supabase && chat.conversationId);
+-if (!serverChat && !canOpenChatForPost(post, chat.otherUserId)) {
++if (!serverChat && !needsServerConv && !canOpenChatForPost(post, chat.otherUserId)) {
+   const lockedBody =
+     post.kind === 'rec'
+       ? 'This chat unlocks only after the post owner chooses a Top pick (and private chat is enabled).'
+@@ -6521,6 +6575,26 @@ if (!serverChat && !canOpenChatForPost(post, chat.otherUserId)) {
+ 
+         <div className="nb-chat-sub">{post.title}</div>
+ 
++        {needsServerConv ? (
++          <div className="nb-chat-empty">
++            {convFailed ? (
++              <>
++                Couldn't load this conversation. Check your connection and try again.
++                <div style={{ marginTop: 10 }}>
++                  <button
++                    className="nb-btn nb-btn-primary"
++                    onClick={() => { setConvFailed(false); setResolveNonce((n) => n + 1); }}
++                  >
++                    Retry
++                  </button>
++                </div>
++              </>
++            ) : (
++              'Loading conversation…'
++            )}
++          </div>
++        ) : (
++        <>
+         <div className="nb-chat-scroll">
+           {msgs.length ? (
+             msgs.map((m) => (
+@@ -6555,6 +6629,8 @@ if (!serverChat && !canOpenChatForPost(post, chat.otherUserId)) {
+             sendChatMessage(post.id, chat.otherUserId, text);
+           }}
+         />
++        </>
++        )}
+       </div>
+     );
+   }
+@@ -9491,10 +9567,10 @@ onRefresh={refreshHome}
+ 
+       {/* Modals (modal state) */}
+       {modal?.type === 'edit_post' ? (
+-        <EditPostModal postId={modal.postId} />
++        <EditPostModal key={modal.postId} postId={modal.postId} />
+       ) : null}
+       {modal?.type === 'reply' ? (
+-        <ReplyModal postId={modal.postId} mode={modal.mode} />
++        <ReplyModal key={`${modal.postId}:${modal.mode || ''}`} postId={modal.postId} mode={modal.mode} />
+       ) : null}
+ 
+       {modal?.type === 'points' ? <PointsModal /> : null}
