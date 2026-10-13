@@ -101,7 +101,7 @@ export function WelcomeHero({ town, displayName, onAnswerQuestion, onIntroduce, 
       <div className="nb-welcome-note">
         {isPioneer
           ? "Early neighborhoods are special — you'll know everyone here."
-          : "Real neighbors, real help, right around the corner."}
+          : "Real neighbors, real help, one small favor at a time."}
       </div>
     </div>
   );
