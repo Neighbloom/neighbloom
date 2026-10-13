@@ -1,0 +1,350 @@
+diff --git a/src/App.jsx b/src/App.jsx
+index 41d24b2..1a06064 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -4,7 +4,7 @@ import './App.css';
+ import pkg from '../package.json';
+ import { normalizeText, containsLink, maskPhones, buildRecTitle, badgeFor, timeAgo } from './utils.js';
+ import { useAuth } from './auth.jsx';
+-import { AuthScreen } from './AuthScreen.jsx';
++import { AuthScreen, PasswordResetScreen } from './AuthScreen.jsx';
+ // Phase 2: M2 backend — lifecycle, messaging, NP. All gracefully degrade
+ // when the M2 migrations haven't been applied yet (m2Ready=false).
+ import {
+@@ -1322,7 +1322,7 @@ function useLocalStorageJsonState(key, fallbackValue) {
+ 
+ function App() {
+   // Supabase Auth (Milestone 1) — falls back to demo mode if not configured
+-  const { user: authUser, profile: authProfile, loading: authLoading, isConfigured: authConfigured, isAuthenticated, signOut } = useAuth();
++  const { user: authUser, profile: authProfile, loading: authLoading, isConfigured: authConfigured, isAuthenticated, recovery: authRecovery, signOut } = useAuth();
+ 
+   // Phase 2: M2 backend availability probe. True only when authenticated AND
+   // the M2 migrations have been applied (np_ledger table exists).
+@@ -9261,6 +9261,12 @@ const blockedSet = getBlockedSet(me.id);
+     );
+   }
+ 
++  // Password-recovery landing: the email link creates a session, so
++  // this gate must precede the app shell or the reset form never shows.
++  if (authConfigured && authRecovery) {
++    return <PasswordResetScreen />;
++  }
++
+   if (authConfigured && !authLoading && !isAuthenticated && !publicViewPostId) {
+     return <AuthScreen />;
+   }
+diff --git a/src/AuthScreen.jsx b/src/AuthScreen.jsx
+index f4309c1..bd455b5 100644
+--- a/src/AuthScreen.jsx
++++ b/src/AuthScreen.jsx
+@@ -1,17 +1,29 @@
+ // Auth UI for Neighbloom Milestone 1.
+-// Signup, login, and logout screens matching the existing design.
++// Signup, login, password reset, and recovery screens matching the
++// existing design.
+ 
+ import { useState } from 'react';
+ import { useAuth } from './auth.jsx';
+ 
++const SCREEN_STYLE = {
++  minHeight: '100dvh',
++  display: 'flex',
++  flexDirection: 'column',
++  alignItems: 'center',
++  justifyContent: 'center',
++  padding: 24,
++  background: '#031628',
++  color: '#fff',
++};
++
+ export function AuthScreen() {
+-  const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
++  const [mode, setMode] = useState('signin'); // 'signin' | 'signup' | 'forgot' | 'forgot-sent'
+   const [email, setEmail] = useState('');
+   const [password, setPassword] = useState('');
+   const [displayName, setDisplayName] = useState('');
+   const [error, setError] = useState('');
+   const [busy, setBusy] = useState(false);
+-  const { signUp, signIn } = useAuth();
++  const { signUp, signIn, resetPassword } = useAuth();
+ 
+   const handleSubmit = async (e) => {
+     e.preventDefault();
+@@ -21,6 +33,9 @@ export function AuthScreen() {
+       if (mode === 'signup') {
+         if (!displayName.trim()) throw new Error('Please enter a display name');
+         await signUp(email.trim(), password, displayName.trim());
++      } else if (mode === 'forgot') {
++        await resetPassword(email.trim());
++        setMode('forgot-sent');
+       } else {
+         await signIn(email.trim(), password);
+       }
+@@ -32,54 +47,158 @@ export function AuthScreen() {
+   };
+ 
+   return (
+-    <div className="nb-auth-screen" style={{
+-      minHeight: '100dvh',
+-      display: 'flex',
+-      flexDirection: 'column',
+-      alignItems: 'center',
+-      justifyContent: 'center',
+-      padding: 24,
+-      background: '#031628',
+-      color: '#fff',
+-    }}>
++    <div className="nb-auth-screen" style={SCREEN_STYLE}>
+       <div style={{ fontSize: 48, marginBottom: 16 }}>🏘️</div>
+       <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>Neighbloom</h1>
+       <p style={{ opacity: 0.7, marginBottom: 32, textAlign: 'center' }}>
+         Your neighborhood help network
+       </p>
+ 
+-      <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 320 }}>
+-        {mode === 'signup' && (
++      {mode === 'forgot-sent' ? (
++        <div style={{ width: '100%', maxWidth: 320, textAlign: 'center' }}>
++          <p style={{ marginBottom: 16 }}>
++            If that email has a Neighbloom account, a password reset link is on its way.
++          </p>
++          <p style={{ opacity: 0.7, marginBottom: 24 }}>
++            The link signs you in and lets you choose a new password.
++          </p>
++          <button
++            type="button"
++            className="nb-btn nb-btn-primary"
++            style={{ width: '100%' }}
++            onClick={() => { setMode('signin'); setError(''); }}
++          >
++            Back to sign in
++          </button>
++        </div>
++      ) : (
++        <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 320 }}>
++          {mode === 'signup' && (
++            <input
++              type="text"
++              placeholder="Display name"
++              value={displayName}
++              onChange={(e) => setDisplayName(e.target.value)}
++              className="nb-input"
++              style={{ width: '100%', marginBottom: 12 }}
++              autoComplete="name"
++            />
++          )}
+           <input
+-            type="text"
+-            placeholder="Display name"
+-            value={displayName}
+-            onChange={(e) => setDisplayName(e.target.value)}
++            type="email"
++            placeholder="Email"
++            value={email}
++            onChange={(e) => setEmail(e.target.value)}
+             className="nb-input"
+             style={{ width: '100%', marginBottom: 12 }}
+-            autoComplete="name"
++            required
++            autoComplete="email"
+           />
+-        )}
++          {mode !== 'forgot' && (
++            <input
++              type="password"
++              placeholder="Password"
++              value={password}
++              onChange={(e) => setPassword(e.target.value)}
++              className="nb-input"
++              style={{ width: '100%', marginBottom: 16 }}
++              required
++              minLength={6}
++              autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
++            />
++          )}
++          {error && (
++            <div className="nb-error" style={{ marginBottom: 12 }}>{error}</div>
++          )}
++          <button
++            type="submit"
++            className="nb-btn nb-btn-primary"
++            style={{ width: '100%', marginBottom: 12 }}
++            disabled={busy}
++          >
++            {busy ? 'Please wait...' : mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Email me a reset link' : 'Sign in'}
++          </button>
++          {mode === 'signin' && (
++            <button
++              type="button"
++              className="nb-btn nb-btn-ghost"
++              style={{ width: '100%', marginBottom: 12 }}
++              onClick={() => { setMode('forgot'); setError(''); }}
++            >
++              Forgot password?
++            </button>
++          )}
++          <button
++            type="button"
++            className="nb-btn nb-btn-ghost"
++            style={{ width: '100%' }}
++            onClick={() => { setMode(mode === 'signup' ? 'signin' : mode === 'forgot' ? 'signin' : 'signup'); setError(''); }}
++          >
++            {mode === 'signup' ? 'Already have an account? Sign in' : mode === 'forgot' ? 'Back to sign in' : "Don't have an account? Sign up"}
++          </button>
++        </form>
++      )}
++    </div>
++  );
++}
++
++// Landing screen for the password-reset email link. The link creates
++// a recovery session (auth.jsx flags it); submitting here sets the
++// new password and drops the user into the app, signed in.
++export function PasswordResetScreen() {
++  const [password, setPassword] = useState('');
++  const [confirm, setConfirm] = useState('');
++  const [error, setError] = useState('');
++  const [busy, setBusy] = useState(false);
++  const { completePasswordReset, cancelRecovery } = useAuth();
++
++  const handleSubmit = async (e) => {
++    e.preventDefault();
++    setError('');
++    if (password !== confirm) {
++      setError('Passwords do not match');
++      return;
++    }
++    setBusy(true);
++    try {
++      await completePasswordReset(password);
++    } catch (err) {
++      setError(err.message);
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  return (
++    <div className="nb-auth-screen" style={SCREEN_STYLE}>
++      <div style={{ fontSize: 48, marginBottom: 16 }}>🔑</div>
++      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>Choose a new password</h1>
++      <p style={{ opacity: 0.7, marginBottom: 32, textAlign: 'center' }}>
++        You followed a reset link — set a new password to continue.
++      </p>
++
++      <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 320 }}>
+         <input
+-          type="email"
+-          placeholder="Email"
+-          value={email}
+-          onChange={(e) => setEmail(e.target.value)}
++          type="password"
++          placeholder="New password"
++          value={password}
++          onChange={(e) => setPassword(e.target.value)}
+           className="nb-input"
+           style={{ width: '100%', marginBottom: 12 }}
+           required
+-          autoComplete="email"
++          minLength={6}
++          autoComplete="new-password"
+         />
+         <input
+           type="password"
+-          placeholder="Password"
+-          value={password}
+-          onChange={(e) => setPassword(e.target.value)}
++          placeholder="Confirm new password"
++          value={confirm}
++          onChange={(e) => setConfirm(e.target.value)}
+           className="nb-input"
+           style={{ width: '100%', marginBottom: 16 }}
+           required
+           minLength={6}
+-          autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
++          autoComplete="new-password"
+         />
+         {error && (
+           <div className="nb-error" style={{ marginBottom: 12 }}>{error}</div>
+@@ -90,15 +209,15 @@ export function AuthScreen() {
+           style={{ width: '100%', marginBottom: 12 }}
+           disabled={busy}
+         >
+-          {busy ? 'Please wait...' : mode === 'signup' ? 'Create account' : 'Sign in'}
++          {busy ? 'Please wait...' : 'Set new password'}
+         </button>
+         <button
+           type="button"
+           className="nb-btn nb-btn-ghost"
+           style={{ width: '100%' }}
+-          onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setError(''); }}
++          onClick={() => { cancelRecovery(); }}
+         >
+-          {mode === 'signup' ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
++          Cancel and sign out
+         </button>
+       </form>
+     </div>
+diff --git a/src/auth.jsx b/src/auth.jsx
+index 92b3e21..8d38843 100644
+--- a/src/auth.jsx
++++ b/src/auth.jsx
+@@ -11,6 +11,7 @@ export function AuthProvider({ children }) {
+   const [user, setUser] = useState(null);
+   const [profile, setProfile] = useState(null);
+   const [loading, setLoading] = useState(true);
++  const [recovery, setRecovery] = useState(false); // PASSWORD_RECOVERY landing
+ 
+   useEffect(() => {
+     if (!isSupabaseConfigured()) {
+@@ -31,6 +32,7 @@ export function AuthProvider({ children }) {
+     // Listen for auth changes
+     const { data: { subscription } } = supabase.auth.onAuthStateChange(
+       async (event, session) => {
++        if (event === 'PASSWORD_RECOVERY') setRecovery(true);
+         setUser(session?.user ?? null);
+         if (session?.user) {
+           await fetchProfile(session.user.id);
+@@ -88,6 +90,28 @@ export function AuthProvider({ children }) {
+     setProfile(null);
+   };
+ 
++  const resetPassword = async (email) => {
++    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
++    const { error } = await supabase.auth.resetPasswordForEmail(email, {
++      redirectTo: window.location.origin + window.location.pathname,
++    });
++    if (error) throw error;
++  };
++
++  const completePasswordReset = async (newPassword) => {
++    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
++    const { error } = await supabase.auth.updateUser({ password: newPassword });
++    if (error) throw error;
++    setRecovery(false);
++  };
++
++  const cancelRecovery = async () => {
++    // A recovery landing holds a live session; backing out must not
++    // leave the user silently signed in on someone else's device.
++    setRecovery(false);
++    await signOut();
++  };
++
+   const updateProfile = async (updates) => {
+     if (!user) throw new Error('Not authenticated');
+     // Only allow user-editable fields (np, id, created_at are protected)
+@@ -113,9 +137,13 @@ export function AuthProvider({ children }) {
+       loading,
+       isConfigured: isSupabaseConfigured(),
+       isAuthenticated: !!user,
++      recovery,
+       signUp,
+       signIn,
+       signOut,
++      resetPassword,
++      completePasswordReset,
++      cancelRecovery,
+       updateProfile,
+     }}>
+       {children}
