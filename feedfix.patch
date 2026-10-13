@@ -1,0 +1,13 @@
+diff --git a/src/App.jsx b/src/App.jsx
+index 9c856bc..fc28f45 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -3594,7 +3594,7 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
+ 
+     return list;
+   }, [
+-    posts,
++    displayPosts,
+     homeChip,
+     homeShowAll,
+     homeFollowOnly,
