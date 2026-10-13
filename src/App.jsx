@@ -1389,15 +1389,6 @@ function App() {
     return () => { cancelled = true; document.removeEventListener('visibilitychange', onVis); clearInterval(t); };
   }, []);
   const updateReady = !!servedBuild && servedBuild !== BUILD_ID && !updateDismissed;
-
-  // Each tab starts at its top — inheriting the previous tab's
-  // scroll position made Profile open mid-page.
-  useEffect(() => {
-    try {
-      window.scrollTo(0, 0);
-      document.querySelectorAll('.nb-page, .nb-scroll').forEach((el) => { el.scrollTop = 0; });
-    } catch { /* noop */ }
-  }, [activeTab]);
   useEffect(() => {
     if (!isAuthenticated || !authConfigured) { setM2Ready(false); return; }
     (async () => {
@@ -1439,6 +1430,15 @@ function App() {
   const saved = useMemo(() => loadAppState(), []);
 
   const [activeTab, setActiveTab] = useState(() => saved?.activeTab ?? 'home'); // home | post | activity | profile
+
+  // Each tab starts at its top — inheriting the previous tab's
+  // scroll position made Profile open mid-page.
+  useEffect(() => {
+    try {
+      window.scrollTo(0, 0);
+      document.querySelectorAll('.nb-page, .nb-scroll').forEach((el) => { el.scrollTop = 0; });
+    } catch { /* noop */ }
+  }, [activeTab]);
   
   
   const [homeRefreshing, setHomeRefreshing] = useState(false);
