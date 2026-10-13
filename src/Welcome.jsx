@@ -172,6 +172,7 @@ export function IntroComposer({ initialIntro = '', initialSkills = [], onSave, o
         value={intro}
         onChange={e => setIntro(e.target.value)}
         placeholder="Hi! I'm Maria, near 115th and Harlem. Happy to help with yard work or give rides to the library."
+        aria-label="Introduce yourself"
         rows={3}
         maxLength={200}
       />
@@ -208,6 +209,7 @@ export function IntroComposer({ initialIntro = '', initialSkills = [], onSave, o
           onChange={e => setCustomSkill(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustomSkill(); } }}
           placeholder="Add your own…"
+          aria-label="Add your own skill"
           maxLength={30}
         />
         <button type="button" className="nb-btn nb-btn-ghost" onClick={addCustomSkill} disabled={!customSkill.trim()}>
@@ -332,6 +334,7 @@ export function TownAsk({ displayName, onSave, onSkip }) {
         <input
           type="text"
           placeholder="Your town"
+          aria-label="Your town"
           value={custom}
           onChange={(e) => setCustom(e.target.value)}
           className="nb-input"

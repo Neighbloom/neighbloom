@@ -32,7 +32,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .nb-navbtn:focus-visible,
 .nb-input:focus-visible,
 .nb-quickbtn:focus-visible,
-.nb-herolink:focus-visible {
+.nb-herolink:focus-visible,
+.nb-card-title:focus-visible,
+.nb-card-details:focus-visible {
   outline: 2px solid rgba(255,106,61,.55);
   outline-offset: 2px;
 }
@@ -102,7 +104,11 @@ body{
 /* Prominent CTA styles tied to new accents */
 .nb-btn.nb-btn-primary{
   background: linear-gradient(90deg, var(--accent), #ff915a);
-  color: #fff;
+  /* Dark text on the bright coral gradient: white measured
+     2.2–2.8:1 (fails WCAG AA for button text); #2A130A
+     measures 6.6–8.4:1 across the gradient. Matches the
+     dark-text precedent already used by .nb-btn-rec. */
+  color: #2A130A;
   border: none;
   box-shadow: 0 10px 30px rgba(255,106,61,0.16);
 }

@@ -84,6 +84,7 @@ export function AuthScreen() {
             <input
               type="text"
               placeholder="Your name — what neighbors will call you"
+              aria-label="Your name"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               className="nb-input"
@@ -94,6 +95,7 @@ export function AuthScreen() {
           <input
             type="email"
             placeholder="Email"
+            aria-label="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="nb-input"
@@ -105,6 +107,7 @@ export function AuthScreen() {
             <input
               type="password"
               placeholder="Password"
+              aria-label="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="nb-input"
@@ -192,6 +195,7 @@ export function PasswordResetScreen() {
         <input
           type="password"
           placeholder="New password"
+          aria-label="New password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="nb-input"
@@ -203,6 +207,7 @@ export function PasswordResetScreen() {
         <input
           type="password"
           placeholder="Confirm new password"
+          aria-label="Confirm new password"
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
           className="nb-input"

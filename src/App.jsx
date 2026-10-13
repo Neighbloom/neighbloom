@@ -5256,7 +5256,7 @@ function pushActivity(arg, meta = {}) {
         <PostMetaLine post={post} />
 
         <div className="nb-card-main">
-          <div className="nb-card-title" onClick={() => toggleThread(post.id)} style={{ cursor: 'pointer' }} title={open ? 'Tap to collapse' : 'Tap to read the full story'}>{post.title}</div>
+          <div className="nb-card-title" role="button" tabIndex={0} aria-expanded={open} onClick={() => toggleThread(post.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleThread(post.id); } }} style={{ cursor: 'pointer' }} title={open ? 'Tap to collapse' : 'Tap to read the full story'}>{post.title}</div>
           {post.kind === 'help' && post.photo ? (
             <img className="nb-card-photo" src={post.photo} alt="" />
           ) : null}
@@ -5291,7 +5291,7 @@ function pushActivity(arg, meta = {}) {
             <div style={{ marginTop: 10, fontWeight: 900, fontSize: 14, color: 'var(--good)' }}>{stageLine}</div>
           ) : null}
 
-          <div className={`nb-card-details ${open ? '' : 'is-clamped'}`} onClick={() => toggleThread(post.id)} style={{ cursor: 'pointer' }}>
+          <div className={`nb-card-details ${open ? '' : 'is-clamped'}`} role="button" tabIndex={0} aria-expanded={open} onClick={() => toggleThread(post.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleThread(post.id); } }} style={{ cursor: 'pointer' }}>
             {post.details}
           </div>
           {!open ? (
