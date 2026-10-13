@@ -5498,15 +5498,6 @@ function pushActivity(arg, meta = {}) {
               Share
             </button>
 
-            {replyCount > 0 ? (
-              <button
-                type="button"
-                className="nb-link"
-                onClick={() => toggleThread(post.id)}
-              >
-                {open ? 'Hide' : 'Show'} {threadLabel}
-              </button>
-            ) : null}
           </div>
 
           {open ? <ReplyList post={post} /> : null}
@@ -8464,7 +8455,7 @@ const [nearText, setNearText] = useState('');
       ? followsByUser[userId].filter(Boolean).length
       : 0;
 
-    const theirPosts = posts
+    const theirPosts = displayPosts
       .filter((p) => p && p.ownerId === userId)
       .sort((a, b) => b.createdAt - a.createdAt);
 
@@ -8667,7 +8658,6 @@ const [nearText, setNearText] = useState('');
           </div>
 
           <div className="nb-modal-foot">
-            <div className="nb-muted">Profiles are local-demo only right now.</div>
             <div className="nb-modal-actions">
               <button className="nb-btn nb-btn-primary" onClick={() => setModal(null)}>
                 Close
@@ -9049,7 +9039,6 @@ const [nearText, setNearText] = useState('');
 
             <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,.02)' }}>
               <div style={{ fontWeight: 950 }}>Your activity</div>
-              <div style={{ marginTop: 8, color: 'var(--muted)' }}>Last active: Today</div>
               <div style={{ marginTop: 6, fontWeight: 980 }}>{((getCheckInFor && getCheckInFor(me.id)?.streak) || 0) > 0 ? `${(getCheckInFor(me.id)?.streak) || 0} days 🔥` : 'No streak yet'}</div>
             </div>
           </div>

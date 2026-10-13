@@ -56,14 +56,27 @@ function enclosingFunction(idx) {
 
 function bareSites() {
   const out = [];
-  lines.forEach((line, i) => {
+  // Multi-line evasion: `posts` at end of line, `.find(` / `.filter(`
+  // starting the next — normalize by joining those pairs first.
+  const joined = [];
+  for (let i = 0; i < lines.length; i++) {
+    const next = lines[i + 1] || '';
+    if (/\bposts\s*$/.test(lines[i]) && /^\s*\.(find|filter)\(/.test(next)) {
+      joined.push({ text: lines[i] + next.trim(), line: i + 1 });
+      i++;
+    } else {
+      joined.push({ text: lines[i], line: i + 1 });
+    }
+  }
+  joined.forEach(({ text: line, line: lineNo }) => {
     if (!/posts\.(find|filter)\(/.test(line)) return;
     if (line.includes('|| posts.')) return; // same-line fallback pattern
+    if (line.includes('|| displayPosts.')) return; // reversed fallback order
     // multi-line fallback pattern: previous non-empty line ends with ||
-    let k = i - 1;
+    let k = lineNo - 2;
     while (k >= 0 && lines[k].trim() === '') k--;
     if (k >= 0 && lines[k].trimEnd().endsWith('||')) return;
-    out.push({ line: i + 1, fn: enclosingFunction(i), text: line.trim().slice(0, 80) });
+    out.push({ line: lineNo, fn: enclosingFunction(lineNo - 1), text: line.trim().slice(0, 80) });
   });
   return out;
 }
