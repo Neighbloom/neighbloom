@@ -6513,6 +6513,8 @@ function pushActivity(arg, meta = {}) {
     );
     const [convFailed, setConvFailed] = useState(false);
     const [resolveNonce, setResolveNonce] = useState(0);
+    const [msgsFailed, setMsgsFailed] = useState(false);
+    const [msgsNonce, setMsgsNonce] = useState(0);
     useEffect(() => {
       if (!needsServerConv) return;
       let cancelled = false;
@@ -6544,9 +6546,12 @@ function pushActivity(arg, meta = {}) {
       let cancelled = false;
       let unsub = null;
       (async () => {
+        setRealMsgs(null);
+        setMsgsFailed(false);
         try {
           const msgs = await m2FetchMessages(chatConvId);
           if (cancelled) return;
+          setMsgsFailed(false);
           setRealMsgs(msgs.map(m => ({
             id: m.id, fromId: m.sender_id, text: m.body,
             ts: new Date(m.created_at).getTime(), _real: true,
@@ -6560,11 +6565,11 @@ function pushActivity(arg, meta = {}) {
           });
         } catch (e) {
           console.log('[M2] Failed to load messages:', e.message);
-          if (!cancelled) setRealMsgs(null);
+          if (!cancelled) { setRealMsgs(null); setMsgsFailed(true); }
         }
       })();
       return () => { cancelled = true; if (unsub) unsub(); };
-    }, [chatConvId, m2Ready]);
+    }, [chatConvId, m2Ready, msgsNonce]);
 
     if (!chat) return null;
     const post = displayPosts.find((p) => p.id === chat.postId) || posts.find((p) => p.id === chat.postId);
@@ -6587,6 +6592,11 @@ function pushActivity(arg, meta = {}) {
     // RPC in openChat) authorizes the thread for server posts —
     // the local selection check can't see server-side selection.
     const serverChat = !!(m2Ready && post._supabase && chat.conversationId);
+    // While a server conversation's messages are still loading
+    // (realMsgs === null) the list must say so — the local fallback
+    // would otherwise render "No messages yet" for a thread whose
+    // messages simply haven't arrived (observed live post-fix).
+    const serverMsgsPending = !!(serverChat && realMsgs === null && !msgsFailed);
 if (!serverChat && !needsServerConv && !canOpenChatForPost(post, chat.otherUserId)) {
   const lockedBody =
     post.kind === 'rec'
@@ -6646,7 +6656,16 @@ if (!serverChat && !needsServerConv && !canOpenChatForPost(post, chat.otherUserI
         ) : (
         <>
         <div className="nb-chat-scroll">
-          {msgs.length ? (
+          {(msgsFailed && serverChat) ? (
+            <div className="nb-chat-empty">
+              Could not load messages.{' '}
+              <button className="nb-btn nb-btn-sm" onClick={() => setMsgsNonce((n) => n + 1)}>
+                Retry
+              </button>
+            </div>
+          ) : serverMsgsPending ? (
+            <div className="nb-chat-empty">Loading messages…</div>
+          ) : msgs.length ? (
             msgs.map((m) => (
               <div
                 key={m.id}
