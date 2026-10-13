@@ -6515,6 +6515,25 @@ function pushActivity(arg, meta = {}) {
     const [resolveNonce, setResolveNonce] = useState(0);
     const [msgsFailed, setMsgsFailed] = useState(false);
     const [msgsNonce, setMsgsNonce] = useState(0);
+    // Cold-open grace: on a fresh page load the backend probe
+    // (m2Ready) can still be running when the drawer opens. During
+    // that window a server help post must show the loading state —
+    // not the local thread (whose empty placeholder falsely claims
+    // "No messages yet") and not the locked body. The grace expires
+    // after 6s so a genuinely unreachable backend falls through to
+    // the pre-existing behavior instead of loading forever.
+    const [initGraceOver, setInitGraceOver] = useState(false);
+    useEffect(() => {
+      setInitGraceOver(false);
+      if (!chat) return undefined;
+      const t = setTimeout(() => setInitGraceOver(true), 6000);
+      return () => clearTimeout(t);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chat?.postId, chat?.otherUserId]);
+    const backendInitializing = !!(
+      chat && !m2Ready && !initGraceOver &&
+      chatPostForResolve?._supabase && chatPostForResolve.kind === 'help'
+    );
     useEffect(() => {
       if (!needsServerConv) return;
       let cancelled = false;
@@ -6597,7 +6616,7 @@ function pushActivity(arg, meta = {}) {
     // would otherwise render "No messages yet" for a thread whose
     // messages simply haven't arrived (observed live post-fix).
     const serverMsgsPending = !!(serverChat && realMsgs === null && !msgsFailed);
-if (!serverChat && !needsServerConv && !canOpenChatForPost(post, chat.otherUserId)) {
+if (!serverChat && !needsServerConv && !backendInitializing && !canOpenChatForPost(post, chat.otherUserId)) {
   const lockedBody =
     post.kind === 'rec'
       ? 'This chat unlocks only after the post owner chooses a Top pick (and private chat is enabled).'
@@ -6635,7 +6654,7 @@ if (!serverChat && !needsServerConv && !canOpenChatForPost(post, chat.otherUserI
 
         <div className="nb-chat-sub">{post.title}</div>
 
-        {needsServerConv ? (
+        {(needsServerConv || backendInitializing) ? (
           <div className="nb-chat-empty">
             {convFailed ? (
               <>
