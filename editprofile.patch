@@ -1,0 +1,143 @@
+diff --git a/src/App.jsx b/src/App.jsx
+index c357fce..ff1d7b9 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -8547,6 +8547,89 @@ const [nearText, setNearText] = useState('');
+     );
+   }
+ 
++  function EditProfileModal() {
++    const { profile: prof, updateProfile } = useAuth();
++    // Keep in sync with TOWN_OPTIONS in Welcome.jsx (duplicated to
++    // preserve Welcome's lazy code-split).
++    const EDIT_TOWNS = [
++      'Worth', 'Palos Hills', 'Palos Heights', 'Palos Park', 'Hickory Hills',
++      'Oak Lawn', 'Orland Park', 'Orland Hills', 'Tinley Park', 'Homer Glen',
++      'Lemont', 'Lockport', 'New Lenox', 'Mokena', 'Frankfort',
++    ];
++    const currentTown = prof?.town || '';
++    const townInList = EDIT_TOWNS.includes(currentTown);
++    const [name, setName] = useState(prof?.display_name || '');
++    const [townSel, setTownSel] = useState(currentTown ? (townInList ? currentTown : '__other') : '');
++    const [customTown, setCustomTown] = useState(townInList ? '' : currentTown);
++    const [intro, setIntro] = useState(prof?.intro || '');
++    const [busy, setBusy] = useState(false);
++    const [err, setErr] = useState('');
++
++    const chosenTown = townSel === '__other' ? customTown.trim() : townSel;
++
++    async function save() {
++      if (busy) return;
++      const cleanName = name.trim();
++      if (!cleanName) { setErr("Your name can't be empty — neighbors should know who you are."); return; }
++      if (cleanName.length > 60) { setErr('That name is a bit long — 60 characters max.'); return; }
++      if (!chosenTown) { setErr('Pick your town so neighbors near you can find you.'); return; }
++      if (intro.trim().length > 200) { setErr('Intros are 200 characters max — keep it short and neighborly.'); return; }
++      setBusy(true);
++      setErr('');
++      try {
++        // Intro writes through m2 (updateProfile's allowlist excludes
++        // intro by design). Name/town go through updateProfile last:
++        // its re-read refreshes the whole profile in the UI.
++        if (intro.trim() !== (prof?.intro || '')) {
++          const { updateIntro } = await import('./m2.js');
++          await updateIntro({ intro: intro.trim() });
++        }
++        await updateProfile({ display_name: cleanName, town: chosenTown });
++        setModal(null);
++        showToast('Profile saved');
++      } catch (e) {
++        setErr(e?.message || 'Could not save — try again.');
++        setBusy(false);
++      }
++    }
++
++    return (
++      <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
++        <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
++          <div className="nb-modal-head">
++            <div className="nb-modal-title">Edit profile</div>
++            <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">✕</button>
++          </div>
++
++          <div className="nb-label" style={{ marginTop: 12 }}>Your name</div>
++          <input className="nb-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="e.g. Rosa Martinez" autoComplete="name" />
++
++          <div className="nb-label" style={{ marginTop: 14 }}>Your town</div>
++          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
++            {EDIT_TOWNS.map((t) => (
++              <button key={t} type="button" className={`nb-chip ${townSel === t ? 'is-active' : ''}`} onClick={() => setTownSel(t)}>{t}</button>
++            ))}
++            <button type="button" className={`nb-chip ${townSel === '__other' ? 'is-active' : ''}`} onClick={() => setTownSel('__other')}>Another town</button>
++          </div>
++          {townSel === '__other' ? (
++            <input className="nb-input" style={{ marginTop: 10 }} value={customTown} onChange={(e) => setCustomTown(e.target.value)} maxLength={60} placeholder="Your town" autoComplete="address-level2" />
++          ) : null}
++
++          <div className="nb-label" style={{ marginTop: 14 }}>Say hello</div>
++          <textarea className="nb-input" rows={3} value={intro} onChange={(e) => setIntro(e.target.value)} maxLength={200} placeholder="A line or two so neighbors know who's nearby — what you love here, what you're handy with." />
++          <div className="nb-muted" style={{ fontSize: 12, marginTop: 4 }}>{intro.length}/200 · This is what neighbors see when they meet you.</div>
++
++          {err ? <div className="nb-error" style={{ marginTop: 10 }}>{err}</div> : null}
++
++          <div className="nb-formactions" style={{ marginTop: 14 }}>
++            <button className="nb-btn nb-btn-ghost" onClick={() => setModal(null)} disabled={busy}>Cancel</button>
++            <button className="nb-btn nb-btn-primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save profile'}</button>
++          </div>
++        </div>
++      </div>
++    );
++  }
++
+   function ProfileTab() {
+     const scrollRef = useRef(null);
+     const myFollowers = Array.isArray(followersByUser?.[me.id])
+@@ -8576,19 +8659,34 @@ const [nearText, setNearText] = useState('');
+                 <div style={{ marginLeft: 6, fontSize: 18 }}>🌱</div>
+               </div>
+               <div style={{ marginTop: 6, color: 'var(--muted)', fontWeight: 850 }}>{me.location || 'Worth'}</div>
+-              <div style={{ marginTop: 8, fontWeight: 850 }}>{me.tagline || 'Little missions, big city.'}</div>
++              {isAuthenticated ? (
++                authProfile?.intro ? (
++                  <div style={{ marginTop: 8, fontWeight: 850 }}>{authProfile.intro}</div>
++                ) : (
++                  <button type="button" onClick={() => setModal({ type: 'edit_profile' })} style={{ marginTop: 8, padding: 0, background: 'none', border: 'none', color: 'var(--muted)', fontWeight: 850, fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>
++                    Say hello to your neighbors →
++                  </button>
++                )
++              ) : (
++                <div style={{ marginTop: 8, fontWeight: 850 }}>{me.tagline || 'Little missions, big city.'}</div>
++              )}
+               <div style={{ marginTop: 6, color: 'var(--muted)', fontWeight: 800, fontSize: 13 }}>
+                 {(() => {
+                   try {
+-                    const d = new Date(); d.setMonth(d.getMonth() - 1); // approximate joined last month if not provided
+-                    const mo = d.toLocaleString('default', { month: 'short' });
+-                    const yr = d.getFullYear();
+-                    return `Joined ${mo} ${yr}`;
+-                  } catch { return 'Joined 2026'; }
++                    const real = isAuthenticated && authProfile?.created_at ? new Date(authProfile.created_at) : null;
++                    if (real && !isNaN(real)) {
++                      return `Joined ${real.toLocaleString('default', { month: 'short' })} ${real.getFullYear()}`;
++                    }
++                    const d = new Date(); d.setMonth(d.getMonth() - 1); // demo fallback only
++                    return `Joined ${d.toLocaleString('default', { month: 'short' })} ${d.getFullYear()}`;
++                  } catch { return ''; }
+                 })()}
+               </div>
+ 
+               <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
++                {isAuthenticated && (
++                  <button className="nb-btn nb-btn-ghost" onClick={() => setModal({ type: 'edit_profile' })}>Edit profile</button>
++                )}
+                 <button className="nb-btn nb-btn-ghost" onClick={() => setModal({ type: 'badges' })}>View badges & points</button>
+                 {!isAuthenticated && (
+                   <button className="nb-btn nb-btn-ghost" onClick={() => { resetDemoData(); showToast('Demo data reset'); }}>Reset demo data</button>
+@@ -9038,6 +9136,7 @@ onRefresh={refreshHome}
+       ) : null}
+ 
+       {modal?.type === 'points' ? <PointsModal /> : null}
++      {modal?.type === 'edit_profile' ? <EditProfileModal /> : null}
+ 
+       {modal?.type === 'home_setup' ? <HomeSetupModal /> : null}
+ 
