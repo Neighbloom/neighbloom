@@ -1,0 +1,328 @@
+diff --git a/src/App.jsx b/src/App.jsx
+index 6bfca3a..9c856bc 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -1350,19 +1350,8 @@ function App() {
+   const refreshSupabasePosts = React.useCallback(async () => {
+     if (!isAuthenticated || !authConfigured) return;
+     try {
+-      const { fetchPosts } = await import('./posts.js');
+-      const data = await fetchPosts();
+-      const converted = data.map(p => ({
+-        id: p.id, kind: p.kind, title: p.title, details: p.details,
+-        area: p.area, category: p.category, prefTags: p.pref_tags,
+-        helpersNeeded: p.helpers_needed, helpers: p.helpers,
+-        selectedUserIds: Array.isArray(p.helpers) ? p.helpers.map(h => h.id || h) : [],
+-        stage: p.stage, status: p.status,
+-        createdAt: new Date(p.created_at).getTime(),
+-        ownerId: p.owner_id, ownerName: p.owner?.display_name,
+-        ownerAvatar: p.owner?.avatar_url, _supabase: true,
+-      }));
+-      setSupabasePosts(converted);
++      const { fetchAppPosts } = await import('./posts.js');
++      setSupabasePosts(await fetchAppPosts());
+     } catch (e) {
+       console.error('[Supabase] refreshSupabasePosts failed:', e.message);
+     }
+@@ -1396,19 +1385,8 @@ function App() {
+       // Phase 1: Real refetch from Supabase when authenticated.
+       // Falls back to simulated delay in demo mode.
+       if (isAuthenticated && authConfigured) {
+-        const { fetchPosts } = await import('./posts.js');
+-        const data = await fetchPosts();
+-        const converted = data.map(p => ({
+-          id: p.id, kind: p.kind, title: p.title, details: p.details,
+-          area: p.area, category: p.category, prefTags: p.pref_tags,
+-          helpersNeeded: p.helpers_needed, helpers: p.helpers,
+-          selectedUserIds: Array.isArray(p.helpers) ? p.helpers.map(h => h.id || h) : [],
+-          stage: p.stage, status: p.status,
+-          createdAt: new Date(p.created_at).getTime(),
+-          ownerId: p.owner_id, ownerName: p.owner?.display_name,
+-          ownerAvatar: p.owner?.avatar_url, _supabase: true,
+-        }));
+-        setSupabasePosts(converted);
++        const { fetchAppPosts } = await import('./posts.js');
++        setSupabasePosts(await fetchAppPosts());
+       } else {
+         await sleep(650);
+       }
+@@ -1447,34 +1425,16 @@ function App() {
+   useEffect(() => {
+     if (!isAuthenticated || !authConfigured) return;
+     setSupabaseLoading(true);
+-    import('./posts.js').then(({ fetchPosts }) => {
+-      fetchPosts().then(data => {
+-        // Convert Supabase format to app format
+-        const converted = data.map(p => ({
+-          id: p.id,
+-          kind: p.kind,
+-          title: p.title,
+-          details: p.details,
+-          area: p.area,
+-          category: p.category,
+-          prefTags: p.pref_tags,
+-          helpersNeeded: p.helpers_needed,
+-          helpers: p.helpers,
+-          stage: p.stage,
+-          status: p.status,
+-          createdAt: new Date(p.created_at).getTime(),
+-          ownerId: p.owner_id,
+-          ownerName: p.owner?.display_name,
+-          ownerAvatar: p.owner?.avatar_url,
+-          _supabase: true,
+-        }));
+-        setSupabasePosts(converted);
+-        setSupabaseLoading(false);
+-      }).catch(e => {
++    (async () => {
++      try {
++        const { fetchAppPosts } = await import('./posts.js');
++        setSupabasePosts(await fetchAppPosts());
++      } catch (e) {
+         console.error('[Supabase] Failed to fetch posts:', e.message);
++      } finally {
+         setSupabaseLoading(false);
+-      });
+-    });
++      }
++    })();
+   }, [isAuthenticated, authConfigured]);
+ 
+   // Combined posts: Supabase ONLY when authenticated (never show demo posts to real users).
+@@ -2001,13 +1961,6 @@ const chatsById = chats;
+ 
+   const lastSeen = useMemo(() => getLastSeen(me.id), [me.id, lastSeenByUser]);
+ 
+-  const homeNewCount = useMemo(() => {
+-    const ts = lastSeen.homeTs || 0;
+-    // Simple v1: "new posts" = posts created after last seen, not mine
+-    const list = Array.isArray(posts) ? posts : [];
+-    return list.filter((p) => p && p.createdAt > ts && p.ownerId !== me.id).length;
+-  }, [posts, me.id, lastSeen.homeTs]);
+-
+   const activityNewCount = useMemo(() => {
+     const ts = lastSeen.activityTs || 0;
+     const list = Array.isArray(activity) ? activity : [];
+@@ -2020,18 +1973,6 @@ const chatsById = chats;
+     return localNew + remoteUnread;
+   }, [activity, me.id, lastSeen.activityTs]);
+ 
+-  // Profile badge is disabled for now (avoids TDZ crash from followersByUser)
+-const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
+-
+-  const tabBadges = useMemo(() => {
+-    return {
+-      home: homeNewCount,
+-      activity: activityNewCount,
+-      profile: profileNewCount,
+-      post: 0,
+-    };
+-  }, [homeNewCount, activityNewCount, profileNewCount]);
+-
+   // Phase 1: Real NP — authenticated users see their actual Supabase NP balance.
+   // Demo mode keeps the local simulation.
+   const npPoints = (isAuthenticated && authProfile)
+@@ -4063,6 +4004,9 @@ expandedOtherVols,
+ 
+     if (tab === 'post') setPostFlow({ step: 'chooser', kind: null });
+     setActiveTab(tab);
++    // Visiting a tab marks its local "new" items seen (this lived in
++    // a call-site onChange the rendered tab bar never invoked).
++    try { markSeen(me.id, tab); } catch {}
+   }
+ 
+   function getTotalUnreadForUser(chatsObj, userId, unreadCountFn) {
+@@ -4262,10 +4206,9 @@ const onboardingTooltip =
+   }
+ 
+   function BottomTabs() {
+-    // NOTE: this inner BottomTabs shadows the module-level one of the
+-    // same name — it is the tab bar that actually renders. Its Activity
+-    // badge counts unread chats PLUS unread activity (server
+-    // notifications + new local events), or the bell under-reports.
++    // The app's one tab bar. Its Activity badge counts unread chats
++    // PLUS unread activity (server notifications + new local
++    // events), or the bell under-reports.
+     // total unread across chats involving me (for the badge on Activity)
+     const chatUnread = getTotalUnreadForUser(chats || chats, me.id, unreadCount);
+     const totalUnread = chatUnread + (activityNewCount || 0);
+@@ -4988,19 +4931,8 @@ function pushActivity(arg, meta = {}) {
+         const { updatePost: sbUpdatePost } = await import('./posts.js');
+         await sbUpdatePost(postId, patch);
+         // Refetch to get the authoritative state
+-        const { fetchPosts } = await import('./posts.js');
+-        const data = await fetchPosts();
+-        const converted = data.map(p => ({
+-          id: p.id, kind: p.kind, title: p.title, details: p.details,
+-          area: p.area, category: p.category, prefTags: p.pref_tags,
+-          helpersNeeded: p.helpers_needed, helpers: p.helpers,
+-          selectedUserIds: Array.isArray(p.helpers) ? p.helpers.map(h => h.id || h) : [],
+-          stage: p.stage, status: p.status,
+-          createdAt: new Date(p.created_at).getTime(),
+-          ownerId: p.owner_id, ownerName: p.owner?.display_name,
+-          ownerAvatar: p.owner?.avatar_url, _supabase: true,
+-        }));
+-        setSupabasePosts(converted);
++        const { fetchAppPosts } = await import('./posts.js');
++        setSupabasePosts(await fetchAppPosts());
+         notify('Post updated.', { type: 'post_edit', postId });
+       } catch (e) {
+         console.error('[Supabase] Failed to update post:', e.message);
+@@ -7370,27 +7302,8 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
+           helpersNeeded: post.helpersNeeded || 1,
+         });
+         // Refresh Supabase posts to include the new one
+-        const { fetchPosts } = await import('./posts.js');
+-        const data = await fetchPosts();
+-        const converted = data.map(p => ({
+-          id: p.id,
+-          kind: p.kind,
+-          title: p.title,
+-          details: p.details,
+-          area: p.area,
+-          category: p.category,
+-          prefTags: p.pref_tags,
+-          helpersNeeded: p.helpers_needed,
+-          helpers: p.helpers,
+-          stage: p.stage,
+-          status: p.status,
+-          createdAt: new Date(p.created_at).getTime(),
+-          ownerId: p.owner_id,
+-          ownerName: p.owner?.display_name,
+-          ownerAvatar: p.owner?.avatar_url,
+-          _supabase: true,
+-        }));
+-        setSupabasePosts(converted);
++        const { fetchAppPosts } = await import('./posts.js');
++        setSupabasePosts(await fetchAppPosts());
+       } catch (e) {
+         console.error('[Supabase] Failed to save post:', e.message);
+         setErr('Could not publish your post. Please check your connection and try again.');
+@@ -9377,18 +9290,7 @@ onRefresh={refreshHome}
+ )}
+ 
+ 
+-      <BottomTabs
+-        activeTab={activeTab}
+-        onChange={(k) => {
+-          setActiveTab(k);
+-          try {
+-  if (typeof markSeen === 'function') markSeen(me.id, k);
+-} catch (e) {
+-  // swallow in demo mode so tab switching never breaks
+-}
+-        }}
+-        badges={tabBadges}
+-      />
++      <BottomTabs />
+ 
+       {/* Drawers / overlays */}
+       {chat ? <ChatDrawer /> : null}
+@@ -9600,58 +9502,4 @@ onRefresh={refreshHome}
+   );
+ }
+ 
+-function BottomTabs({ activeTab, onChange, badges }) {
+-  const tabs = [
+-    { key: 'home', label: 'Home', icon: '🏠' },
+-    { key: 'post', label: 'Post', icon: '➕' },
+-    { key: 'activity', label: 'Activity', icon: '🔔' },
+-    { key: 'profile', label: 'Profile', icon: '👤' },
+-  ];
+-
+-  return (
+-    <nav className="nb-bottomtabs" role="navigation" aria-label="Bottom Tabs">
+-      {tabs.map((t) => {
+-        const isActive = activeTab === t.key;
+-        return (
+-          <button
+-            key={t.key}
+-            type="button"
+-            className={`nb-bottomtab ${isActive ? 'active' : ''}`}
+-            onClick={() => onChange(t.key)}
+-            aria-current={isActive ? 'page' : undefined}
+-          >
+-            <span className="nb-bottomtab-ico" aria-hidden="true">
+-              {t.icon}
+-            </span>
+-            <span className="nb-bottomtab-label">{t.label}</span>
+-            {badges && badges[t.key] > 0 ? (
+-              <span
+-                aria-label={`${badges[t.key]} new`}
+-                title={`${badges[t.key]} new`}
+-                style={{
+-                  marginLeft: 6,
+-                  minWidth: 18,
+-                  height: 18,
+-                  padding: '0 6px',
+-                  borderRadius: 999,
+-                  display: 'inline-flex',
+-                  alignItems: 'center',
+-                  justifyContent: 'center',
+-                  fontSize: 12,
+-                  fontWeight: 950,
+-                  background: 'rgba(255,145,90,.95)',
+-                  color: '#111',
+-                  border: '1px solid rgba(255,255,255,.12)',
+-                }}
+-              >
+-                {badges[t.key] > 9 ? '9+' : badges[t.key]}
+-              </span>
+-            ) : null}
+-          </button>
+-        );
+-      })}
+-    </nav>
+-  );
+-}
+-
+ export default App;
+diff --git a/src/posts.js b/src/posts.js
+index 9911728..14a4391 100644
+--- a/src/posts.js
++++ b/src/posts.js
+@@ -34,6 +34,44 @@ export async function fetchPosts({ kind = null, limit = 50 } = {}) {
+   return data || [];
+ }
+ 
++/**
++ * Convert a raw Supabase post row (with owner join) to the app's
++ * post shape. THE single conversion — every loader in App.jsx uses
++ * it, so fields like selectedUserIds can never drift between
++ * refresh paths again (the initial-load and create-post paths once
++ * shipped without selectedUserIds, silently breaking helper
++ * selection state for posts loaded through them).
++ */
++export function toAppPost(p) {
++  return {
++    id: p.id,
++    kind: p.kind,
++    title: p.title,
++    details: p.details,
++    area: p.area,
++    category: p.category,
++    prefTags: p.pref_tags,
++    helpersNeeded: p.helpers_needed,
++    helpers: p.helpers,
++    selectedUserIds: Array.isArray(p.helpers) ? p.helpers.map(h => h.id || h) : [],
++    stage: p.stage,
++    status: p.status,
++    createdAt: new Date(p.created_at).getTime(),
++    ownerId: p.owner_id,
++    ownerName: p.owner?.display_name,
++    ownerAvatar: p.owner?.avatar_url,
++    _supabase: true,
++  };
++}
++
++/**
++ * Fetch posts and convert them to the app shape in one call.
++ */
++export async function fetchAppPosts(opts) {
++  const data = await fetchPosts(opts);
++  return data.map(toAppPost);
++}
++
+ /**
+  * Create a new post. owner_id is set from the authenticated user.
+  * System fields (stage, status, helpers) are forced to defaults by DB trigger.
