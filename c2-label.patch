@@ -1,0 +1,15 @@
+diff --git a/src/App.jsx b/src/App.jsx
+index 1a06064..a284c2c 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -9013,7 +9013,9 @@ const [nearText, setNearText] = useState('');
+                 // above skips them)
+                 if (isAuthenticated) {
+                   for (const a of (activity || []).slice().reverse()) {
+-                    if (a && a.remoteId) list.push({ text: a.title || 'Update', ts: a.activityTs || a.ts || 0 });
++                    // Server items carry text as "Title — body"; the
++                    // profile line shows the title segment.
++                    if (a && a.remoteId) list.push({ text: a.title || (a.text ? String(a.text).split(' — ')[0] : 'Update'), ts: a.activityTs || a.ts || 0 });
+                   }
+                 }
+                 list.sort((x, y) => (y.ts || 0) - (x.ts || 0));
