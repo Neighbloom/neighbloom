@@ -788,6 +788,8 @@ onRefresh,
   onOpenHomeSetup,
 
   // Saved searches
+  kindness,
+  away,
   savedSearches,
   activeSavedSearchId,
   onApplySavedSearch,
@@ -1116,6 +1118,41 @@ onRefresh,
       style={{ overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}
     >
       <Hero />
+
+      {away && (away.asks > 0 || away.updates > 0) ? (
+        <div className="nb-section" style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div style={{ flex: 1, fontWeight: 850, fontSize: 14 }}>
+            👋 While you were away:{' '}
+            {away.asks > 0 ? `${away.asks} new ask${away.asks === 1 ? '' : 's'} nearby` : ''}
+            {away.asks > 0 && away.updates > 0 ? ' · ' : ''}
+            {away.updates > 0 ? `${away.updates} update${away.updates === 1 ? '' : 's'} waiting` : ''}
+          </div>
+          {away.updates > 0 ? (
+            <button type="button" className="nb-btn nb-btn-ghost nb-btn-sm" onClick={() => setActiveTab('activity')}>
+              See updates
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {Array.isArray(kindness) && kindness.length > 0 ? (
+        <div className="nb-section" style={{ marginTop: 12 }}>
+          <div className="nb-section-title">💛 Kindness in the neighborhood</div>
+          <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+            {kindness.slice(0, 3).map((g) => (
+              <div key={g.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px', background: 'rgba(255,255,255,.02)' }}>
+                <div style={{ fontWeight: 900, fontSize: 14 }}>
+                  {g.thanker?.display_name || 'A neighbor'} thanked {g.helper?.display_name || 'a neighbor'}
+                </div>
+                {g.message ? (
+                  <div className="nb-muted" style={{ marginTop: 2, fontSize: 13 }}>{`"${g.message}"`}</div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {refreshing ? (
         <div className="nb-muted small" style={{ marginTop: 8, fontWeight: 900 }}>
           Refreshing…
@@ -2098,6 +2135,48 @@ const chatsById = chats;
   }, [isAuthenticated, m2Ready, authProfile?.id]);
   const impactHelpCount =
     isAuthenticated && serverHelpCount !== null ? serverHelpCount : helpfulRepliesCount;
+
+  // Kindness Moments (concept E): real public gratitude between
+  // neighbors, from gratitude_posts. Rendered only when genuine
+  // items exist — never fabricated, never backfilled.
+  const [gratitudeItems, setGratitudeItems] = useState([]);
+  useEffect(() => {
+    if (!isAuthenticated || !m2Ready) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { fetchGratitude } = await import('./m2.js');
+        const rows = await fetchGratitude(5);
+        if (!cancelled) setGratitudeItems(Array.isArray(rows) ? rows : []);
+      } catch { if (!cancelled) setGratitudeItems([]); }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, m2Ready]);
+
+  // "While you were away" (Pulse, honest edition): snapshot the
+  // home last-seen timestamp when this session's identity lands —
+  // before any navigation overwrites it — then count genuinely
+  // new asks since then. Only meaningful after a real absence
+  // (>1h); a first session or a quick return shows nothing.
+  const awayRef = useRef(null);
+  useEffect(() => {
+    if (awayRef.current !== null) return;
+    if (!isAuthenticated || !me?.id) return;
+    awayRef.current = getLastSeen(me.id).homeTs || 0;
+    // getLastSeen reads lastSeenByUser state; identity landing is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, me?.id]);
+  const awayAsks = useMemo(() => {
+    const since = awayRef.current || 0;
+    if (!since || !isAuthenticated) return 0;
+    if (Date.now() - since < 3600_000) return 0;
+    return (displayPosts || []).filter((p) => {
+      if (!p || p.kind !== 'help' || p.ownerId === me.id) return false;
+      if (p.status === 'resolved') return false;
+      const ts = typeof p.createdAt === 'number' ? p.createdAt : Date.parse(p.createdAt) || 0;
+      return ts > since;
+    }).length;
+  }, [displayPosts, isAuthenticated, me?.id]);
 
   const myPostCount = useMemo(
     () => posts.filter((p) => p.ownerId === me.id).length,
@@ -5525,95 +5604,151 @@ function pushActivity(arg, meta = {}) {
   }
 
   function ThankYouModal({ postId, helperIds }) {
-  const post = posts.find((p) => p && p.id === postId);
-  const ids = Array.isArray(helperIds) ? helperIds.filter(Boolean) : [];
+    // The gratitude moment (concept E): this used to be a points
+    // receipt with a canned chat message, and it never called the
+    // post_gratitude RPC at all — the backend loop (public
+    // gratitude + helper notification) was built and dead. Now the
+    // owner writes real words, and sending records the gratitude
+    // publicly (helpers can hide it) and notifies the helper.
+    const post =
+      (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p && p.id === postId) ||
+      (Array.isArray(posts) ? posts : []).find((p) => p && p.id === postId);
+    const ids = Array.isArray(helperIds) ? helperIds.filter(Boolean) : [];
+    const helpers = ids
+      .map((id) => usersById[id])
+      .filter((u) => u && u.id);
 
-  const helpers = ids
-    .map((id) => usersById[id])
-    .filter((u) => u && u.id);
+    const [drafts, setDrafts] = useState(() =>
+      Object.fromEntries(
+        helpers.map((h) => [
+          h.id,
+          `Thanks again, ${(h.name || 'neighbor').split(' ')[0]} — you made this so much easier. I really appreciate it.`,
+        ])
+      )
+    );
+    const [sent, setSent] = useState({});
+    const [busyId, setBusyId] = useState(null);
+    const [note, setNote] = useState('');
 
-  const totalAwarded = ids.length * 20;
+    async function sendThanks(h) {
+      if (busyId) return;
+      const msg = (drafts[h.id] || '').trim();
+      if (!msg) {
+        setNote('Write a line first — a thank-you in your own words lands best.');
+        return;
+      }
+      setBusyId(h.id);
+      setNote('');
+      let already = false;
+      try {
+        if (post?._supabase && isAuthenticated) {
+          const { postGratitude } = await import('./m2.js');
+          await postGratitude(post.id, h.id, msg);
+        }
+      } catch (e) {
+        const m = String(e?.message || '');
+        if (/duplicate|unique|already/i.test(m)) {
+          already = true;
+        } else {
+          console.error('[Gratitude] post failed:', m);
+        }
+      }
+      // The words also land in the chat, where the conversation lives.
+      try {
+        if (post && canOpenChatForPost(post, h.id)) {
+          sendChatMessage(postId, h.id, msg);
+        }
+      } catch { /* chat is a bonus; the gratitude itself already sent */ }
+      setSent((prev) => ({ ...prev, [h.id]: true }));
+      setBusyId(null);
+      if (already) {
+        setNote(`You already thanked ${(h.name || 'them').split(' ')[0]} for this one — your note still went to the chat.`);
+      }
+    }
 
-  return (
-    <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
-      <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="nb-modal-head">
-          <div className="nb-modal-title">Thank you</div>
-          <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">
-            ✕
-          </button>
-        </div>
+    const firstNames = helpers.map((h) => (h.name || 'Your neighbor').split(' ')[0]).join(' & ');
 
-        <div className="nb-modal-sub">
-          Confirmed. {totalAwarded} NP awarded across {ids.length} helper
-          {ids.length === 1 ? '' : 's'}.
-        </div>
-
-        <div className="nb-modal-body-scroll" style={{ padding: 14 }}>
-          <div style={{ fontWeight: 950 }}>{post?.title || 'Help request'}</div>
-
-          <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
-            {helpers.map((h) => {
-              const canChat = post ? canOpenChatForPost(post, h.id) : false;
-
-              return (
-                <div
-                  key={h.id}
-                  className="nb-thanks-row"
-                >
-                  <img className="nb-avatar sm" src={h.avatar} alt={h.name} />
-
-                  <div className="nb-thanks-main">
-                    <div className="nb-thanks-top">
-                      <div className="nb-thanks-name">
-                        {h.name}
-                        <span style={{ marginLeft: 8 }}><UserBadge userId={h.id} /></span>
-                      </div>
-                      <div className="nb-thanks-np">🎉 +20 NP 🙌</div>
-                    </div>
-                    <div className="nb-thanks-sub">{h.handle} • Thank you</div>
-                  </div>
-
-                      <div style={{ marginLeft: 10 }}>
-                    <button
-                      className="nb-btn nb-btn-primary nb-btn-sm"
-                      disabled={!canChat}
-                      style={{ minWidth: 140 }}
-                      onClick={() => {
-                        // confetti removed — just close modal and send thanks
-                        setModal(null);
-                        setTimeout(() => {
-                          sendChatMessage(
-                            postId,
-                            h.id,
-                            'Thanks again — confirmed. Appreciate you.'
-                          );
-                          openChat(postId, h.id);
-                        }, 80);
-                      }}
-                      title={canChat ? 'Send a quick thank-you' : 'Chat is locked'}
-                    >
-                      Send thanks
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="nb-modal-foot">
-          <div className="nb-muted">No payments in-app — keep it neighborly.</div>
-          <div className="nb-modal-actions">
-            <button className="nb-btn nb-btn-primary" onClick={() => setModal(null)}>
-              Done
+    return (
+      <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
+        <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="nb-modal-head">
+            <div className="nb-modal-title">Thank your neighbor</div>
+            <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">
+              ✕
             </button>
+          </div>
+
+          <div className="nb-modal-sub">
+            {firstNames ? `${firstNames} showed up for you. ` : ''}A thank-you in your own
+            words is the reason neighbors help again — it takes ten seconds.
+          </div>
+
+          <div className="nb-modal-body-scroll" style={{ padding: 14 }}>
+            <div style={{ fontWeight: 950 }}>{post?.title || 'Help request'}</div>
+
+            <div style={{ marginTop: 12, display: 'grid', gap: 14 }}>
+              {helpers.map((h) => {
+                const isSent = !!sent[h.id];
+                return (
+                  <div key={h.id} className="nb-thanks-row" style={{ alignItems: 'flex-start' }}>
+                    <img className="nb-avatar sm" src={h.avatar} alt={h.name} />
+                    <div className="nb-thanks-main" style={{ flex: 1 }}>
+                      <div className="nb-thanks-top">
+                        <div className="nb-thanks-name">
+                          {h.name}
+                          <span style={{ marginLeft: 8 }}><UserBadge userId={h.id} /></span>
+                        </div>
+                        <div className="nb-thanks-np">💛 +20 NP for helping</div>
+                      </div>
+                      <textarea
+                        className="nb-input"
+                        rows={3}
+                        value={drafts[h.id] || ''}
+                        disabled={isSent}
+                        onChange={(e) => setDrafts((prev) => ({ ...prev, [h.id]: e.target.value }))}
+                        style={{ marginTop: 8, width: '100%' }}
+                        maxLength={400}
+                      />
+                      <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="nb-btn nb-btn-primary nb-btn-sm"
+                          disabled={isSent || busyId === h.id}
+                          onClick={() => sendThanks(h)}
+                        >
+                          {isSent ? 'Thank-you sent ✓' : busyId === h.id ? 'Sending…' : 'Send thank-you'}
+                        </button>
+                        {isSent && post && canOpenChatForPost(post, h.id) ? (
+                          <button
+                            type="button"
+                            className="nb-btn nb-btn-ghost nb-btn-sm"
+                            onClick={() => { setModal(null); setTimeout(() => openChat(postId, h.id), 80); }}
+                          >
+                            Open chat
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {note ? <div className="nb-muted" style={{ marginTop: 10, fontWeight: 800 }}>{note}</div> : null}
+          </div>
+
+          <div className="nb-modal-foot">
+            <div className="nb-muted">No payments in-app — keep it neighborly.</div>
+            <div className="nb-modal-actions">
+              <button className="nb-btn nb-btn-primary" onClick={() => setModal(null)}>
+                Done
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
 // Confetti removed: launchConfetti helper deleted
 
@@ -9106,6 +9241,8 @@ const blockedSet = getBlockedSet(me.id);
       {activeTab === 'home' ? (
   <HomeScreen
     Hero={SmartHero}
+    kindness={gratitudeItems}
+    away={{ asks: awayAsks, updates: activityNewCount }}
     Chips={Chips}
     EmptyState={EmptyState}
     PostCard={PostCard}
