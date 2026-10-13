@@ -2197,16 +2197,22 @@ const chatsById = chats;
   }, [displayPosts, isAuthenticated, me?.id]);
 
   const myPostCount = useMemo(
-    () => posts.filter((p) => p.ownerId === me.id).length,
-    [posts, me.id]
+    () => displayPosts.filter((p) => p.ownerId === me.id).length,
+    [displayPosts, me.id]
   );
 
   // Aggregated "You offered" panel state + computed offers
   const [youOfferedOpen, setYouOfferedOpen] = useState(false);
 
+  // Server posts: a helper signals completion by messaging the owner
+  // (the backend has no per-reply helper status). Session-level record
+  // of which posts this helper has already signalled on; the durable
+  // record is the message itself plus the owner's stage transitions.
+  const [helperDoneNotified, setHelperDoneNotified] = useState({});
+
   const myOffers = useMemo(() => {
     const out = [];
-    for (const p of posts || []) {
+    for (const p of displayPosts || []) {
       if (!p || !Array.isArray(p.replies)) continue;
       for (const r of p.replies) {
         if (!r || r.authorId !== me.id) continue;
@@ -2220,7 +2226,7 @@ const chatsById = chats;
             replyId: r.id,
             helperStatus: r.helperStatus || 'offered',
             postStage: p.stage || 'open',
-            selected: Array.isArray(p.selectedUserIds) && p.selectedUserIds.includes(me.id),
+            selected: getSelectedHelperIds(p).includes(me.id),
             createdAt: r.createdAt || 0,
           });
         }
@@ -2229,10 +2235,18 @@ const chatsById = chats;
     // sort by most recent offer first
     out.sort((a, b) => b.createdAt - a.createdAt);
     return out;
-  }, [posts, me.id]);
+  }, [displayPosts, me.id]);
 
   function cancelOffer(postId, replyId) {
     if (!postId || !replyId) return;
+    // Server offers cannot be withdrawn yet — the backend has no
+    // delete-reply path. Say so instead of pretending; the local
+    // removal below only ever affected demo data.
+    const targetPost = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p && p.id === postId);
+    if (targetPost?._supabase) {
+      showToast('Withdrawing an offer isn’t available yet — message the owner instead.');
+      return;
+    }
     setPosts((prev) =>
       (prev || []).map((p) => {
         if (!p || p.id !== postId) return p;
@@ -2610,7 +2624,7 @@ const chatsById = chats;
   function handleActivityClick(a) {
     if (!a || !a.postId) return;
 
-    const post = posts.find((p) => p && p.id === a.postId);
+    const post = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p && p.id === a.postId) || posts.find((p) => p && p.id === a.postId);
     if (!post) return;
 
     const otherUserId = otherIdFromActivity(a, me.id);
@@ -3486,62 +3500,16 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     openChat(postId, userId);
   }
 
-  function advanceHelpStage(postId, nextStage) {
-  const post = posts.find((p) => p && p.id === postId);
-  if (!post || post.kind !== 'help') return;
+  // advanceHelpStage was removed in the 2026-10-13 seam fix: it was a
+  // fully local lifecycle path that silently no-opped on server
+  // posts. All lifecycle transitions now go through doTransition
+  // (server posts via the M2 RPC; demo posts via local simulation).
 
-  const selected = getSelectedHelperIds(post);
-  const meIsOwner = me.id === post.ownerId;
-  const meIsSelectedHelper = selected.includes(me.id);
-
-  // Only requester OR selected helper(s) can touch stages
-  if (!meIsOwner && !meIsSelectedHelper) return;
-
-  const order = { open: 0, booked: 1, started: 2, done: 3, confirmed: 4 };
-  const curStage = post.stage || 'open';
-
-  if (!(nextStage in order)) return;
-
-  // Selected helpers can ONLY set started/done, and only forward
-  if (!meIsOwner) {
-    if (nextStage !== 'started' && nextStage !== 'done') return;
-    if ((order[nextStage] ?? 0) < (order[curStage] ?? 0)) return;
-    if (curStage === 'confirmed') return;
-  }
-
-  // If the actor is a selected helper, update their own reply-level status
-  // instead of mutating the global post.stage. Owners still control the
-  // canonical lifecycle of the post.
-  if (!meIsOwner) {
-    const myReply = (post.replies || []).find((r) => r && r.authorId === me.id);
-    if (!myReply) return;
-    // Map nextStage to helperStatus (started/done)
-    setHelperStatus(postId, myReply.id, nextStage);
-    return;
-  }
-
-  // Owner: update global post stage
-  setPosts((prev) =>
-    prev.map((p) => (p.id === postId ? { ...p, stage: nextStage } : p))
-  );
-
-  // Activity breadcrumb visible to BOTH sides
-  const audience = Array.from(new Set([post.ownerId, ...selected].filter(Boolean)));
-  const actorName = usersById[me.id]?.name || 'Neighbor';
-
-  pushActivity({
-    text: `${actorName} marked help as ${nextStage}.`,
-    postId,
-    actorId: me.id,
-    postOwnerId: post.ownerId,
-    postKind: post.kind,
-    audienceIds: audience,
-  });
-}
-
-  // Helpers shouldn’t change the global post stage; they should update their
-  // own reply-level helperStatus (offered | started | done). This function
-  // lets a helper set their status on their reply.
+  // DEMO ONLY: helpers shouldn’t change the global post stage; they
+  // update their own reply-level helperStatus (offered | started |
+  // done). Server posts never reach this function — their helpers
+  // signal completion via handleHelperCompleted (a real message to
+  // the owner inside the post's conversation).
   function setHelperStatus(postId, replyId, status) {
     if (!postId || !replyId) return;
     const post = posts.find((p) => p && p.id === postId);
@@ -3588,33 +3556,39 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     });
   }
 
-  function confirmHelp(postId) {
-  const post = posts.find((p) => p && p.id === postId);
-  if (!post) return;
-
-  // Only the requester (post owner) can confirm + award NP
-  if (me.id !== post.ownerId) return;
-
-  const selectedIds = getSelectedHelperIds(post);
-  if (post.kind !== 'help' || selectedIds.length === 0) return;
-
-  if (post.stage === 'confirmed') return;
-
-  // Don’t award points before the helper marks done
-  if (post.stage !== 'done') {
-    notify('Mark this help as “Done” before confirming.');
-    return;
+  // Server posts: a helper signals completion by messaging the owner
+  // inside the post's real conversation. The backend deliberately has
+  // no per-reply helper status and lifecycle transitions are
+  // owner-only, so the message IS the durable completion signal; the
+  // owner then marks the post done and confirms. Conversations are
+  // created by the owner (at selection time, via openChat), so the
+  // helper looks theirs up. If none exists, say so honestly — never
+  // fake the state locally.
+  async function handleHelperCompleted(post) {
+    if (!post || !post._supabase) return;
+    if (!m2Ready) {
+      showToast("Can't reach the server right now — nothing changed.");
+      return;
+    }
+    try {
+      const convs = await m2FetchConversations();
+      const conv = (convs || []).find((c) => c && c.post_id === post.id);
+      if (!conv) {
+        showToast('No conversation with the owner yet — they confirm completion from their side.');
+        return;
+      }
+      await m2SendMessage(conv.id, "I've finished this help — complete on my end. Thanks for having me!");
+      setHelperDoneNotified((prev) => ({ ...(prev || {}), [post.id]: true }));
+      showToast('Owner notified — they’ll confirm and send thanks.');
+    } catch (e) {
+      showToast(e.message || 'Could not notify the owner — nothing was sent.');
+    }
   }
 
-  // If there's no approved completion photo, surface the award guard modal.
-  if (!post.completionPhoto || !post.completionPhotoApproved) {
-    setModal({ type: 'award_guard', postId, helperIds: selectedIds });
-    return;
-  }
-
-  // Award via helper to keep logic DRY
-  awardHelpers(postId, selectedIds);
-}
+  // confirmHelp was removed in the 2026-10-13 seam fix: it was
+  // unreferenced dead code whose local-list lookup and completion-
+  // photo guard described a demo-only flow. The live confirm path is
+  // awardHelpers below (server-first via m2ConfirmHelpAndAward).
 
   async function awardHelpers(postId, selectedIds) {
     console.log('awardHelpers called', { postId, selectedIds });
@@ -3758,7 +3732,7 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   useEffect(() => {
   if (!chat) return;
 
-  const post = posts.find((p) => p.id === chat.postId);
+  const post = displayPosts.find((p) => p.id === chat.postId) || posts.find((p) => p.id === chat.postId);
   if (!post) return;
 
   // Prevent marking read for the wrong viewer (demo user switches / locked chats)
@@ -4730,8 +4704,10 @@ expandedOtherVols,
                   {/* -------- REC reply actions -------- */}
                   {post.kind === 'rec' ? (
                     <>
-                      {/* Owner-only moderation */}
-                      {canOwnerActions ? (
+                      {/* Owner-only moderation — demo-only concepts:
+                          helpful/top-pick have no server fields, so
+                          these controls must not render on real posts */}
+                      {canOwnerActions && !post._supabase ? (
                         <>
                           <button
                             className="nb-link"
@@ -4781,7 +4757,9 @@ expandedOtherVols,
                         {heartCount > 0 ? `(${heartCount})` : ''}
                       </button>
 
-                      {/* Reply opens THREAD viewer (everyone can view, not forced to post) */}
+                      {/* Reply opens THREAD viewer (demo-only: comment
+                          threads on replies have no server storage) */}
+                      {!post._supabase ? (
                       <button
                         className="nb-link"
                         onClick={() =>
@@ -4792,6 +4770,7 @@ expandedOtherVols,
                         Reply{' '}
                         {comments.length > 0 ? `(${comments.length})` : ''}
                       </button>
+                      ) : null}
                     </>
                   ) : null}
 
@@ -5355,7 +5334,9 @@ function pushActivity(arg, meta = {}) {
               (() => {
                 const myReply = (post.replies || []).find((r) => r && r.authorId === me.id);
                 if (!myReply) return null;
-                const cur = myReply.helperStatus || 'offered';
+                const cur = post._supabase
+                  ? (post.stage === 'done' || post.stage === 'confirmed' || helperDoneNotified[post.id] ? 'done' : 'offered')
+                  : myReply.helperStatus || 'offered';
                 return (
                   <div className="nb-helpflow">
                     {cur !== 'done' ? (
@@ -5363,11 +5344,15 @@ function pushActivity(arg, meta = {}) {
                         className="nb-btn nb-btn-primary"
                         onClick={() => {
                           if (!myReply) return;
+                          if (post._supabase) {
+                            handleHelperCompleted(post);
+                            return;
+                          }
                           setHelperStatus(post.id, myReply.id, 'done');
                           pushActivity({ text: `${usersById[me.id]?.name || 'You'} marked this as completed.`, actorId: me.id, postId: post.id, audienceIds: [me.id, post.ownerId] });
                         }}
                       >
-                        Completed
+                        {post._supabase ? "I'm done — notify the owner" : 'Completed'}
                       </button>
                     ) : (
                       <span className="nb-muted small" style={{ fontWeight: 900 }}>
@@ -5379,6 +5364,7 @@ function pushActivity(arg, meta = {}) {
                       className="nb-btn nb-btn-ghost nb-btn-sm"
                         onClick={() => {
                         if (!myReply) return;
+                        if (post._supabase) { showToast('Withdrawing an offer isn’t available yet — message the owner instead.'); return; }
                         const ok = window.confirm('Cancel your offer?');
                         if (!ok) return;
                         setPosts((prev) =>
@@ -5921,7 +5907,7 @@ function pushActivity(arg, meta = {}) {
   }
 
   function EditPostModal({ postId }) {
-    const post = posts.find((p) => p?.id === postId);
+    const post = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p?.id === postId) || posts.find((p) => p?.id === postId);
     const [title, setTitle] = useState(post?.title || '');
     const [details, setDetails] = useState(post?.details || '');
     const [area, setArea] = useState(post?.area || '');
@@ -5980,7 +5966,7 @@ function pushActivity(arg, meta = {}) {
           </div>
 
           <div className="nb-modal-foot">
-            <div className="nb-muted">Edits are local demo only.</div>
+            <div className="nb-muted">{post?._supabase ? 'Changes save to your post right away.' : 'Edits are local demo only.'}</div>
             <div className="nb-modal-actions">
               <button className="nb-btn nb-btn-ghost" onClick={() => setModal(null)}>
                 Cancel
@@ -6009,7 +5995,7 @@ function pushActivity(arg, meta = {}) {
   }
 
   function ReplyModal({ postId, mode }) {
-    const post = posts.find((p) => p.id === postId);
+    const post = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p.id === postId) || posts.find((p) => p.id === postId);
     const [text, setText] = useState('');
     const [err, setErr] = useState('');
     const replyTextareaRef = useRef(null);
@@ -9185,11 +9171,12 @@ const blockedSet = getBlockedSet(me.id);
             disabled={loadingPhoto || !preview}
             onClick={() => {
               if (!preview) return;
-              // attach photo to post and mark done
+              // attach photo to post and mark done (demo posts only —
+              // this form no longer renders for server posts)
               setPosts((prev) =>
                 (prev || []).map((p) => (p && p.id === postId ? { ...p, completionPhoto: preview } : p))
               );
-              advanceHelpStage(postId, 'done');
+              doTransition(postId, 'done');
               setModal(null);
             }}
           >
@@ -9393,26 +9380,57 @@ onRefresh={refreshHome}
         <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
           <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
             <div className="nb-modal-head">
-              <div className="nb-modal-title">Add a completion photo?</div>
+              <div className="nb-modal-title">Mark this help as done?</div>
               <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">✕</button>
             </div>
 
-            <div style={{ padding: 14 }}>
-              <div className="nb-muted" style={{ marginBottom: 8, fontWeight: 850 }}>
-                Optionally attach a photo showing the completed work (helps the requester verify).
-              </div>
+            {(() => {
+              const targetPost = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p && p.id === modal.postId) || posts.find((p) => p && p.id === modal.postId);
+              if (targetPost?._supabase) {
+                // Real posts: completion photos have no server storage
+                // yet, so do not offer one. Marking done goes through
+                // the server lifecycle (owner-only RPC).
+                return (
+                  <>
+                    <div style={{ padding: 14 }}>
+                      <div className="nb-muted" style={{ fontWeight: 850 }}>
+                        This tells your helpers the work is done. Next you’ll confirm, award Neighbloom Points, and send thanks. (Completion photos aren’t saved for real posts yet.)
+                      </div>
+                    </div>
+                    <div className="nb-modal-foot">
+                      <div className="nb-modal-actions">
+                        <button className="nb-btn nb-btn-ghost" onClick={() => setModal(null)}>
+                          Not yet
+                        </button>
+                        <button className="nb-btn nb-btn-primary" onClick={() => { doTransition(modal.postId, 'done'); setModal(null); }}>
+                          Mark done
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                );
+              }
+              return (
+                <>
+                  <div style={{ padding: 14 }}>
+                    <div className="nb-muted" style={{ marginBottom: 8, fontWeight: 850 }}>
+                      Optionally attach a photo showing the completed work (helps the requester verify).
+                    </div>
 
-              <CompletionPhotoForm postId={modal.postId} />
-            </div>
+                    <CompletionPhotoForm postId={modal.postId} />
+                  </div>
 
-            <div className="nb-modal-foot">
-              <div className="nb-muted">You can skip and mark the job done without a photo.</div>
-              <div className="nb-modal-actions">
-                <button className="nb-btn nb-btn-ghost" onClick={() => { advanceHelpStage(modal.postId, 'done'); setModal(null); }}>
-                  Skip & mark Done
-                </button>
-              </div>
-            </div>
+                  <div className="nb-modal-foot">
+                    <div className="nb-muted">You can skip and mark the job done without a photo.</div>
+                    <div className="nb-modal-actions">
+                      <button className="nb-btn nb-btn-ghost" onClick={() => { doTransition(modal.postId, 'done'); setModal(null); }}>
+                        Skip & mark Done
+                      </button>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       ) : null}
@@ -9433,7 +9451,7 @@ onRefresh={refreshHome}
               </div>
 
               {(() => {
-                const post = posts.find((p) => p && p.id === modal.postId);
+                const post = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p && p.id === modal.postId) || posts.find((p) => p && p.id === modal.postId);
                 if (!post) return null;
                 const names = (modal.helperIds || [])
                   .map((id) => usersById[id]?.name || 'Helper')
