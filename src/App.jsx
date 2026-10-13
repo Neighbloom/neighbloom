@@ -5034,12 +5034,29 @@ function pushActivity(arg, meta = {}) {
 
     const cardKindClass = post.kind === 'help' ? 'nb-card-help' : post.kind === 'rec' ? 'nb-card-rec' : '';
 
+    // The stage IS the story of a help post — say it in human words
+    // instead of whispering it from a corner pill.
+    const stageLine =
+      post.kind !== 'help'
+        ? null
+        : post.status === 'resolved'
+        ? '✓ Resolved — this neighbor got their help'
+        : post.stage === 'confirmed'
+        ? '✓ Help confirmed — a neighbor is lined up'
+        : post.stage === 'done'
+        ? '✓ Marked done — ready for thanks'
+        : post.stage === 'started'
+        ? '🤝 Help is happening now'
+        : post.stage === 'booked'
+        ? '📅 Helpers are booked'
+        : null;
+
     return (
       <div id={`post_card_${post.id}`} className={"nb-card " + cardKindClass}>
         <PostMetaLine post={post} />
 
         <div className="nb-card-main">
-          <div className="nb-card-title">{post.title}</div>
+          <div className="nb-card-title" onClick={() => toggleThread(post.id)} style={{ cursor: 'pointer' }} title={open ? 'Tap to collapse' : 'Tap to read the full story'}>{post.title}</div>
           {post.kind === 'help' && post.photo ? (
             <img className="nb-card-photo" src={post.photo} alt="" />
           ) : null}
@@ -5070,9 +5087,16 @@ function pushActivity(arg, meta = {}) {
             ) : null}
           </div>
 
-          <div className={`nb-card-details ${open ? '' : 'is-clamped'}`}>
+          {stageLine ? (
+            <div style={{ marginTop: 10, fontWeight: 900, fontSize: 14, color: 'var(--good)' }}>{stageLine}</div>
+          ) : null}
+
+          <div className={`nb-card-details ${open ? '' : 'is-clamped'}`} onClick={() => toggleThread(post.id)} style={{ cursor: 'pointer' }}>
             {post.details}
           </div>
+          {!open ? (
+            <div className="nb-muted" style={{ fontSize: 12, fontWeight: 800, marginTop: 4 }}>Tap to {replyCount > 0 ? 'read the story and meet the helpers' : 'read the full story'}</div>
+          ) : null}
 
           <div className="nb-rules-row">
             <span className="nb-rules-dot" />
@@ -5101,6 +5125,12 @@ function pushActivity(arg, meta = {}) {
                 }}
               >
                 {viewerAlreadyOffered ? 'Offer sent' : replyBtnLabel}
+              </button>
+            ) : null}
+
+            {replyCount > 0 ? (
+              <button className="nb-btn nb-btn-ghost nb-btn-sm" onClick={() => toggleThread(post.id)}>
+                {open ? 'Hide' : 'Show'} {threadLabel}
               </button>
             ) : null}
 

@@ -12,7 +12,7 @@ const SCREEN_STYLE = {
   alignItems: 'center',
   justifyContent: 'center',
   padding: 24,
-  background: '#031628',
+  background: 'linear-gradient(180deg, #0B1220 0%, #050A14 100%)',
   color: '#fff',
 };
 
@@ -48,10 +48,12 @@ export function AuthScreen() {
 
   return (
     <div className="nb-auth-screen" style={SCREEN_STYLE}>
-      <div style={{ fontSize: 48, marginBottom: 16 }}>🏘️</div>
-      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>Neighbloom</h1>
-      <p style={{ opacity: 0.7, marginBottom: 32, textAlign: 'center' }}>
-        Your neighborhood help network
+      <div style={{ fontSize: 44, marginBottom: 10 }} aria-hidden="true">🌼</div>
+      <h1 style={{ fontSize: 34, fontWeight: 950, letterSpacing: '-0.02em', marginBottom: 8 }}>Neighbloom</h1>
+      <div style={{ width: 56, height: 4, borderRadius: 999, background: 'linear-gradient(90deg, #FF6A3D, #FF915A)', marginBottom: 16 }} />
+      <p style={{ fontWeight: 800, marginBottom: 6, textAlign: 'center' }}>Little missions, big city.</p>
+      <p style={{ opacity: 0.72, marginBottom: 28, textAlign: 'center', maxWidth: 320, lineHeight: 1.45 }}>
+        Ask a neighbor for a hand — or lend yours. Small help, real people, your town.
       </p>
 
       {mode === 'forgot-sent' ? (
@@ -74,9 +76,14 @@ export function AuthScreen() {
       ) : (
         <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 320 }}>
           {mode === 'signup' && (
+            <p style={{ opacity: 0.72, marginBottom: 12, textAlign: 'center', fontSize: 13, lineHeight: 1.45 }}>
+              Create your account — we'll ask which town is home right after.
+            </p>
+          )}
+          {mode === 'signup' && (
             <input
               type="text"
-              placeholder="Display name"
+              placeholder="Your name — what neighbors will call you"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               className="nb-input"
@@ -138,6 +145,10 @@ export function AuthScreen() {
           </button>
         </form>
       )}
+
+      <p style={{ opacity: 0.55, marginTop: 28, fontSize: 13, textAlign: 'center' }}>
+        Now growing in Worth, Illinois — one town, real neighbors.
+      </p>
     </div>
   );
 }
