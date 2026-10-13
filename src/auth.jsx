@@ -11,6 +11,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [recovery, setRecovery] = useState(false); // PASSWORD_RECOVERY landing
 
   useEffect(() => {
     if (!isSupabaseConfigured()) {
@@ -31,6 +32,7 @@ export function AuthProvider({ children }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        if (event === 'PASSWORD_RECOVERY') setRecovery(true);
         setUser(session?.user ?? null);
         if (session?.user) {
           await fetchProfile(session.user.id);
@@ -88,6 +90,28 @@ export function AuthProvider({ children }) {
     setProfile(null);
   };
 
+  const resetPassword = async (email) => {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + window.location.pathname,
+    });
+    if (error) throw error;
+  };
+
+  const completePasswordReset = async (newPassword) => {
+    if (!isSupabaseConfigured()) throw new Error('Supabase not configured');
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) throw error;
+    setRecovery(false);
+  };
+
+  const cancelRecovery = async () => {
+    // A recovery landing holds a live session; backing out must not
+    // leave the user silently signed in on someone else's device.
+    setRecovery(false);
+    await signOut();
+  };
+
   const updateProfile = async (updates) => {
     if (!user) throw new Error('Not authenticated');
     // Only allow user-editable fields (np, id, created_at are protected)
@@ -113,9 +137,13 @@ export function AuthProvider({ children }) {
       loading,
       isConfigured: isSupabaseConfigured(),
       isAuthenticated: !!user,
+      recovery,
       signUp,
       signIn,
       signOut,
+      resetPassword,
+      completePasswordReset,
+      cancelRecovery,
       updateProfile,
     }}>
       {children}

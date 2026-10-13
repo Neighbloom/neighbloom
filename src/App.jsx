@@ -4,7 +4,7 @@ import './App.css';
 import pkg from '../package.json';
 import { normalizeText, containsLink, maskPhones, buildRecTitle, badgeFor, timeAgo } from './utils.js';
 import { useAuth } from './auth.jsx';
-import { AuthScreen } from './AuthScreen.jsx';
+import { AuthScreen, PasswordResetScreen } from './AuthScreen.jsx';
 // Phase 2: M2 backend — lifecycle, messaging, NP. All gracefully degrade
 // when the M2 migrations haven't been applied yet (m2Ready=false).
 import {
@@ -1322,7 +1322,7 @@ function useLocalStorageJsonState(key, fallbackValue) {
 
 function App() {
   // Supabase Auth (Milestone 1) — falls back to demo mode if not configured
-  const { user: authUser, profile: authProfile, loading: authLoading, isConfigured: authConfigured, isAuthenticated, signOut } = useAuth();
+  const { user: authUser, profile: authProfile, loading: authLoading, isConfigured: authConfigured, isAuthenticated, recovery: authRecovery, signOut } = useAuth();
 
   // Phase 2: M2 backend availability probe. True only when authenticated AND
   // the M2 migrations have been applied (np_ledger table exists).
@@ -9259,6 +9259,12 @@ const blockedSet = getBlockedSet(me.id);
         <div style={{ marginTop: 10, opacity: 0.7, fontWeight: 700 }}>Loading your neighborhood…</div>
       </div>
     );
+  }
+
+  // Password-recovery landing: the email link creates a session, so
+  // this gate must precede the app shell or the reset form never shows.
+  if (authConfigured && authRecovery) {
+    return <PasswordResetScreen />;
   }
 
   if (authConfigured && !authLoading && !isAuthenticated && !publicViewPostId) {
