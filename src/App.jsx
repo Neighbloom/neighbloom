@@ -8644,6 +8644,13 @@ const [nearText, setNearText] = useState('');
           </div>
 
           <div style={{ padding: '0 14px 14px' }}>
+            {/* NP / Followers / Following are local-state numbers with
+                no server source for other members — in a server context
+                this grid would present invented stats (observed live:
+                "NP 0" for a helper with a real server balance). The
+                server trust record below (Helps + thank-yous) is what
+                a real profile shows. */}
+            {!isAuthenticated ? (
             <div
               style={{
                 display: 'grid',
@@ -8699,6 +8706,7 @@ const [nearText, setNearText] = useState('');
                 </div>
               </div>
             </div>
+            ) : null}
 
             <div
               style={{
