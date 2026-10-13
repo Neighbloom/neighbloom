@@ -45,6 +45,8 @@ export function WelcomeHero({ town, displayName, onAnswerQuestion, onIntroduce, 
   }
 
   const isPioneer = neighborCount !== null && neighborCount <= 10;
+  // The count includes the viewer; "neighbors are here" must not.
+  const othersCount = neighborCount !== null ? Math.max(0, neighborCount - 1) : null;
 
   return (
     <div className="nb-welcome-hero">
@@ -57,7 +59,7 @@ export function WelcomeHero({ town, displayName, onAnswerQuestion, onIntroduce, 
           isPioneer ? (
             <>You're neighbor <strong>#{neighborCount}</strong> — you're helping found this neighborhood.</>
           ) : (
-            <><strong>{neighborCount}</strong> neighbors are here.</>
+            <><strong>{othersCount}</strong> neighbor{othersCount === 1 ? ' is' : 's are'} here.</>
           )
         ) : (
           <>Your neighborhood is just getting started.</>
@@ -109,11 +111,32 @@ export function WelcomeHero({ town, displayName, onAnswerQuestion, onIntroduce, 
  * IntroComposer: Lightweight intro writer ("Say hello").
  * Name, approximate area, one thing you're good at.
  */
+const SKILL_OPTIONS = [
+  'Yard work', 'Cooking', 'Rides', 'Plumbing', 'Childcare', 'Pet sitting',
+  'Moving help', 'Tech help', 'Tutoring', 'Cleaning', 'Car repairs',
+  'Snow shoveling', 'Painting', 'Errands',
+];
+
 export function IntroComposer({ initialIntro = '', initialSkills = [], onSave, onSkip }) {
   const [intro, setIntro] = useState(initialIntro);
-  const [skills, setSkills] = useState(initialSkills.join(', '));
+  const [skillList, setSkillList] = useState(() => initialSkills.slice(0, 10));
+  const [customSkill, setCustomSkill] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const toggleSkill = (skill) => {
+    setSkillList((prev) =>
+      prev.includes(skill) ? prev.filter((x) => x !== skill) : [...prev, skill].slice(0, 10)
+    );
+  };
+  const addCustomSkill = () => {
+    const v = customSkill.trim().slice(0, 30);
+    if (!v) return;
+    if (!skillList.some((x) => x.toLowerCase() === v.toLowerCase())) {
+      setSkillList((prev) => [...prev, v].slice(0, 10));
+    }
+    setCustomSkill('');
+  };
 
   const handleSave = async () => {
     const cleanIntro = intro.trim();
@@ -129,7 +152,6 @@ export function IntroComposer({ initialIntro = '', initialSkills = [], onSave, o
     setSaving(true);
     setError('');
     try {
-      const skillList = skills.split(',').map(s => s.trim()).filter(Boolean).slice(0, 10);
       await updateIntro({ intro: cleanIntro, skills: skillList });
       onSave && onSave();
     } catch (e) {
@@ -156,13 +178,43 @@ export function IntroComposer({ initialIntro = '', initialSkills = [], onSave, o
       <div className="nb-intro-count">{intro.length}/200</div>
 
       <div className="nb-intro-skills-label">Things you're good at or happy to help with (optional)</div>
-      <input
-        className="nb-input"
-        value={skills}
-        onChange={e => setSkills(e.target.value)}
-        placeholder="yard work, cooking, rides, plumbing…"
-      />
-      <div className="nb-intro-skills-hint">Comma-separated. Helps us surface relevant opportunities.</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {SKILL_OPTIONS.map((skill) => (
+          <button
+            key={skill}
+            type="button"
+            className={`nb-chip ${skillList.includes(skill) ? 'is-active' : ''}`}
+            onClick={() => toggleSkill(skill)}
+          >
+            {skill}
+          </button>
+        ))}
+        {skillList.filter((x) => !SKILL_OPTIONS.includes(x)).map((skill) => (
+          <button
+            key={skill}
+            type="button"
+            className="nb-chip is-active"
+            onClick={() => toggleSkill(skill)}
+            title="Tap to remove"
+          >
+            {skill} ✕
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <input
+          className="nb-input"
+          value={customSkill}
+          onChange={e => setCustomSkill(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustomSkill(); } }}
+          placeholder="Add your own…"
+          maxLength={30}
+        />
+        <button type="button" className="nb-btn nb-btn-ghost" onClick={addCustomSkill} disabled={!customSkill.trim()}>
+          Add
+        </button>
+      </div>
+      <div className="nb-intro-skills-hint">Tap to pick up to 10. Helps us surface relevant opportunities.</div>
 
       {error && <div className="nb-intro-error">{error}</div>}
 

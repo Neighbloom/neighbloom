@@ -603,7 +603,7 @@ export async function fetchNeighbors(town, limit = 20) {
 export async function getNeighborCount(town) {
   const supabase = getSupabase();
   let query = supabase
-    .from('profiles')
+    .from('visible_profiles')
     .select('id', { count: 'exact', head: true });
   if (town) query = query.eq('town', town);
   const { count, error } = await query;
