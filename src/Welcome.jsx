@@ -268,8 +268,11 @@ export function NeighborCard({ neighbor, helpCount, onTap }) {
  * TownAsk: the one setup question that matters (B2).
  * New profiles have town = NULL, and without a town the welcome
  * hero can't name the place or count its neighbors — so we ask
- * plainly, once, with the launch town preselected. Skippable for
- * the session; it returns next visit until answered.
+ * plainly, once. NO town is preselected: town drives notification
+ * fan-out, neighbor counts, and discovery, so a defaulted answer
+ * would poison all three. The user picks deliberately (one tap —
+ * Worth is listed first as the launch town, not pre-answered).
+ * Skippable for the session; returns next visit until answered.
  */
 const TOWN_OPTIONS = [
   'Worth', 'Palos Hills', 'Palos Heights', 'Palos Park', 'Hickory Hills',
@@ -278,7 +281,7 @@ const TOWN_OPTIONS = [
 ];
 
 export function TownAsk({ displayName, onSave, onSkip }) {
-  const [town, setTown] = useState('Worth');
+  const [town, setTown] = useState('');
   const [custom, setCustom] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
