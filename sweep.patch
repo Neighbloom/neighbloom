@@ -1,0 +1,80 @@
+diff --git a/src/App.jsx b/src/App.jsx
+index ba0ca15..35f8d89 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -5498,15 +5498,6 @@ function pushActivity(arg, meta = {}) {
+               Share
+             </button>
+ 
+-            {replyCount > 0 ? (
+-              <button
+-                type="button"
+-                className="nb-link"
+-                onClick={() => toggleThread(post.id)}
+-              >
+-                {open ? 'Hide' : 'Show'} {threadLabel}
+-              </button>
+-            ) : null}
+           </div>
+ 
+           {open ? <ReplyList post={post} /> : null}
+@@ -8464,7 +8455,7 @@ const [nearText, setNearText] = useState('');
+       ? followsByUser[userId].filter(Boolean).length
+       : 0;
+ 
+-    const theirPosts = posts
++    const theirPosts = displayPosts
+       .filter((p) => p && p.ownerId === userId)
+       .sort((a, b) => b.createdAt - a.createdAt);
+ 
+@@ -8667,7 +8658,6 @@ const [nearText, setNearText] = useState('');
+           </div>
+ 
+           <div className="nb-modal-foot">
+-            <div className="nb-muted">Profiles are local-demo only right now.</div>
+             <div className="nb-modal-actions">
+               <button className="nb-btn nb-btn-primary" onClick={() => setModal(null)}>
+                 Close
+@@ -9049,7 +9039,6 @@ const [nearText, setNearText] = useState('');
+ 
+             <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,.02)' }}>
+               <div style={{ fontWeight: 950 }}>Your activity</div>
+-              <div style={{ marginTop: 8, color: 'var(--muted)' }}>Last active: Today</div>
+               <div style={{ marginTop: 6, fontWeight: 980 }}>{((getCheckInFor && getCheckInFor(me.id)?.streak) || 0) > 0 ? `${(getCheckInFor(me.id)?.streak) || 0} days 🔥` : 'No streak yet'}</div>
+             </div>
+           </div>
+diff --git a/src/seam.guard.test.js b/src/seam.guard.test.js
+index 0c9eba2..7ffd95c 100644
+--- a/src/seam.guard.test.js
++++ b/src/seam.guard.test.js
+@@ -56,14 +56,27 @@ function enclosingFunction(idx) {
+ 
+ function bareSites() {
+   const out = [];
+-  lines.forEach((line, i) => {
++  // Multi-line evasion: `posts` at end of line, `.find(` / `.filter(`
++  // starting the next — normalize by joining those pairs first.
++  const joined = [];
++  for (let i = 0; i < lines.length; i++) {
++    const next = lines[i + 1] || '';
++    if (/\bposts\s*$/.test(lines[i]) && /^\s*\.(find|filter)\(/.test(next)) {
++      joined.push({ text: lines[i] + next.trim(), line: i + 1 });
++      i++;
++    } else {
++      joined.push({ text: lines[i], line: i + 1 });
++    }
++  }
++  joined.forEach(({ text: line, line: lineNo }) => {
+     if (!/posts\.(find|filter)\(/.test(line)) return;
+     if (line.includes('|| posts.')) return; // same-line fallback pattern
++    if (line.includes('|| displayPosts.')) return; // reversed fallback order
+     // multi-line fallback pattern: previous non-empty line ends with ||
+-    let k = i - 1;
++    let k = lineNo - 2;
+     while (k >= 0 && lines[k].trim() === '') k--;
+     if (k >= 0 && lines[k].trimEnd().endsWith('||')) return;
+-    out.push({ line: i + 1, fn: enclosingFunction(i), text: line.trim().slice(0, 80) });
++    out.push({ line: lineNo, fn: enclosingFunction(lineNo - 1), text: line.trim().slice(0, 80) });
+   });
+   return out;
+ }
