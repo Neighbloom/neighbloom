@@ -1,6 +1,31 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import './App.css';
 import pkg from '../package.json';
+import { normalizeText, containsLink, maskPhones, buildRecTitle, badgeFor, timeAgo } from './utils.js';
+import { useAuth } from './auth.jsx';
+import { AuthScreen, PasswordResetScreen } from './AuthScreen.jsx';
+import { BUILD_ID } from './buildId.js';
+// Phase 2: M2 backend — lifecycle, messaging, NP. All gracefully degrade
+// when the M2 migrations haven't been applied yet (m2Ready=false).
+import {
+  transitionPost as m2TransitionPost,
+  selectHelpers as m2SelectHelpers,
+  getOrCreateConversation as m2GetOrCreateConversation,
+  fetchConversations as m2FetchConversations,
+  fetchMessages as m2FetchMessages,
+  sendMessage as m2SendMessage,
+  subscribeToMessages as m2SubscribeToMessages,
+  confirmHelpAndAward as m2ConfirmHelpAndAward,
+  dailyCheckIn as m2DailyCheckIn,
+  fetchNPBalance as m2FetchNPBalance,
+  getNeighborCount as m2GetNeighborCount,
+  fetchInAppNotifications as m2FetchNotifications,
+  markNotificationRead as m2MarkNotificationRead,
+  withdrawOffer as m2WithdrawOffer,
+  cancelParticipation as m2CancelParticipation,
+  helperMarkDone as m2HelperMarkDone,
+} from './m2.js';
 
 /* ---------- NB: show fatal errors on-screen (prod-friendly) ---------- */
 function nbFormatErr(err) {
@@ -34,6 +59,117 @@ function nbShowFatalOverlay(err) {
   } catch (_) {}
 }
 
+function ClickAwayHandler({ onAway, targetRefs = [] }) {
+  useEffect(() => {
+    function handleDown(e) {
+      const path = e.composedPath ? e.composedPath() : (e.path || []);
+      // If any of the target refs contain the event target, ignore
+      for (const r of targetRefs) {
+        const el = r?.current || null;
+        if (!el) continue;
+        if (el.contains(e.target) || path.includes(el)) return;
+      }
+      onAway && onAway();
+    }
+
+    document.addEventListener('mousedown', handleDown);
+    document.addEventListener('touchstart', handleDown);
+    return () => {
+      document.removeEventListener('mousedown', handleDown);
+      document.removeEventListener('touchstart', handleDown);
+    };
+  }, [onAway, targetRefs]);
+
+  return null;
+}
+
+function PostOverflowMenu({ anchorRef, open, onClose, items = [] }) {
+  const elRef = useRef(null);
+  const [style, setStyle] = useState({ left: 0, top: 0, visibility: 'hidden' });
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const btn = anchorRef?.current;
+    const menu = elRef?.current;
+    if (!btn || !menu) return;
+
+    const r = btn.getBoundingClientRect();
+    // default positioning below the button, left-aligned
+    const margin = 6;
+    const menuW = menu.offsetWidth || 160;
+    const menuH = menu.offsetHeight || 120;
+    let left = Math.round(r.left);
+    let top = Math.round(r.bottom + margin);
+
+    // flip horizontally if overflowing
+    if (left + menuW > window.innerWidth - 8) {
+      left = Math.max(8, Math.round(r.right - menuW));
+    }
+    // flip vertically if overflowing bottom
+    if (top + menuH > window.innerHeight - 8) {
+      top = Math.max(8, Math.round(r.top - menuH - margin));
+    }
+
+    setStyle({ left, top, visibility: 'visible' });
+  }, [open, anchorRef]);
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape') onClose && onClose();
+    }
+    if (open) document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  useEffect(() => {
+    function onDown(e) {
+      const menu = elRef.current;
+      const btn = anchorRef?.current;
+      if (!menu) return;
+      if (menu.contains(e.target) || (btn && btn.contains(e.target))) return;
+      onClose && onClose();
+    }
+    if (open) {
+      document.addEventListener('mousedown', onDown);
+      document.addEventListener('touchstart', onDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+    };
+  }, [open, anchorRef, onClose]);
+
+  if (!open) return null;
+
+  const menu = (
+    <div
+      ref={elRef}
+      className="nb-overflow-menu"
+      style={{ position: 'fixed', left: style.left + 'px', top: style.top + 'px', visibility: style.visibility }}
+      role="menu"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {items.map((it, i) => (
+        <button
+          key={i}
+          className={`nb-overflow-item${it.danger ? ' danger' : ''}`}
+          onClick={() => {
+            try {
+              it.onClick && it.onClick();
+            } finally {
+              onClose && onClose();
+            }
+          }}
+        >
+          {it.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  return createPortal(menu, document.body);
+}
+
 if (typeof window !== 'undefined' && typeof document !== 'undefined' && !window.__NB_ERR_HOOKED__) {
   window.__NB_ERR_HOOKED__ = true;
   window.addEventListener('error', (e) => nbShowFatalOverlay(e.error || e.message || e));
@@ -53,52 +189,25 @@ const DAILY_CHECKIN_REWARD = 5;
 const AVATAR =
   'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&w=80';
 
-const BUSINESS_MODE = false; // set true when you're ready for local ads/sponsors
 
 const NOW = () => Date.now();
 const uid = (p = 'id') => `${p}_${Math.random().toString(36).slice(2, 10)}`;
 
-function timeAgo(ts) {
-  const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
-}
+// (moved to src/utils.js for testability)
 
-function containsLink(text) {
-  return /(https?:\/\/|www\.)/i.test(text || '');
-}
-
-function maskPhones(text) {
-  if (!text) return '';
-  // mask common US phone patterns, keep last4
-  return text.replace(
-    /(\+?1[\s.-]?)?(\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}/g,
-    (m) => {
-      const digits = m.replace(/\D/g, '');
-      const last4 = digits.slice(-4);
-      return `***-***-${last4}`;
+// Lightweight telemetry helper (buffers to window and logs to console).
+function trackEvent(name, payload = {}) {
+  try {
+    if (typeof window !== 'undefined') {
+      window.__nb_telemetry__ = window.__nb_telemetry__ || [];
+      window.__nb_telemetry__.push({ name, payload, ts: NOW() });
     }
-  );
+    // Keep in console for quick remote-inspect verification
+    console.debug('[telemetry]', name, payload);
+  } catch (_) {}
 }
 
-function normalizeText(t) {
-  return (t || '').trim().replace(/\s+/g, ' ');
-}
-
-function buildRecTitle(recCategory, area) {
-  const cat = normalizeText(recCategory);
-  const loc = normalizeText(area);
-
-  if (cat && loc) return `Need a ${cat} in ${loc}`;
-  if (cat) return `Need a ${cat} recommendation`;
-  if (loc) return `Recommendation in ${loc}`;
-  return 'Recommendation';
-}
+// (moved to src/utils.js for testability)
 
 function effectiveRecPrefTags(post) {
   const tags = Array.isArray(post?.prefTags) ? post.prefTags : [];
@@ -231,11 +340,7 @@ const BADGE_DETAILS = {
   Oak: 'Proven cornerstone. A long track record of confirmed help—consistent, calm, reliable.',
 };
 
-function badgeFor(points) {
-  let b = BADGES[0];
-  for (const x of BADGES) if (points >= x.min) b = x;
-  return b.name;
-}
+// (moved to src/utils.js for testability)
 
 function badgeParts(label) {
   const parts = String(label || '').split(' ');
@@ -307,6 +412,17 @@ function saveAppState(state) {
 
 function resetAppState() {
   localStorage.removeItem(STORAGE_KEY);
+}
+
+function resetDemoData() {
+  try {
+    resetAppState();
+    localStorage.removeItem(LS_CHECKINS);
+  } catch (_) {}
+  // reload to reinitialize demo state from seeds
+  try {
+    window.location.reload();
+  } catch (_) {}
 }
 
 function mentionsReward(text) {
@@ -382,7 +498,7 @@ const HELP_CATEGORIES = [
 const HELP_TEMPLATES = [
   {
     category: 'Snow shoveling (driveway/sidewalk)',
-    label: 'Quick driveway',
+    label: 'Shoveling',
     title: 'Need help shoveling my driveway/sidewalk',
     details:
       'Single driveway + sidewalk. Should be ~20–30 min. I have a shovel.',
@@ -422,7 +538,7 @@ const HELP_TEMPLATES = [
 const RADIUS_PRESETS = {
   near: { label: 'Near', miles: 1 },
   local: { label: 'Local', miles: 3 },
-  area: { label: 'Area', miles: 8 },
+  area: { label: 'Area', miles: 10 },
   all: { label: 'All', miles: Infinity }, // global feed (no effective distance limit)
 };
 
@@ -438,6 +554,17 @@ const TOWN_CENTERS = {
   'Palos Heights': { lat: 41.6686, lng: -87.7964 },
   'Palos Hills': { lat: 41.6967, lng: -87.8303 },
   'Palos Park': { lat: 41.6676, lng: -87.8342 },
+  /* Nearby suburbs added to broaden inference coverage */
+  'Hickory Hills': { lat: 41.6995, lng: -87.8074 },
+  'Oak Forest': { lat: 41.6206, lng: -87.8012 },
+  'Bridgeview': { lat: 41.7406, lng: -87.7839 },
+  'Alsip': { lat: 41.6645, lng: -87.6999 },
+  'Burbank': { lat: 41.7734, lng: -87.8063 },
+  'Justice': { lat: 41.7381, lng: -87.8198 },
+  'Orland Hills': { lat: 41.6631, lng: -87.8720 },
+  /* Slightly further suburbs */
+  'Mokena': { lat: 41.5456, lng: -87.8549 },
+  'New Lenox': { lat: 41.487, lng: -87.912 },
 };
 
 const TOWN_KEYS = Object.keys(TOWN_CENTERS);
@@ -461,9 +588,19 @@ function milesBetween(a, b) {
 }
 
 function inferTownKeyFromText(text) {
-  const t = String(text || '').toLowerCase();
+  const raw = String(text || '').toLowerCase();
+  const t = raw.replace(/[^a-z0-9\s]/g, ''); // strip punctuation for matching
+  const tCompacted = raw.replace(/[^a-z0-9]/g, ''); // compacted (no spaces)
   for (const k of TOWN_KEYS) {
-    if (t.includes(k.toLowerCase())) return k;
+    const kLower = k.toLowerCase();
+    const kCompacted = kLower.replace(/[^a-z0-9]/g, '');
+    // direct substring match (word-preserving)
+    if (t.includes(kLower)) return k;
+    // compacted match to catch tokens like 'oaklawn'
+    if (tCompacted.includes(kCompacted)) return k;
+    // all-words match: e.g., 'oak' and 'lawn' appear separately
+    const parts = kLower.split(/\s+/).filter(Boolean);
+    if (parts.length > 1 && parts.every((p) => t.indexOf(p) !== -1)) return k;
   }
   return null;
 }
@@ -634,6 +771,8 @@ function HomeScreen({
   Hero,
   Chips,
   EmptyState,
+  SparseTownPanel,
+  isSparseTown,
   PostCard,
   homeChip,
   refreshing,
@@ -655,6 +794,8 @@ onRefresh,
   onOpenHomeSetup,
 
   // Saved searches
+  kindness,
+  away,
   savedSearches,
   activeSavedSearchId,
   onApplySavedSearch,
@@ -983,6 +1124,86 @@ onRefresh,
       style={{ overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}
     >
       <Hero />
+
+      {away && (away.asks > 0 || away.updates > 0) ? (
+        <div className="nb-section" style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div style={{ flex: 1, fontWeight: 850, fontSize: 14 }}>
+            👋 While you were away:{' '}
+            {away.asks > 0 ? `${away.asks} new ask${away.asks === 1 ? '' : 's'} nearby` : ''}
+            {away.asks > 0 && away.updates > 0 ? ' · ' : ''}
+            {away.updates > 0 ? `${away.updates} update${away.updates === 1 ? '' : 's'} waiting` : ''}
+          </div>
+          {away.updates > 0 ? (
+            <button type="button" className="nb-btn nb-btn-ghost nb-btn-sm" onClick={() => setActiveTab('activity')}>
+              See updates
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {Array.isArray(kindness) && kindness.length > 0 ? (
+        <div className="nb-section" style={{ marginTop: 12 }}>
+          <div className="nb-section-title">💛 Kindness in the neighborhood</div>
+          {/* Design pass (2026-10-13): gratitude is the emotional
+              core — the newest thank-you gets a designed card
+              (faces first, the words prominent, brand coral),
+              the rest stay one tap-readable compact rows. Same
+              real data, nothing added. */}
+          {(() => {
+            const [first, ...rest] = kindness.slice(0, 3);
+            const face = (person, fallback) =>
+              person?.avatar_url ? (
+                <img className="nb-avatar sm" src={person.avatar_url} alt="" />
+              ) : (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 32, height: 32, borderRadius: '50%', flex: '0 0 auto',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--coral, #F35B50)', color: '#fff', fontWeight: 900, fontSize: 14,
+                  }}
+                >
+                  {(person?.display_name || fallback || 'N').charAt(0)}
+                </span>
+              );
+            return (
+              <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                <div
+                  style={{
+                    border: '1px solid var(--border)', borderLeft: '3px solid var(--coral, #F35B50)',
+                    borderRadius: 12, padding: '12px 14px',
+                    background: 'rgba(243, 91, 80, 0.07)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {face(first.helper, 'N')}
+                    <div style={{ fontWeight: 900, fontSize: 14 }}>
+                      {first.helper?.display_name || 'A neighbor'}
+                    </div>
+                  </div>
+                  {first.message ? (
+                    <div style={{ marginTop: 8, fontSize: 15, lineHeight: 1.45 }}>{`"${first.message}"`}</div>
+                  ) : null}
+                  <div className="nb-muted" style={{ marginTop: 6, fontSize: 13 }}>
+                    — thanked by {first.thanker?.display_name || 'a neighbor'}
+                  </div>
+                </div>
+                {rest.map((g) => (
+                  <div key={g.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px', background: 'rgba(255,255,255,.02)' }}>
+                    <div style={{ fontWeight: 900, fontSize: 14 }}>
+                      {g.thanker?.display_name || 'A neighbor'} thanked {g.helper?.display_name || 'a neighbor'}
+                    </div>
+                    {g.message ? (
+                      <div className="nb-muted" style={{ marginTop: 2, fontSize: 13 }}>{`"${g.message}"`}</div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      ) : null}
+
       {refreshing ? (
         <div className="nb-muted small" style={{ marginTop: 8, fontWeight: 900 }}>
           Refreshing…
@@ -1083,6 +1304,9 @@ onRefresh,
       ) : null}
 
       {visibleFeed.length === 0 ? (
+        isSparseTown && !homeFollowOnly && !hasQuery ? (
+          <SparseTownPanel />
+        ) : (
         <>
           {!hasQuery && radiusPreset !== 'all' ? (
             <div style={{ marginTop: 10 }}>
@@ -1104,23 +1328,50 @@ onRefresh,
           ) : null}
 
           <EmptyState
-            title="Nothing here yet"
+            title={
+              homeFollowOnly
+                ? 'Make your feed yours'
+                : homeChip === 'help'
+                ? 'Need a hand?'
+                : homeChip === 'rec'
+                ? 'Looking for local tips?'
+                : 'Start your neighborhood'
+            }
             body={
               homeFollowOnly
-                ? 'You’re not following anyone yet. Open a neighbor profile and hit Follow.'
+                ? 'Follow neighbors to see posts that matter to you.'
                 : homeChip === 'help'
-                ? 'No help posts yet. The app feels dead if nobody posts. Fix that.'
+                ? 'Post what you need — neighbors in your town will see it here and can offer a hand.'
                 : homeChip === 'rec'
-                ? 'No recommendation requests yet. Ask a specific question and you’ll get better replies.'
-                : 'No posts yet. Start the neighborhood with one structured post.'
+                ? 'Ask a specific question — neighbors in your town can answer here.'
+                : 'Be the first to share — post a question or request to get things started.'
             }
-            ctaLabel="Create a post"
+            ctaLabel={
+              homeFollowOnly
+                ? 'Discover neighbors'
+                : homeChip === 'help'
+                ? 'Ask for help'
+                : homeChip === 'rec'
+                ? 'Ask for recommendations'
+                : 'Create a post'
+            }
             onCta={() => {
-              setActiveTab('post');
-              setPostFlow({ step: 'chooser', kind: null });
+              if (homeFollowOnly) {
+                setActiveTab('profile');
+              } else if (homeChip === 'help') {
+                setActiveTab('post');
+                setPostFlow({ step: 'form', kind: 'help' });
+              } else if (homeChip === 'rec') {
+                setActiveTab('post');
+                setPostFlow({ step: 'form', kind: 'rec' });
+              } else {
+                setActiveTab('post');
+                setPostFlow({ step: 'form', kind: null });
+              }
             }}
           />
         </>
+        )
       ) : (
         <div className="nb-feed">
           {visibleFeed.map((p) => (
@@ -1162,10 +1413,87 @@ function useLocalStorageJsonState(key, fallbackValue) {
 
 
 function App() {
+  // Supabase Auth (Milestone 1) — falls back to demo mode if not configured
+  const { user: authUser, profile: authProfile, loading: authLoading, isConfigured: authConfigured, isAuthenticated, recovery: authRecovery, signOut } = useAuth();
+
+  // Phase 2: M2 backend availability probe. True only when authenticated AND
+  // the M2 migrations have been applied (np_ledger table exists).
+  // All M2 calls gracefully fall back to local behavior when false.
+  const [m2Ready, setM2Ready] = useState(false);
+
+  // Stale-build shield: every build stamps BUILD_ID into the bundle
+  // and serves the same id at /version.json. If they ever disagree,
+  // this browser is running a cached old copy (which once presented
+  // as a broken app) — offer a refresh instead of failing silently.
+  const [servedBuild, setServedBuild] = useState(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const r = await fetch('/version.json', { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (!cancelled && j && typeof j.build === 'string') setServedBuild(j.build);
+      } catch { /* offline or dev preview — no opinion */ }
+    };
+    check();
+    const onVis = () => { if (document.visibilityState === 'visible') check(); };
+    document.addEventListener('visibilitychange', onVis);
+    const t = setInterval(check, 10 * 60 * 1000);
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVis); clearInterval(t); };
+  }, []);
+  const updateReady = !!servedBuild && servedBuild !== BUILD_ID && !updateDismissed;
+  useEffect(() => {
+    if (!isAuthenticated || !authConfigured) { setM2Ready(false); return; }
+    (async () => {
+      try {
+        // NOTE: supabase.js exports the client as `supabase` — there is
+        // no getSupabase export there (m2.js has its own internal one).
+        // A wrong import name here throws, lands in the catch, and
+        // silently disables EVERY M2 feature (notifications, real NP,
+        // server transitions, real chat) — that bug hid for the whole
+        // M2/M3 era behind the local fallbacks. Keep this import exact.
+        const { supabase } = await import('./supabase.js');
+        if (!supabase) { setM2Ready(false); return; }
+        const { error } = await supabase.from('np_ledger').select('id').limit(1);
+        setM2Ready(!error);
+      } catch { setM2Ready(false); }
+    })();
+  }, [isAuthenticated, authConfigured]);
+
+  // Phase 2: Shared Supabase post refetch (server = source of truth).
+  const refreshSupabasePosts = React.useCallback(async () => {
+    if (!isAuthenticated || !authConfigured) return;
+    try {
+      const { fetchAppPosts } = await import('./posts.js');
+      setSupabasePosts(await fetchAppPosts());
+    } catch (e) {
+      console.error('[Supabase] refreshSupabasePosts failed:', e.message);
+    }
+  }, [isAuthenticated, authConfigured]);
+
+  // Phase 2: Real NP balance refresh.
+  const [realNp, setRealNp] = useState(null);
+  const refreshRealNp = React.useCallback(async () => {
+    if (!isAuthenticated || !authConfigured || !m2Ready) return;
+    try { setRealNp(await m2FetchNPBalance()); } catch {}
+  }, [isAuthenticated, authConfigured, m2Ready]);
+  useEffect(() => { if (m2Ready) refreshRealNp(); }, [m2Ready, refreshRealNp]);
+
   // -------------------- LOAD SAVED STATE (V1) --------------------
   const saved = useMemo(() => loadAppState(), []);
 
   const [activeTab, setActiveTab] = useState(() => saved?.activeTab ?? 'home'); // home | post | activity | profile
+
+  // Each tab starts at its top — inheriting the previous tab's
+  // scroll position made Profile open mid-page.
+  useEffect(() => {
+    try {
+      window.scrollTo(0, 0);
+      document.querySelectorAll('.nb-page, .nb-scroll').forEach((el) => { el.scrollTop = 0; });
+    } catch { /* noop */ }
+  }, [activeTab]);
   
   
   const [homeRefreshing, setHomeRefreshing] = useState(false);
@@ -1179,22 +1507,71 @@ function App() {
     setHomeRefreshing(true);
 
     try {
-      // Simulate a network refresh (swap this later for real fetch)
-      await sleep(650);
+      // Phase 1: Real refetch from Supabase when authenticated.
+      // Falls back to simulated delay in demo mode.
+      if (isAuthenticated && authConfigured) {
+        const { fetchAppPosts } = await import('./posts.js');
+        setSupabasePosts(await fetchAppPosts());
+      } else {
+        await sleep(650);
+      }
+    } catch (e) {
+      console.error('[Supabase] Refresh failed:', e.message);
     } finally {
       homeRefreshingRef.current = false;
       setHomeRefreshing(false);
     }
-  }, []);
+  }, [isAuthenticated, authConfigured]);
   const [meId, setMeId] = useState('me'); // tiny demo switcher (optional)
-  const me = useMemo(
-    () => USERS_SEED.find((u) => u.id === meId) || USERS_SEED[0],
-    [meId]
-  );
+  // Phase 1: Real identity — authenticated users see their Supabase profile,
+  // not the seed demo user. Demo mode (unauthenticated) keeps seed behavior.
+  const me = useMemo(() => {
+    if (isAuthenticated && authProfile) {
+      return {
+        id: authProfile.id,
+        name: authProfile.display_name || 'Neighbor',
+        handle: authProfile.handle || '',
+        avatar: authProfile.avatar_url || AVATAR,
+        location: authProfile.town || 'Your neighborhood',
+        tagline: '',
+        _real: true, // marks this as a real authenticated identity
+      };
+    }
+    return USERS_SEED.find((u) => u.id === meId) || USERS_SEED[0];
+  }, [meId, isAuthenticated, authProfile]);
 
   const [posts, setPosts] = useState(() =>
     normalizePostsForRecSocial(saved?.posts ?? seedPosts())
   );
+
+  // Milestone 1: Load shared posts from Supabase when authenticated
+  const [supabasePosts, setSupabasePosts] = useState([]);
+  const [supabaseLoading, setSupabaseLoading] = useState(false);
+  useEffect(() => {
+    if (!isAuthenticated || !authConfigured) return;
+    setSupabaseLoading(true);
+    (async () => {
+      try {
+        const { fetchAppPosts } = await import('./posts.js');
+        setSupabasePosts(await fetchAppPosts());
+      } catch (e) {
+        console.error('[Supabase] Failed to fetch posts:', e.message);
+      } finally {
+        setSupabaseLoading(false);
+      }
+    })();
+  }, [isAuthenticated, authConfigured]);
+
+  // Combined posts: Supabase ONLY when authenticated (never show demo posts to real users).
+  // Demo/local posts only appear in demo mode (Supabase not configured).
+  const displayPosts = useMemo(() => {
+    if (isAuthenticated && authConfigured) {
+      // Real users see only real shared posts from Supabase
+      return [...supabasePosts].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    }
+    // Demo mode: local posts only
+    return posts;
+  }, [posts, supabasePosts, isAuthenticated, authConfigured]);
   const [homeChip, setHomeChip] = useState(() => saved?.homeChip ?? 'all'); // all | help | rec
   const [homeShowAll, setHomeShowAll] = useState(
     () => saved?.homeShowAll ?? false
@@ -1203,12 +1580,43 @@ function App() {
     () => saved?.homeFollowOnly ?? false
   ); // Following mode
 
-  const [expandedThreads, setExpandedThreads] = useState(
-    () => saved?.expandedThreads ?? {}
-  ); // postId -> bool
+  // Highlights feature state (opt-in + temporary boosts)
+  const [highlightsByUser, setHighlightsByUser] = useState(() => saved?.highlightsByUser || {});
+
+  function setUserHighlightOptIn(userId, allow) {
+    setHighlightsByUser((prev) => {
+      const next = { ...(prev || {}) };
+      next[userId] = { ...(next[userId] || {}), allowHighlights: !!allow };
+      try {
+        const store = safeJsonParse(localStorage.getItem(STORAGE_KEY), {}) || {};
+        store.highlightsByUser = next;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: STORAGE_VERSION, ...store }));
+      } catch {}
+      return next;
+    });
+    trackEvent('highlight_opt_in', { userId, optIn: !!allow });
+  }
+
+  function setUserTempBoost(userId, untilTs) {
+    setHighlightsByUser((prev) => {
+      const next = { ...(prev || {}) };
+      next[userId] = { ...(next[userId] || {}), tempBoostUntil: untilTs };
+      try {
+        const store = safeJsonParse(localStorage.getItem(STORAGE_KEY), {}) || {};
+        store.highlightsByUser = next;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: STORAGE_VERSION, ...store }));
+      } catch {}
+      return next;
+    });
+    trackEvent('highlight_set', { userId, until: untilTs });
+  }
+
+  const [expandedThreads, setExpandedThreads] = useState(() => ({})); // postId -> bool (start collapsed)
   const [expandedOtherVols, setExpandedOtherVols] = useState(
   () => saved?.expandedOtherVols ?? {}
 ); // postId -> bool
+  const [pendingSelection, setPendingSelection] = useState(null); // { postId, userId, userName }
+  const [replyOverflow, setReplyOverflow] = useState(null); // { postId, replyId, anchorRef }
   const [homeQuery, setHomeQuery] = useState(() => saved?.homeQuery ?? '');
   const [savedSearches, setSavedSearches] = useState(
     () => saved?.savedSearches ?? []
@@ -1282,14 +1690,45 @@ function App() {
       }
   );
 
+    // Small hook to animate numbers (e.g. NP badge count-up)
+    function useAnimatedNumber(value, duration = 1000) {
+      const [display, setDisplay] = useState(Number(value) || 0);
+      const rafRef = useRef(null);
+      const fromRef = useRef(Number(value) || 0);
+
+      useEffect(() => {
+        cancelAnimationFrame(rafRef.current);
+        const from = Number(fromRef.current) || 0;
+        const to = Number(value) || 0;
+        if (from === to) {
+          setDisplay(to);
+          fromRef.current = to;
+          return;
+        }
+        const start = performance.now();
+        function step(now) {
+          const t = Math.min(1, (now - start) / duration);
+          const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+          const current = Math.round(from + (to - from) * eased);
+          setDisplay(current);
+          if (t < 1) rafRef.current = requestAnimationFrame(step);
+          else fromRef.current = to;
+        }
+        rafRef.current = requestAnimationFrame(step);
+        return () => cancelAnimationFrame(rafRef.current);
+      }, [value, duration]);
+
+      // keep baseline in sync if outer code resets value
+      useEffect(() => {
+        fromRef.current = Number(value) || 0;
+      }, []);
+
+      return display;
+    }
+
   // -------------------- DAILY CHECK-IN (local, no backend) --------------------
   const [checkInByUser, setCheckInByUser] = useLocalStorageJsonState(
     'nb_checkInByUser',
-    {}
-  );
-
-  const [onboardingByUser, setOnboardingByUser] = useLocalStorageJsonState(
-    'nb_onboardingByUser',
     {}
   );
 
@@ -1313,8 +1752,227 @@ function App() {
     });
   });
 
+  // Phase 3 (M3/M4): server notifications -> Activity feed.
+  // The Activity tab historically rendered only the local V1 event log,
+  // so cross-user notifications (volunteers, messages, confirmations,
+  // gratitude) created by the M3 triggers were invisible. This loader
+  // merges them into the same activity state, deduped by id (safe
+  // across the localStorage persistence of `activity`). On re-fetch,
+  // server truth wins for read state and link resolution.
+  //
+  // Read semantics are explicit: opening the tab does NOT blanket-mark
+  // everything read. A group is marked read when the user opens it, or
+  // via "Mark all read". Fetch failures surface as a sync state so the
+  // UI can be honest instead of silently stale.
+  const [notifSync, setNotifSync] = useState('idle'); // idle | loading | ok | error
+
+  const refreshRemoteNotifications = React.useCallback(async () => {
+    if (!isAuthenticated || !authConfigured || !m2Ready || !me?.id) return;
+    setNotifSync((st) => (st === 'ok' || st === 'error' ? st : 'loading'));
+    try {
+      const [rows, convs] = await Promise.all([
+        m2FetchNotifications(30),
+        m2FetchConversations().catch(() => []),
+      ]);
+      // conversation id -> { postId, otherId }, so message notifications
+      // can deep-link straight into their chat.
+      const convById = {};
+      for (const c of Array.isArray(convs) ? convs : []) {
+        if (!c?.id) continue;
+        convById[c.id] = {
+          postId: c.post_id || c.post?.id || null,
+          otherId: c.owner_id === me.id ? c.helper_id : c.owner_id,
+        };
+      }
+      const items = (Array.isArray(rows) ? rows : []).map((n) => {
+        const conv = n.ref_type === 'conversation' ? convById[n.ref_id] : null;
+        return {
+          id: `sb-${n.id}`,
+          type: n.type || 'notice',
+          text: [n.title, n.body].filter(Boolean).join(' — '),
+          ts: n.created_at ? new Date(n.created_at).getTime() : NOW(),
+          audienceIds: [me.id],
+          actorId: null,
+          postId: n.ref_type === 'post' ? n.ref_id : (conv?.postId || null),
+          conversationId: n.ref_type === 'conversation' ? n.ref_id : null,
+          chatOtherId: conv?.otherId || null,
+          remoteId: n.id,
+          readAt: n.read_at || null,
+        };
+      });
+      setActivity((prev) => {
+        const list = Array.isArray(prev) ? prev : [];
+        const next = [...list];
+        let changed = false;
+        for (const it of items) {
+          const idx = next.findIndex((a) => a?.id === it.id);
+          if (idx === -1) {
+            next.push(it);
+            changed = true;
+          } else {
+            const ex = next[idx];
+            if (!!ex.readAt !== !!it.readAt || ex.conversationId !== it.conversationId || ex.chatOtherId !== it.chatOtherId || (!ex.postId && it.postId)) {
+              next[idx] = { ...ex, readAt: it.readAt, conversationId: it.conversationId, chatOtherId: it.chatOtherId, postId: ex.postId || it.postId };
+              changed = true;
+            }
+          }
+        }
+        if (!changed) return prev;
+        return next.sort((a, b) => (b?.ts || 0) - (a?.ts || 0));
+      });
+      setNotifSync('ok');
+    } catch {
+      setNotifSync('error');
+    }
+  }, [isAuthenticated, authConfigured, m2Ready, me?.id]);
+
+  useEffect(() => {
+    if (m2Ready) refreshRemoteNotifications();
+  }, [m2Ready, refreshRemoteNotifications]);
+
+  // Opening the Activity tab refreshes the feed (no auto mark-read).
+  useEffect(() => {
+    if (activeTab === 'activity' && m2Ready) refreshRemoteNotifications();
+  }, [activeTab, m2Ready, refreshRemoteNotifications]);
+
+  // Mark specific server notifications read (local state + server).
+  const markRemoteRead = React.useCallback((remoteIds) => {
+    const ids = (Array.isArray(remoteIds) ? remoteIds : []).filter(Boolean);
+    if (!ids.length) return;
+    const nowIso = new Date().toISOString();
+    setActivity((prev) => {
+      if (!Array.isArray(prev)) return prev;
+      let changed = false;
+      const next = prev.map((a) => {
+        if (a && a.remoteId && ids.includes(a.remoteId) && !a.readAt) {
+          changed = true;
+          return { ...a, readAt: nowIso };
+        }
+        return a;
+      });
+      return changed ? next : prev;
+    });
+    ids.forEach((id) => { m2MarkNotificationRead(id).catch(() => {}); });
+  }, []);
+
   // modal: reply or confirm actions
   const [modal, setModal] = useState(null); // {type, postId, mode}
+  // share modal state (opened by sharePost)
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareTargetPost, setShareTargetPost] = useState(null);
+  // public post view (for /p/:id deep links that should open a read-only public page)
+  const [publicViewPostId, setPublicViewPostId] = useState(() => {
+    const m = window.location.pathname.match(/\/p\/(.+)$/);
+    return m ? decodeURIComponent(m[1]) : null;
+  });
+
+  // Analytics / tracking helper (lightweight)
+  function trackEvent(name, data = {}) {
+    try {
+      if (window.dataLayer && typeof window.dataLayer.push === 'function') {
+        window.dataLayer.push({ event: name, ...data });
+      } else {
+        console.log('[trackEvent]', name, data);
+      }
+    } catch (e) {
+      // swallow
+    }
+  }
+
+  // Focus management for share modal (accessibility)
+  const shareModalFirstBtnRef = useRef(null);
+  const shareModalRef = useRef(null);
+
+  useEffect(() => {
+    const modalEl = shareModalRef.current;
+    const appEl = document.querySelector('.nb-app');
+
+    if (shareModalOpen) {
+      const prevOverflow = document.body.style.overflow || '';
+      const prevAria = appEl ? appEl.getAttribute('aria-hidden') : null;
+
+      // prevent background scroll while modal open
+      document.body.style.overflow = 'hidden';
+      if (appEl) appEl.setAttribute('aria-hidden', 'true');
+
+      // focus first actionable control
+      setTimeout(() => {
+        try {
+          shareModalFirstBtnRef.current && shareModalFirstBtnRef.current.focus();
+        } catch (e) {}
+      }, 60);
+
+      function onKey(e) {
+        if (e.key === 'Escape') {
+          setShareModalOpen(false);
+          setShareTargetPost(null);
+          return;
+        }
+
+        if (e.key === 'Tab') {
+          if (!modalEl) return;
+          const nodes = modalEl.querySelectorAll(
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          );
+          const focusable = Array.prototype.slice.call(nodes).filter((n) => n.offsetParent !== null);
+          if (focusable.length === 0) return;
+          const idx = focusable.indexOf(document.activeElement);
+
+          if (e.shiftKey) {
+            if (idx === 0 || document.activeElement === modalEl) {
+              e.preventDefault();
+              focusable[focusable.length - 1].focus();
+            }
+          } else {
+            if (idx === focusable.length - 1) {
+              e.preventDefault();
+              focusable[0].focus();
+            }
+          }
+        }
+      }
+
+      // use capture so we get key events before inner handlers
+      document.addEventListener('keydown', onKey, true);
+
+      return () => {
+        document.removeEventListener('keydown', onKey, true);
+        document.body.style.overflow = prevOverflow;
+        if (appEl) {
+          if (prevAria === null) appEl.removeAttribute('aria-hidden');
+          else appEl.setAttribute('aria-hidden', prevAria);
+        }
+      };
+    }
+    return undefined;
+  }, [shareModalOpen]);
+
+  // When viewing a public post, update basic meta tags (client-side only).
+  function setMetaTag(name, content) {
+    try {
+      let el = document.querySelector(`meta[property="${name}"]`) || document.querySelector(`meta[name="${name}"]`);
+      if (!el) {
+        el = document.createElement('meta');
+        // prefer property for OpenGraph
+        el.setAttribute('property', name);
+        document.head.appendChild(el);
+      }
+      el.setAttribute('content', content || '');
+    } catch (e) {}
+  }
+
+  useEffect(() => {
+    if (!publicViewPostId) return;
+    const p = (posts || []).find((x) => x && x.id === publicViewPostId);
+    if (!p) return;
+    try {
+      document.title = p.title || 'Neighbloom';
+      setMetaTag('og:title', p.title || 'Neighbloom');
+      setMetaTag('og:description', p.details || '');
+      setMetaTag('og:url', postUrl(p.id));
+      if (p.photo) setMetaTag('og:image', p.photo);
+    } catch (e) {}
+  }, [publicViewPostId, posts]);
   // ---------------- BLOCK / REPORT (local MVP) ----------------
   const [blockedByUser, setBlockedByUser] = useLocalStorageJsonState(
     'nb_blockedByUser',
@@ -1324,8 +1982,75 @@ function App() {
   const [reports, setReports] = useLocalStorageJsonState('nb_reports', []);
   // recommendation comment thread (per recommendation reply)
   const [thread, setThread] = useState(null); // { postId, replyId } | null
+  // Inline composer: postId for which the small inline composer is open
+  const [inlineComposerFor, setInlineComposerFor] = useState(null);
+  // Track when we programmatically opened a thread to show the inline composer
+  const [composerOpenedFor, setComposerOpenedFor] = useState(null);
+  function closeInlineComposer(postId) {
+    setInlineComposerFor(null);
+    if (postId && composerOpenedFor === postId) {
+      setExpandedThreads((prev) => {
+        const next = { ...(prev || {}) };
+        delete next[postId];
+        return next;
+      });
+      setComposerOpenedFor(null);
+    } else {
+      setComposerOpenedFor(null);
+    }
+  }
   // chat drawer
   const [chat, setChat] = useState(null); // {postId, otherUserId}
+
+  // General modal keyboard + focus management (a11y round 3):
+  // every modal-state dialog gets Escape-to-close, initial focus
+  // inside the dialog (preferring its first form field), a Tab
+  // trap, and focus restoration on close. The share modal has its
+  // own implementation and is excluded; the chat drawer gets
+  // Escape-to-close only.
+  useEffect(() => {
+    if (shareModalOpen) return undefined;
+    if (!modal && !chat) return undefined;
+    const prevFocus = document.activeElement;
+    let raf = 0;
+    if (modal) {
+      raf = requestAnimationFrame(() => {
+        try {
+          const root = document.querySelector('.nb-modal');
+          if (!root) return;
+          const field = root.querySelector('textarea:not([disabled]), input:not([disabled]), select:not([disabled])');
+          const first = field || root.querySelector('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])');
+          if (first && first.focus) first.focus();
+        } catch {}
+      });
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        if (modal) setModal(null);
+        else if (chat) setChat(null);
+        return;
+      }
+      if (e.key !== 'Tab' || !modal) return;
+      const root = document.querySelector('.nb-modal');
+      if (!root) return;
+      const nodes = Array.prototype.slice
+        .call(root.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+        .filter((n) => n.offsetParent !== null);
+      if (!nodes.length) return;
+      const firstEl = nodes[0];
+      const lastEl = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
+      else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('keydown', onKey);
+      try { if (prevFocus && prevFocus.isConnected && prevFocus.focus) prevFocus.focus(); } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modal, chat, shareModalOpen]);
+
   const didAutoOpenChatOnActivity = useRef(false);
   // Lightweight toast + deep-link guards (share / referrals / post links)
   const [toastMsg, setToastMsg] = useState(null);
@@ -1406,39 +2131,49 @@ const chatsById = chats;
 
   const lastSeen = useMemo(() => getLastSeen(me.id), [me.id, lastSeenByUser]);
 
-  const homeNewCount = useMemo(() => {
-    const ts = lastSeen.homeTs || 0;
-    // Simple v1: "new posts" = posts created after last seen, not mine
-    const list = Array.isArray(posts) ? posts : [];
-    return list.filter((p) => p && p.createdAt > ts && p.ownerId !== me.id).length;
-  }, [posts, me.id, lastSeen.homeTs]);
-
   const activityNewCount = useMemo(() => {
     const ts = lastSeen.activityTs || 0;
     const list = Array.isArray(activity) ? activity : [];
-    return list.filter((a) => a && a.ts > ts && Array.isArray(a.audienceIds) && a.audienceIds.includes(me.id)).length;
+    const mine = list.filter((a) => a && Array.isArray(a.audienceIds) && a.audienceIds.includes(me.id));
+    // Local events count as new since the last visit; server
+    // notifications count while truly unread, so the tab badge always
+    // matches the unread indicators inside the tab.
+    const localNew = mine.filter((a) => !a.remoteId && a.ts > ts).length;
+    const remoteUnread = mine.filter((a) => a.remoteId && !a.readAt).length;
+    return localNew + remoteUnread;
   }, [activity, me.id, lastSeen.activityTs]);
 
-  // Profile badge is disabled for now (avoids TDZ crash from followersByUser)
-const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
-
-  const tabBadges = useMemo(() => {
-    return {
-      home: homeNewCount,
-      activity: activityNewCount,
-      profile: profileNewCount,
-      post: 0,
-    };
-  }, [homeNewCount, activityNewCount, profileNewCount]);
-
-  const npPoints = npPointsByUser[me.id] || 0;
+  // Phase 1: Real NP — authenticated users see their actual Supabase NP balance.
+  // Demo mode keeps the local simulation.
+  const npPoints = (isAuthenticated && authProfile)
+    ? (realNp ?? authProfile.np ?? 0)
+    : (npPointsByUser[me.id] || 0);
   const myBadge = badgeFor(npPoints);
 
   const usersById = useMemo(() => {
     const m = {};
     USERS_SEED.forEach((u) => (m[u.id] = u));
+    // Overlay real identities on the demo directory: server post
+    // owners and my own authenticated profile. Without this, real
+    // neighbors resolve to nothing (the chat header showed "Chat
+    // with" + a tier badge and no name for a real helper).
+    for (const p of supabasePosts || []) {
+      if (p?.ownerId && p.ownerName && !m[p.ownerId]) {
+        m[p.ownerId] = { id: p.ownerId, name: p.ownerName, avatar: p.ownerAvatar || AVATAR, handle: '' };
+      }
+      // Reply authors too: a helper who has only volunteered (and
+      // owns no post in the feed) otherwise renders as a generic
+      // "Neighbor" in the thread — Sam's ladder offer did exactly
+      // that. The replies converter carries their real names.
+      for (const r of p?.replies || []) {
+        if (r?.authorId && r.authorName && !m[r.authorId]) {
+          m[r.authorId] = { id: r.authorId, name: r.authorName, avatar: r.authorAvatar || AVATAR, handle: '' };
+        }
+      }
+    }
+    if (isAuthenticated && me?._real) m[me.id] = me;
     return m;
-  }, []);
+  }, [supabasePosts, isAuthenticated, me]);
 
   // -------------------- FOLLOW (Phase 1) --------------------
   const [followsByUser, setFollowsByUser] = useState(
@@ -1504,10 +2239,235 @@ const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
     return counts[me.id] || 0;
   }, [posts, me.id]);
 
+  // Server-backed impact for authenticated users: completed helps
+  // where I was a selected helper (RPC get_help_count). The local
+  // count above only sees demo rec replies, so it under-reports
+  // real helping to zero.
+  const [serverHelpCount, setServerHelpCount] = useState(null);
+  useEffect(() => {
+    if (!isAuthenticated || !m2Ready || !authProfile?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getHelpCount } = await import('./m2.js');
+        const n = await getHelpCount(authProfile.id);
+        if (!cancelled) setServerHelpCount(typeof n === 'number' ? n : 0);
+      } catch { if (!cancelled) setServerHelpCount(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, m2Ready, authProfile?.id]);
+  const impactHelpCount =
+    isAuthenticated && serverHelpCount !== null ? serverHelpCount : helpfulRepliesCount;
+
+  // Kindness Moments (concept E): real public gratitude between
+  // neighbors, from gratitude_posts. Rendered only when genuine
+  // items exist — never fabricated, never backfilled.
+  const [gratitudeItems, setGratitudeItems] = useState([]);
+  useEffect(() => {
+    if (!isAuthenticated || !m2Ready) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { fetchGratitude } = await import('./m2.js');
+        const rows = await fetchGratitude(5);
+        if (!cancelled) setGratitudeItems(Array.isArray(rows) ? rows : []);
+      } catch { if (!cancelled) setGratitudeItems([]); }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, m2Ready]);
+
+  // Design pass (2026-10-13): the Profile story card counts the
+  // signed-in member's OWN gratitude from the same public record
+  // (recent 50 neighborhood-wide) — received as a helper, sent
+  // as a thanker. Demo mode keeps both at 0 and the card falls
+  // back to its local signals.
+  const [myGratitude, setMyGratitude] = useState({ received: 0, sent: 0 });
+  useEffect(() => {
+    if (!isAuthenticated || !m2Ready || !authProfile?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { fetchGratitude } = await import('./m2.js');
+        const rows = await fetchGratitude(50);
+        if (cancelled || !Array.isArray(rows)) return;
+        setMyGratitude({
+          received: rows.filter((g) => g?.helper?.id === authProfile.id).length,
+          sent: rows.filter((g) => g?.thanker?.id === authProfile.id).length,
+        });
+      } catch { /* story card treats unknown as 0 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, m2Ready, authProfile?.id]);
+
+  // "While you were away" (Pulse, honest edition): snapshot the
+  // home last-seen timestamp when this session's identity lands —
+  // before any navigation overwrites it — then count genuinely
+  // new asks since then. Only meaningful after a real absence
+  // (>1h); a first session or a quick return shows nothing.
+  const awayRef = useRef(null);
+  useEffect(() => {
+    if (awayRef.current !== null) return;
+    if (!isAuthenticated || !me?.id) return;
+    awayRef.current = getLastSeen(me.id).homeTs || 0;
+    // getLastSeen reads lastSeenByUser state; identity landing is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, me?.id]);
+  const awayAsks = useMemo(() => {
+    const since = awayRef.current || 0;
+    if (!since || !isAuthenticated) return 0;
+    if (Date.now() - since < 3600_000) return 0;
+    return (displayPosts || []).filter((p) => {
+      if (!p || p.kind !== 'help' || p.ownerId === me.id) return false;
+      if (p.status === 'resolved') return false;
+      const ts = typeof p.createdAt === 'number' ? p.createdAt : Date.parse(p.createdAt) || 0;
+      return ts > since;
+    }).length;
+  }, [displayPosts, isAuthenticated, me?.id]);
+
   const myPostCount = useMemo(
-    () => posts.filter((p) => p.ownerId === me.id).length,
-    [posts, me.id]
+    () => displayPosts.filter((p) => p.ownerId === me.id).length,
+    [displayPosts, me.id]
   );
+
+  // Aggregated "You offered" panel state + computed offers
+  const [youOfferedOpen, setYouOfferedOpen] = useState(false);
+
+  const myOffers = useMemo(() => {
+    const out = [];
+    for (const p of displayPosts || []) {
+      if (!p || !Array.isArray(p.replies)) continue;
+      for (const r of p.replies) {
+        if (!r || r.authorId !== me.id) continue;
+        // only show volunteer replies (help flow)
+        if (p.kind === 'help' && (r.type === 'volunteer' || !r.type)) {
+          const myEntry = (Array.isArray(p.helpers) ? p.helpers : []).find(
+            (h) => h && (h.id || h) === me.id
+          );
+          out.push({
+            postId: p.id,
+            postTitle: p.title || p.details || 'Help request',
+            postArea: p.area,
+            postOwnerId: p.ownerId,
+            replyId: r.id,
+            helperStatus: r.helperStatus || 'offered',
+            // M5: lifecycle state of MY offer on server posts —
+            // 'active' | 'withdrawn' | 'cancelled' (server record).
+            replyStatus: r.status || 'active',
+            // M5: persistent completion stamp from posts.helpers.
+            myDoneAt: myEntry?.done_at || null,
+            postStage: p.stage || 'open',
+            selected: getSelectedHelperIds(p).includes(me.id),
+            createdAt: r.createdAt || 0,
+          });
+        }
+      }
+    }
+    // sort by most recent offer first
+    out.sort((a, b) => b.createdAt - a.createdAt);
+    return out;
+  }, [displayPosts, me.id]);
+
+  // ── M5 lifecycle (server posts): withdraw / cancel / done ──
+  // The server owns these states now (migration M5): replies carry
+  // a status, completion is a persistent done_at on the helpers
+  // entry, and the owner is notified by the RPCs themselves —
+  // including with notification preferences off. Errors from the
+  // server state the exact rule; surface them verbatim.
+  async function m5Withdraw(post) {
+    if (!post) return;
+    if (!m2Ready) { showToast("Can't reach the server right now — nothing changed."); return; }
+    const ownerName = usersById[post.ownerId]?.name || 'The owner';
+    if (!window.confirm(`Withdraw your offer? ${ownerName} will be notified.`)) return;
+    try {
+      await m2WithdrawOffer(post.id);
+      await refreshSupabasePosts();
+      showToast('Offer withdrawn — the owner has been notified.');
+    } catch (e) {
+      showToast(e.message || 'Could not withdraw your offer.');
+    }
+  }
+
+  async function m5CancelParticipation(post) {
+    if (!post) return;
+    if (!m2Ready) { showToast("Can't reach the server right now — nothing changed."); return; }
+    const onlyHelper = getSelectedHelperIds(post).length <= 1;
+    const willReopen = onlyHelper && (post.stage === 'booked' || post.stage === 'started');
+    if (!window.confirm(willReopen
+      ? "Cancel your participation? You're the only helper, so this request will reopen for other neighbors. The owner will be notified."
+      : 'Cancel your participation? The owner will be notified.')) return;
+    try {
+      const res = await m2CancelParticipation(post.id);
+      await refreshSupabasePosts();
+      showToast(res?.reopened
+        ? 'Participation cancelled — the request has reopened.'
+        : 'Participation cancelled — the owner has been notified.');
+    } catch (e) {
+      showToast(e.message || 'Could not cancel your participation.');
+    }
+  }
+
+  async function m5MarkDone(post) {
+    if (!post) return;
+    if (!m2Ready) { showToast("Can't reach the server right now — nothing changed."); return; }
+    try {
+      await m2HelperMarkDone(post.id);
+      await refreshSupabasePosts();
+      const ownerName = usersById[post.ownerId]?.name || 'the owner';
+      showToast(`Marked done — waiting for ${ownerName} to confirm.`);
+    } catch (e) {
+      showToast(e.message || 'Could not mark this done.');
+    }
+  }
+
+  function cancelOffer(postId, replyId) {
+    if (!postId || !replyId) return;
+    const targetPost = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p && p.id === postId);
+    if (targetPost?._supabase) {
+      // M5: selected helpers cancel participation; everyone else
+      // withdraws their offer. Both are real server operations.
+      if (getSelectedHelperIds(targetPost).includes(me.id)) m5CancelParticipation(targetPost);
+      else m5Withdraw(targetPost);
+      return;
+    }
+    setPosts((prev) =>
+      (prev || []).map((p) => {
+        if (!p || p.id !== postId) return p;
+        const nextReplies = (p.replies || []).filter((r) => r.id !== replyId);
+        return { ...p, replies: nextReplies };
+      })
+    );
+
+    pushActivity({
+      text: `${usersById[me.id]?.name || 'You'} cancelled an offer.`,
+      actorId: me.id,
+      postId,
+      postKind: 'help',
+      audienceIds: [me.id, posts.find((x) => x.id === postId)?.ownerId].filter(Boolean),
+    });
+    showToast('Offer cancelled');
+  }
+
+  function goToOfferPost(postId) {
+    if (!postId) return;
+    // Navigate to home and expand that post thread
+    setActiveTab('home');
+    setExpandedThreads((prev) => ({ ...(prev || {}), [postId]: true }));
+    setYouOfferedOpen(false);
+    // Scroll the post into view after UI updates (give React a tick)
+    setTimeout(() => {
+      try {
+        const el = document.getElementById(`post_card_${postId}`);
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          try { el.classList.add('nb-highlight'); } catch (e) {}
+          // Remove highlight after animation completes
+          setTimeout(() => {
+            try { el.classList.remove('nb-highlight'); } catch (e) {}
+          }, 2400);
+        }
+      } catch (e) {}
+    }, 60);
+  }
 
   // -------------------- SAVED SEARCHES (Enhancement #2) --------------------
   const mySavedSearches = useMemo(() => {
@@ -1695,7 +2655,12 @@ const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
     if (deepLinkHandledRef.current) return;
 
     const params = new URLSearchParams(window.location.search);
-    const postId = params.get('p');
+    let postId = params.get('p');
+    // also support path-style deep link: /p/<postId>
+    if (!postId) {
+      const m = window.location.pathname.match(/\/p\/(.+)$/);
+      if (m) postId = decodeURIComponent(m[1]);
+    }
     if (postId) {
       deepLinkHandledRef.current = true;
       // small delay so the feed DOM exists before we scroll
@@ -1707,7 +2672,12 @@ const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
     if (referralHandledRef.current) return;
 
     const params = new URLSearchParams(window.location.search);
-    const ref = params.get('ref');
+    let ref = params.get('ref');
+    // also support path-style invite: /ref/<userId>
+    if (!ref) {
+      const m = window.location.pathname.match(/\/ref\/(.+)$/);
+      if (m) ref = decodeURIComponent(m[1]);
+    }
     if (!ref) return;
     if (ref === meId) return;
 
@@ -1746,6 +2716,18 @@ const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
       { id: uid('a'), ts: NOW(), ...evt, audienceIds },
       ...prev,
     ]);
+  }
+
+  function notifGlyph(type) {
+    switch (type) {
+      case 'volunteers': return '🤝';
+      case 'new_message': return '💬';
+      case 'help_confirmed': return '✅';
+      case 'gratitude': return '💛';
+      case 'help_nearby': return '📍';
+      case 'weekly_digest': return '🌿';
+      default: return '🔔';
+    }
   }
 
   function otherIdFromActivity(a, viewerId) {
@@ -1824,7 +2806,7 @@ const profileNewCount = useMemo(() => 0, [me.id, lastSeen.profileTs]);
   function handleActivityClick(a) {
     if (!a || !a.postId) return;
 
-    const post = posts.find((p) => p && p.id === a.postId);
+    const post = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p && p.id === a.postId) || posts.find((p) => p && p.id === a.postId);
     if (!post) return;
 
     const otherUserId = otherIdFromActivity(a, me.id);
@@ -1894,7 +2876,7 @@ function setCheckInFor(uid, next) {
   }
 }
 
-  function dailyCheckIn() {
+  async function dailyCheckIn() {
     const uid = me?.id || 'me';
 const ci = getCheckInFor(uid);
 const today = todayKey();
@@ -1908,6 +2890,17 @@ const nextStreak =
 
 setCheckInFor(uid, { lastDate: today, streak: nextStreak });
 
+    // Phase 2: Real NP award via M2 backend (idempotent per day).
+    if (m2Ready && isAuthenticated) {
+      try {
+        await m2DailyCheckIn();
+        await refreshRealNp();
+      } catch (e) {
+        // Idempotency: already checked in today is fine, local state already updated.
+        console.log('[M2] Check-in award:', e.message);
+      }
+    }
+
     setNpPointsByUser((prev) => {
       const base = prev && typeof prev === 'object' ? prev : {};
       const curPts = Number(base[uid]) || 0;
@@ -1919,55 +2912,6 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   }
 
   // -------------------- SHARING (viral loop) --------------------
-  function hasOnboardingClaimed(userId) {
-    const raw =
-      onboardingByUser && typeof onboardingByUser === 'object'
-        ? onboardingByUser[userId]
-        : null;
-    return !!raw?.claimed;
-  }
-
-  function claimOnboardingBonus() {
-    const uid = me?.id || 'me';
-
-    // Requirements
-    const ci = getCheckInFor(uid);
-    const checkedInToday = ci.lastDate === todayKey();
-    const hasPosted = (Array.isArray(posts) ? posts : []).some(
-      (p) => p && p.ownerId === uid
-    );
-    const hasFollowed = followingSet && typeof followingSet.size === 'number'
-      ? followingSet.size > 0
-      : false;
-
-    if (hasOnboardingClaimed(uid)) {
-      showToast('Bonus already claimed');
-      return;
-    }
-
-    if (!checkedInToday || !hasPosted || !hasFollowed) {
-      showToast('Complete all 3 steps first');
-      return;
-    }
-
-    const bonus = 25;
-
-    setOnboardingByUser((prev) => {
-      const base = prev && typeof prev === 'object' ? prev : {};
-      return {
-        ...base,
-        [uid]: { claimed: true, claimedAt: NOW() },
-      };
-    });
-
-    setNpPointsByUser((prev) => {
-      const base = prev && typeof prev === 'object' ? prev : {};
-      const curPts = Number(base[uid]) || 0;
-      return { ...base, [uid]: curPts + bonus };
-    });
-
-    showToast(`Onboarding bonus claimed • +${bonus} NP`);
-  }
   function showToast(msg) {
     if (!msg) return;
     setToastMsg(msg);
@@ -1979,12 +2923,13 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     return `${window.location.origin}${window.location.pathname}`;
   }
 
+  // Use path-style deep links so shared links look like /p/<postId> and /ref/<userId>
   function postUrl(postId) {
-    return `${baseUrl()}?p=${encodeURIComponent(postId)}`;
+    return `${window.location.origin}/p/${encodeURIComponent(postId)}`;
   }
 
   function inviteUrl(userId) {
-    return `${baseUrl()}?ref=${encodeURIComponent(userId)}`;
+    return `${window.location.origin}/ref/${encodeURIComponent(userId)}`;
   }
 
   async function copyText(text) {
@@ -2025,12 +2970,95 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   }
 
   async function sharePost(post) {
+    // Prefer native share on supporting browsers; otherwise open modal
+    trackEvent('share_open', { postId: post?.id });
+    if (navigator.share) {
+      await performShareAction({ action: 'native', post });
+      return;
+    }
+    // open explicit modal with fallbacks
+    setShareTargetPost(post);
+    setShareModalOpen(true);
+  }
+
+  // called from modal buttons to actually invoke native share / copy
+  async function performShareAction({ action = 'native', post }) {
     const url = postUrl(post.id);
-    await shareUrl({
-      title: post.title || 'Neighbloom',
-      text: `${post.title || 'Post'} — ${post.city || ''}`,
-      url,
-    });
+    const payload = { title: post.title || 'Neighbloom', text: `${post.title || 'Post'} — ${post.city || ''}`, url };
+    if (action === 'native' && navigator.share) {
+      try {
+        await navigator.share(payload);
+        setShareModalOpen(false);
+        setShareTargetPost(null);
+        showToast('Shared');
+        return true;
+      } catch (e) {
+        // fall through to copy
+      }
+    }
+    if (action === 'twitter') {
+      const tw = `https://twitter.com/intent/tweet?text=${encodeURIComponent(payload.text)}&url=${encodeURIComponent(payload.url)}`;
+      setShareModalOpen(false);
+      setShareTargetPost(null);
+      window.open(tw, '_blank');
+      showToast('Opened Twitter');
+      return true;
+    }
+    if (action === 'facebook') {
+      const fb = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(payload.url)}&quote=${encodeURIComponent(payload.text)}`;
+      setShareModalOpen(false);
+      setShareTargetPost(null);
+      window.open(fb, '_blank');
+      showToast('Opened Facebook');
+      return true;
+    }
+    if (action === 'email') {
+      const subject = encodeURIComponent(payload.title || 'Neighbloom');
+      const body = encodeURIComponent(`${payload.text}\n\n${payload.url}`);
+      const mailto = `mailto:?subject=${subject}&body=${body}`;
+      // Ensure the link is available if the mail composer fails: copy first.
+      try {
+        await copyText(payload.url);
+      } catch (e) {}
+      setShareModalOpen(false);
+      setShareTargetPost(null);
+      window.location.href = mailto;
+      showToast('Opened email composer');
+      return true;
+    }
+    if (action === 'sms') {
+      const body = encodeURIComponent(`${payload.text} ${payload.url}`);
+      // Platform variations exist for sms URI schemes. Try to make a best-effort and
+      // copy the link first so the user can paste if the composer doesn't open.
+      try {
+        await copyText(payload.url);
+      } catch (e) {}
+      const ua = (navigator.userAgent || '').toLowerCase();
+      const isiOS = /iphone|ipad|ipod/.test(ua);
+      const sms = isiOS ? `sms:&body=${body}` : `sms:?&body=${body}`;
+      setShareModalOpen(false);
+      setShareTargetPost(null);
+      window.location.href = sms;
+      showToast('Opened SMS');
+      return true;
+    }
+    if (action === 'whatsapp') {
+      const wa = `https://api.whatsapp.com/send?text=${encodeURIComponent(payload.text + ' ' + payload.url)}`;
+      // copy link as backup (web clients may not have WhatsApp app installed)
+      try { await copyText(payload.url); } catch (e) {}
+      setShareModalOpen(false);
+      setShareTargetPost(null);
+      window.open(wa, '_blank');
+      showToast('Opened WhatsApp');
+      return true;
+    }
+    // default: copy
+    const copied = await copyText(url);
+    setShareModalOpen(false);
+    setShareTargetPost(null);
+    if (copied) showToast('Link copied');
+    else showToast('Could not copy link');
+    return copied;
   }
 
   async function shareInviteLink(userId) {
@@ -2184,8 +3212,8 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     return false;
   }
 
-  function openChat(postId, otherUserId) {
-  const post = posts.find((p) => p.id === postId);
+  async function openChat(postId, otherUserId) {
+  const post = displayPosts.find((p) => p.id === postId) || posts.find((p) => p.id === postId);
   if (!post || !otherUserId) return;
 
   // never open a chat with yourself
@@ -2202,10 +3230,36 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     }
   }
 
-  // Final gate for BOTH help + rec (prevents opening locked drawers)
-  if (!canOpenChatForPost(post, otherUserId)) return;
+  // Final gate for BOTH help + rec (prevents opening locked drawers).
+  // Server-backed help posts skip the local gate: selection state
+  // lives server-side, and getSelectedHelperIds reads local-only
+  // fields (selectedUserIds) that real posts never carry — so the
+  // local check is always false for them and would lock every real
+  // chat. The M2 get-or-create below is the authorization instead:
+  // its RPC only succeeds for the owner / selected helpers, and
+  // message reads are RLS-scoped to conversation participants.
+  const serverHelp = m2Ready && post._supabase && post.kind === 'help';
+  if (!serverHelp && !canOpenChatForPost(post, otherUserId)) return;
 
-  setChat({ postId, otherUserId });
+  // Phase 2: Try to get/create a real conversation via M2 backend.
+  let conversationId = null;
+  if (m2Ready && post._supabase && post.kind === 'help') {
+    try {
+      if (me.id === post.ownerId) {
+        // Owner creates (idempotent) or gets the conversation.
+        const conv = await m2GetOrCreateConversation(post.id, otherUserId);
+        conversationId = conv?.id || null;
+      } else {
+        // Helper looks up their conversation for this post.
+        const convs = await m2FetchConversations();
+        conversationId = convs.find(c => c.post_id === post.id)?.id || null;
+      }
+    } catch (e) {
+      console.log('[M2] Conversation lookup failed, using local chat:', e.message);
+    }
+  }
+
+  setChat({ postId, otherUserId, conversationId });
 }
 
   function sendChatMessage(postId, otherUserId, text) {
@@ -2309,12 +3363,16 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     return Math.max(0, 12 - (cur.count || 0));
   }
 
-  function submitReply(postId, mode, text) {
+  async function submitReply(postId, mode, text) {
     const clean = normalizeText(text);
 
     if (!clean) return { ok: false, error: 'Reply can’t be empty.' };
-    if (clean.length < 8)
-      return { ok: false, error: 'Too short. Add one more detail.' };
+    // Allow shorter volunteer replies to reduce friction (support "I can" style replies).
+    if (mode === 'volunteer') {
+      if (clean.length < 4) return { ok: false, error: 'Too short. Add one more detail.' };
+    } else {
+      if (clean.length < 8) return { ok: false, error: 'Too short. Add one more detail.' };
+    }
     if (containsLink(clean))
       return {
         ok: false,
@@ -2322,7 +3380,8 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
           'Links aren’t supported yet — share the name + why you recommend them.',
       };
 
-    const post = posts.find((p) => p.id === postId);
+    // Phase 2: Look up post from displayPosts (Supabase) or local posts.
+    const post = displayPosts.find((p) => p.id === postId) || posts.find((p) => p.id === postId);
     if (!post) return { ok: false, error: 'Post not found.' };
 
     // enforce rate limits for rec
@@ -2356,11 +3415,30 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
       hidden: false,
     };
 
+    // Phase 2: Persist volunteer replies to Supabase so select_helpers RPC
+    // can verify volunteering. Other reply types stay local for now.
+    if (isAuthenticated && authConfigured && post._supabase && reply.type === 'volunteer') {
+      try {
+        const { createReply } = await import('./posts.js');
+        await createReply({ postId: post.id, body: reply.text, kind: 'volunteer' });
+      } catch (e) {
+        console.error('[Supabase] Failed to persist volunteer reply:', e.message);
+        return { ok: false, error: 'Could not save your reply. Please try again.' };
+      }
+    }
+
     setPosts((prev) =>
       prev.map((p) =>
         p.id === postId ? { ...p, replies: [...(p.replies || []), reply] } : p
       )
     );
+    if (post._supabase) {
+      setSupabasePosts((prev) =>
+        prev.map((p) =>
+          p.id === postId ? { ...p, replies: [...(p.replies || []), reply] } : p
+        )
+      );
+    }
 
     pushActivity({
       type: 'reply_sent',
@@ -2525,7 +3603,9 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   }
 
   function chooseOneForChat(postId, userId) {
-    const post = posts.find((p) => p.id === postId);
+    const post =
+      (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p.id === postId) ||
+      posts.find((p) => p.id === postId);
     if (!post || post.kind !== 'help') return;
 
     // only owner can choose
@@ -2545,17 +3625,35 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
 
     const nextSelected = [...currentSelected, userId];
 
-    setPosts((prev) =>
-      prev.map((p) => {
-        if (p.id !== postId) return p;
-        return {
-          ...p,
-          selectedUserIds: nextSelected,
-          // keep legacy field for older code paths
-          selectedUserId: p.selectedUserId || nextSelected[0],
-        };
-      })
-    );
+    const applySelection = (p) => ({
+      ...p,
+      selectedUserIds: nextSelected,
+      // keep legacy field for older code paths
+      selectedUserId: p.selectedUserId || nextSelected[0],
+    });
+
+    if (post._supabase && isAuthenticated) {
+      // Real posts: persist through the select_helpers RPC (it
+      // validates the helper actually volunteered) and mirror
+      // into the server-posts state. This flow previously
+      // searched and updated only the local demo list, so
+      // choosing a helper on a real post silently did nothing —
+      // the confirmation sheet closed and the post never changed.
+      m2SelectHelpers(postId, nextSelected)
+        .then(() => {
+          setSupabasePosts((prev) =>
+            prev.map((p) => (p.id === postId ? applySelection(p) : p))
+          );
+        })
+        .catch((e) => {
+          console.error('[Supabase] select_helpers failed:', e.message);
+          showToast('Could not select that helper — please try again.');
+        });
+    } else {
+      setPosts((prev) =>
+        prev.map((p) => (p.id === postId ? applySelection(p) : p))
+      );
+    }
 
     pushActivity({
       type: 'chat_unlocked',
@@ -2584,100 +3682,130 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     openChat(postId, userId);
   }
 
-  function advanceHelpStage(postId, nextStage) {
-  const post = posts.find((p) => p && p.id === postId);
-  if (!post || post.kind !== 'help') return;
+  // advanceHelpStage was removed in the 2026-10-13 seam fix: it was a
+  // fully local lifecycle path that silently no-opped on server
+  // posts. All lifecycle transitions now go through doTransition
+  // (server posts via the M2 RPC; demo posts via local simulation).
 
-  const selected = getSelectedHelperIds(post);
-  const meIsOwner = me.id === post.ownerId;
-  const meIsSelectedHelper = selected.includes(me.id);
+  // DEMO ONLY: helpers shouldn’t change the global post stage; they
+  // update their own reply-level helperStatus (offered | started |
+  // done). Server posts never reach this function — their helpers
+  // record completion via helper_mark_done (M5, persistent done_at).
+  function setHelperStatus(postId, replyId, status) {
+    if (!postId || !replyId) return;
+    const post = posts.find((p) => p && p.id === postId);
+    if (!post || post.kind !== 'help') return;
 
-  // Only requester OR selected helper(s) can touch stages
-  if (!meIsOwner && !meIsSelectedHelper) return;
+    const reply = (post.replies || []).find((r) => r && r.id === replyId);
+    if (!reply || reply.authorId !== me.id) return; // only update own reply
 
-  const order = { open: 0, booked: 1, started: 2, done: 3, confirmed: 4 };
-  const curStage = post.stage || 'open';
+    setPosts((prev) =>
+      (prev || []).map((p) => {
+        if (!p || p.id !== postId) return p;
+        const replies = (p.replies || []).map((r) =>
+          r.id === replyId ? { ...r, helperStatus: status } : r
+        );
 
-  if (!(nextStage in order)) return;
+        // If all selected helpers have now marked 'done', auto-promote post.stage -> 'done'
+        const next = { ...p, replies };
+        try {
+          const selected = getSelectedHelperIds(next);
+          if (Array.isArray(selected) && selected.length > 0) {
+            const allDone = selected.every((id) => {
+              const rr = (replies || []).find((x) => x && x.authorId === id);
+              return rr && rr.helperStatus === 'done';
+            });
+            if (allDone && next.stage !== 'done' && next.stage !== 'confirmed') {
+              return { ...next, stage: 'done' };
+            }
+          }
+        } catch (e) {
+          // fall back to conservative behavior
+        }
 
-  // Selected helpers can ONLY set started/done, and only forward
-  if (!meIsOwner) {
-    if (nextStage !== 'started' && nextStage !== 'done') return;
-    if ((order[nextStage] ?? 0) < (order[curStage] ?? 0)) return;
-    if (curStage === 'confirmed') return;
+        return next;
+      })
+    );
+
+    pushActivity({
+      text: `${usersById[me.id]?.name || 'You'} marked progress: ${status}.`,
+      actorId: me.id,
+      postId,
+      postOwnerId: post.ownerId,
+      postKind: 'help',
+      audienceIds: [me.id, post.ownerId],
+    });
   }
 
-  setPosts((prev) =>
-    prev.map((p) => (p.id === postId ? { ...p, stage: nextStage } : p))
-  );
+  // M5 (2026-10-13) superseded the seam-era message-based helper
+  // completion: helperMarkDone (m5MarkDone above, near cancelOffer)
+  // records a persistent done_at on the helpers entry and the
+  // server notifies the owner. No message workaround remains.
 
-  // Activity breadcrumb visible to BOTH sides
-  const audience = Array.from(
-    new Set([post.ownerId, ...selected].filter(Boolean))
-  );
-  const actorName = usersById[me.id]?.name || 'Neighbor';
+  // confirmHelp was removed in the 2026-10-13 seam fix: it was
+  // unreferenced dead code whose local-list lookup and completion-
+  // photo guard described a demo-only flow. The live confirm path is
+  // awardHelpers below (server-first via m2ConfirmHelpAndAward).
 
-  pushActivity({
-    text: `${actorName} marked help as ${nextStage}.`,
-    postId,
-    actorId: me.id,
-    postOwnerId: post.ownerId,
-    postKind: post.kind,
-    audienceIds: audience,
-  });
-}
-
-  function confirmHelp(postId) {
-  const post = posts.find((p) => p && p.id === postId);
-  if (!post) return;
-
-  // Only the requester (post owner) can confirm + award NP
-  if (me.id !== post.ownerId) return;
-
-  const selectedIds = getSelectedHelperIds(post);
-  if (post.kind !== 'help' || selectedIds.length === 0) return;
-
-  if (post.stage === 'confirmed') return;
-
-  // Don’t award points before the helper marks done
-  if (post.stage !== 'done') {
-    notify('Mark this help as “Done” before confirming.');
-    return;
-  }
-
-  // Award NP to EVERY selected helper
-  setNpPointsByUser((prev) => {
-    const next = { ...prev };
-    for (const helperId of selectedIds) {
-      next[helperId] = (next[helperId] || 0) + 20;
+  async function awardHelpers(postId, selectedIds) {
+    console.log('awardHelpers called', { postId, selectedIds });
+    // Phase 2: Real NP awards via M2 backend (idempotent, server-authorized).
+    if (m2Ready) {
+      try {
+        await m2ConfirmHelpAndAward(postId, selectedIds);
+        await refreshSupabasePosts();
+        await refreshRealNp();
+        showToast(`+${selectedIds.length * 20} NP awarded. Great job!`);
+        setTimeout(() => setModal({ type: 'thank_you', postId, helperIds: selectedIds }), 1500);
+        return;
+      } catch (e) {
+        showToast(e.message || 'Award failed. Please try again.');
+        return;
+      }
     }
-    return next;
-  });
+    // Local fallback (demo mode)
+    setNpPointsByUser((prev) => {
+      const next = { ...prev };
+      for (const helperId of selectedIds) {
+        next[helperId] = (next[helperId] || 0) + 20;
+      }
+      return next;
+    });
 
-  setPosts((prev) =>
-    prev.map((p) =>
-      p.id === postId ? { ...p, stage: 'confirmed', status: 'resolved' } : p
-    )
-  );
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === postId ? { ...p, stage: 'confirmed', status: 'resolved' } : p
+      )
+    );
 
-  const names = selectedIds
-    .map((id) => usersById[id]?.name || 'Helper')
-    .join(', ');
+    const names = selectedIds
+      .map((id) => usersById[id]?.name || 'Helper')
+      .join(', ');
 
-  pushActivity({
-    text: `Confirmed help. +20 NP to ${names}.`,
-    postId,
-    actorId: me.id,
-    postOwnerId: post.ownerId,
-    postKind: post.kind,
-    audienceIds: Array.from(new Set([post.ownerId, ...selectedIds].filter(Boolean))),
-  });
+    pushActivity({
+      text: `Confirmed help. +20 NP to ${names}.`,
+      postId,
+      actorId: me.id,
+      postOwnerId: posts.find((p) => p.id === postId)?.ownerId,
+      postKind: 'help',
+      audienceIds: Array.from(new Set([posts.find((p) => p.id === postId)?.ownerId, ...selectedIds].filter(Boolean))),
+    });
 
-  setModal({ type: 'thank_you', postId, helperIds: selectedIds });
-}
+    // celebration: confetti burst + toast showing total NP awarded
+    const AWARD_PER_HELPER = 20;
+    const totalAwarded = (selectedIds?.length || 0) * AWARD_PER_HELPER;
+    // show toast and perform awarding (no confetti)
+    showToast(`+${totalAwarded} NP • Great job!`);
+
+    // Delay opening the thank-you modal so celebration animations can run first
+    setTimeout(() => {
+      setModal({ type: 'thank_you', postId, helperIds: selectedIds });
+    }, 2500);
+  }
 
   const filteredFeed = useMemo(() => {
-    let list = [...posts];
+    // Milestone 1: use displayPosts (Supabase + local merged) when authenticated
+    let list = [...displayPosts];
 
     // Default feed shows open only (resolved hidden)
     if (!homeShowAll) list = list.filter((p) => p.status !== 'resolved');
@@ -2711,7 +3839,7 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
 
     return list;
   }, [
-    posts,
+    displayPosts,
     homeChip,
     homeShowAll,
     homeFollowOnly,
@@ -2744,11 +3872,14 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   }, [filteredFeed, homeQuery]);
 
   const myPosts = useMemo(() => {
-    const list = posts
+    // Merged feed source: the local posts array holds only demo
+    // posts, so Profile claimed "haven't posted" for real users
+    // with live server posts.
+    const list = displayPosts
       .filter((p) => p.ownerId === me.id)
       .sort((a, b) => b.createdAt - a.createdAt);
     return list;
-  }, [posts, me.id]);
+  }, [displayPosts, me.id]);
 
   // Close modal on tab change for sanity
   useEffect(() => {
@@ -2758,7 +3889,7 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   useEffect(() => {
   if (!chat) return;
 
-  const post = posts.find((p) => p.id === chat.postId);
+  const post = displayPosts.find((p) => p.id === chat.postId) || posts.find((p) => p.id === chat.postId);
   if (!post) return;
 
   // Prevent marking read for the wrong viewer (demo user switches / locked chats)
@@ -2773,11 +3904,17 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   useEffect(() => {
     if (!chat) return;
 
-    const post = posts.find((p) => p.id === chat.postId);
+    const post = displayPosts.find((p) => p.id === chat.postId) || posts.find((p) => p.id === chat.postId);
     if (!post) {
       setChat(null);
       return;
     }
+
+    // Server-backed posts: openChat resolved an authorized server
+    // conversation (RPC + RLS). Local selection fields don't exist
+    // for these posts, so the local normalization below would always
+    // close the chat — leave server chats alone.
+    if (post._supabase && m2Ready) return;
 
     // ---------- HELP: keep your existing normalization ----------
     if (post.kind === 'help') {
@@ -2860,7 +3997,7 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
         setChat(null);
       }
     }
-  }, [me.id, posts, chat]);
+  }, [me.id, posts, displayPosts, m2Ready, chat]);
 
   // -------------------- AUTOSAVE (V1) --------------------
   // -------------------- AUTOSAVE (V1) --------------------
@@ -3112,6 +4249,9 @@ expandedOtherVols,
 
     if (tab === 'post') setPostFlow({ step: 'chooser', kind: null });
     setActiveTab(tab);
+    // Visiting a tab marks its local "new" items seen (this lived in
+    // a call-site onChange the rendered tab bar never invoked).
+    try { markSeen(me.id, tab); } catch {}
   }
 
   function getTotalUnreadForUser(chatsObj, userId, unreadCountFn) {
@@ -3130,7 +4270,7 @@ expandedOtherVols,
 
   function Header() {
     const titleMap = {
-      home: 'Your Feed',
+      home: 'Home',
       post: 'Create',
       activity: 'Activity',
       profile: 'Profile',
@@ -3163,98 +4303,117 @@ expandedOtherVols,
         ? followingSet.size > 0
         : false;
 
-    const onboardingDoneCount = [checkedInToday, hasPosted, hasFollowed].filter(Boolean).length;
-    const onboardingClaimed = hasOnboardingClaimed(uid);
-    const onboardingAllDone = checkedInToday && hasPosted && hasFollowed;
-
-    const onboardingPillMode = onboardingClaimed
-  ? 'hidden'
-  : onboardingAllDone
-  ? 'claim'
-  : 'start';
-
-const onboardingTooltip =
-  onboardingPillMode === 'claim'
-    ? 'Claim your +25 NP bonus'
-    : 'Quick start checklist: complete 3 steps to earn +25 NP';
+    // Design pass (2026-10-13): the NP progress badge no longer
+    // sits under the header on every tab — it lives in the
+    // Profile tab, where points context belongs. Home's first
+    // screen is for neighborhood content.
 
     return (
-      <div className="nb-header">
-        <div className="nb-header-left">
-          <img className="nb-logo" src={NEIGHBLOOM_LOGO} alt="Neighbloom" />
-          <div className="nb-titlewrap">
-            <div className="nb-title">
-              {titleMap[activeTab] || 'Neighbloom'}
+      <>
+        <div className="nb-header">
+          <div className="nb-header-left">
+            <img className="nb-logo" src={NEIGHBLOOM_LOGO} alt="Neighbloom" />
+            <div className="nb-titlewrap">
+              <div className="nb-title">
+                {titleMap[activeTab] || 'Neighbloom'}
+              </div>
+              <div className="nb-subtitle">{subtitle}</div>
             </div>
-            <div className="nb-subtitle">{subtitle}</div>
+          </div>
+
+          <div className="nb-header-right">
+            <button
+              className="nb-iconbtn"
+              aria-label="Your offers"
+              title="Your offers"
+              onClick={() => setYouOfferedOpen(true)}
+            >
+              🤝
+              {myOffers && myOffers.length > 0 ? (
+                <span className="nb-iconbadge" aria-hidden="true">
+                  {myOffers.length > 9 ? '9+' : String(myOffers.length)}
+                </span>
+              ) : null}
+            </button>
+
+            <button
+              className="nb-avatarbtn"
+              aria-label="Profile"
+              title="Profile"
+              onClick={() => navTo('profile')}
+            >
+              <img className="nb-avatar sm" src={me.avatar} alt={me.name} />
+            </button>
           </div>
         </div>
 
-        <div className="nb-header-right">
-          <button
-            type="button"
-            className="nb-pill nb-pill-ghost nb-pillbtn"
-            title="Neighbor Points"
-            onClick={() => setModal({ type: 'points' })}
-          >
-            <span className="nb-pill-text">NP</span>
-            <span className="nb-pill-strong">{npPoints}</span>
-          </button>
+      </>
+    );
+  }
 
-          {onboardingPillMode !== 'hidden' ? (
-  <button
-    type="button"
-    className="nb-pill nb-pill-ghost nb-pillbtn nb-onbHeaderPill"
-    title={onboardingTooltip}
-    onClick={() => setModal({ type: 'onboarding' })}
-  >
-    {onboardingPillMode === 'claim' ? (
-      <span className="nb-pill-text qsWrap">
-        <span className="qsLabel">Claim</span>
-        <span className="qsReward">+25</span>
-      </span>
-    ) : (
-      <span className="nb-pill-text qsWrap">
-        <span className="qsIcon" aria-hidden="true">✨</span>
-        <span className="qsLabel qsLabelLong">Quick start</span>
-<span className="qsLabel qsLabelShort">Steps</span>
-        <span className="qsProg">{onboardingDoneCount}/3</span>
-        <span className="qsReward">+25</span>
-      </span>
-    )}
-  </button>
-) : null}
+  function YouOfferedPanel() {
+    if (!youOfferedOpen) return null;
 
-          <button
-            className="nb-iconbtn nb-bellbtn"
-            aria-label="Activity"
-            title="Activity"
-            onClick={() => navTo('activity')}
-          >
-            🔔
-            {totalUnread > 0 ? (
-              <span className="nb-iconbadge" aria-label={`${totalUnread} unread chats`}>
-                {unreadLabel}
-              </span>
-            ) : null}
-          </button>
+    return (
+      <div className="nb-modal-backdrop" onClick={() => setYouOfferedOpen(false)}>
+        <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="nb-modal-head">
+            <div className="nb-modal-title">Your offers</div>
+            <button className="nb-x" onClick={() => setYouOfferedOpen(false)} aria-label="Close">✕</button>
+          </div>
 
-          <button
-            className="nb-avatarbtn"
-            aria-label="Profile"
-            title="Profile"
-            onClick={() => navTo('profile')}
-          >
-            <img className="nb-avatar sm" src={me.avatar} alt={me.name} />
-          </button>
+          <div className="nb-modal-body-scroll" style={{ padding: 14 }}>
+            {(!myOffers || myOffers.length === 0) ? (
+              <div className="nb-muted">You haven't offered on any help requests yet.</div>
+            ) : (
+              <div className="nb-offers-list">
+                {myOffers.map((o) => (
+                  <div key={`${o.postId}::${o.replyId}`} className="nb-offer-item">
+                    <div className="nb-offer-main">
+                      <div className="nb-offer-title" style={{ fontWeight: 900 }}>{o.postTitle}</div>
+                      <div className="nb-offer-meta nb-muted">{o.postArea || ''} · {o.postStage}</div>
+                    </div>
+                    <div className="nb-offer-actions">
+                      <button className="nb-btn nb-btn-ghost" onClick={() => goToOfferPost(o.postId)}>Open post</button>
+                      {o.replyStatus === 'withdrawn' ? (
+                        <div style={{ marginLeft: 8, fontWeight: 900, color: 'var(--muted)' }}>Withdrawn</div>
+                      ) : o.replyStatus === 'cancelled' ? (
+                        <div style={{ marginLeft: 8, fontWeight: 900, color: 'var(--muted)' }}>Cancelled</div>
+                      ) : !o.selected ? (
+                        <button className="nb-btn nb-btn-ghost" onClick={() => { cancelOffer(o.postId, o.replyId); }} style={{ marginLeft: 8 }}>Withdraw</button>
+                      ) : o.myDoneAt ? (
+                        <div style={{ marginLeft: 8, fontWeight: 900, color: 'var(--accent)' }}>Finished ✓</div>
+                      ) : (
+                        <>
+                          <div style={{ marginLeft: 8, fontWeight: 900, color: 'var(--accent)' }}>Selected</div>
+                          <button className="nb-btn nb-btn-ghost" onClick={() => { cancelOffer(o.postId, o.replyId); }} style={{ marginLeft: 8 }}>Cancel participation</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="nb-modal-foot">
+            <div className="nb-muted">Manage your active offers here.</div>
+            <div className="nb-modal-actions">
+              <button className="nb-btn nb-btn-primary" onClick={() => setYouOfferedOpen(false)}>Close</button>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   function BottomTabs() {
+    // The app's one tab bar. Its Activity badge counts unread chats
+    // PLUS unread activity (server notifications + new local
+    // events), or the bell under-reports.
     // total unread across chats involving me (for the badge on Activity)
-    const totalUnread = getTotalUnreadForUser(chats || chats, me.id, unreadCount);
+    const chatUnread = getTotalUnreadForUser(chats || chats, me.id, unreadCount);
+    const totalUnread = chatUnread + (activityNewCount || 0);
 
     const unreadLabel = totalUnread > 9 ? '9+' : String(totalUnread);
 
@@ -3289,7 +4448,7 @@ const onboardingTooltip =
           <span className="nb-tablabel">Activity</span>
 
           {totalUnread > 0 ? (
-            <span className="nb-tabbadge" aria-label={`${totalUnread} unread chats`}>
+            <span className="nb-tabbadge" aria-label={`${totalUnread} unread updates`}>
               {unreadLabel}
             </span>
           ) : null}
@@ -3371,6 +4530,89 @@ const onboardingTooltip =
     );
   }
 
+  // SparseTownPanel: the honest first-run for a town with no posts
+  // at all. Rendered by HomeScreen only when the unfiltered feed is
+  // empty for an authenticated user. Every factual line is real:
+  // the neighbor count comes from the server (and is omitted when
+  // it can't be loaded), and the copy promises nothing about speed
+  // or response — in a new town, nobody can. It stages the two
+  // meaningful zero-network actions: ask for help, and introduce
+  // yourself (or ask a recommendation once you have).
+  function SparseTownPanel() {
+    const town = authProfile?.town || null;
+    const hasIntro = !!(authProfile?.intro && authProfile.intro.trim());
+    const [neighborCount, setNeighborCount] = useState(null);
+
+    useEffect(() => {
+      if (!town) return;
+      let live = true;
+      m2GetNeighborCount(town)
+        .then((n) => { if (live && typeof n === 'number') setNeighborCount(n); })
+        .catch(() => {});
+      return () => { live = false; };
+    }, [town]);
+
+    // The count includes the viewer; "neighbors here" must not.
+    const others = neighborCount !== null ? Math.max(0, neighborCount - 1) : null;
+    const place = town || 'your town';
+
+    return (
+      <div className="nb-empty">
+        <div className="nb-empty-card">
+          <div className="nb-empty-title">
+            {town ? `${town} is just getting started` : 'Your neighborhood is just getting started'}
+          </div>
+          {others !== null ? (
+            <div className="nb-empty-body">
+              {others === 0
+                ? `You're the first neighbor in ${place}.`
+                : others === 1
+                ? `There's 1 other neighbor in ${place} so far — nobody has posted yet.`
+                : `There are ${others} other neighbors in ${place} so far — nobody has posted yet.`}
+            </div>
+          ) : null}
+          <div className="nb-empty-body">
+            Neighbloom is where neighbors ask for a hand with everyday things — moving a couch,
+            borrowing a ladder, an extra pair of hands — and help each other out.
+          </div>
+          <div className="nb-empty-body">
+            Post an ask and it shows here for neighbors in {place}. When someone can help,
+            they offer right here. Every neighborhood starts with a first ask.
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 6 }}>
+            <button
+              className="nb-btn nb-btn-primary"
+              onClick={() => {
+                setActiveTab('post');
+                setPostFlow({ step: 'form', kind: 'help' });
+              }}
+            >
+              Ask for help
+            </button>
+            {hasIntro ? (
+              <button
+                className="nb-btn nb-btn-ghost"
+                onClick={() => {
+                  setActiveTab('post');
+                  setPostFlow({ step: 'form', kind: 'rec' });
+                }}
+              >
+                Ask for a local recommendation
+              </button>
+            ) : (
+              <button
+                className="nb-btn nb-btn-ghost"
+                onClick={() => setModal({ type: 'intro_composer' })}
+              >
+                Introduce yourself
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function PostMetaLine({ post }) {
     const owner = usersById[post.ownerId];
     const statusLabel =
@@ -3387,9 +4629,12 @@ const onboardingTooltip =
             className="nb-avatar"
             src={owner?.avatar}
             alt={owner?.name}
+            role="button"
+            tabIndex={0}
             onClick={() =>
               setModal({ type: 'user_profile', userId: post.ownerId })
             }
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ type: 'user_profile', userId: post.ownerId }); } }}
             style={{ cursor: 'pointer' }}
             title="View profile"
           />
@@ -3429,12 +4674,102 @@ const onboardingTooltip =
     const visibleReplies = (post.replies || []).filter(
       (r) => !r.hidden && !isBlockedUser(r.authorId)
     );
+    const isHelp = post.kind === 'help';
+    const helpersNeeded = isHelp ? getHelpersNeeded(post) : 1;
+    const selectedIds = isHelp ? getSelectedHelperIds(post) : [];
+    // M5: the "volunteered" summary counts ACTIVE offers on
+    // server posts (see PostCard's thread count).
+    const replyCount = post._supabase && isHelp
+      ? visibleReplies.filter((r) => r.type !== 'volunteer' || (r.status || 'active') === 'active').length
+      : visibleReplies.length;
+      const [composerText, setComposerText] = useState('');
+      const [composerErr, setComposerErr] = useState('');
+      const composerRef = useRef(null);
+      const draftKey = `nb_draft_reply_${post.id}`;
+      // Load draft when composer mounts for this post
+      useEffect(() => {
+        try {
+          const raw = localStorage.getItem(draftKey);
+          if (raw && !composerText) setComposerText(raw);
+        } catch (e) {}
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [inlineComposerFor, post.id]);
 
-    
+      // Autosave draft with debounce
+      useEffect(() => {
+        const t = setTimeout(() => {
+          try {
+            if (composerText && composerText.trim().length > 0) localStorage.setItem(draftKey, composerText);
+            else localStorage.removeItem(draftKey);
+          } catch (e) {}
+        }, 700);
+        return () => clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [composerText]);
+      useEffect(() => {
+        if (inlineComposerFor === post.id && composerRef.current) {
+          try {
+            composerRef.current.focus();
+          } catch (e) {}
+        }
+      }, [inlineComposerFor, post.id]);
+
+      const renderInlineComposer = () => (
+        <div className="nb-inline-composer">
+          <textarea
+            ref={composerRef}
+            className={`nb-input nb-textarea ${composerErr ? 'has-error' : ''}`}
+            value={composerText}
+            onChange={(e) => {
+              setComposerText(e.target.value);
+              setComposerErr('');
+            }}
+            placeholder={'Example: "I can help at 7pm. I have a dolly and straps."'}
+          />
+
+          {composerErr ? <div className="nb-error">{composerErr}</div> : null}
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+            <button
+              className="nb-btn nb-btn-ghost"
+              onClick={() => {
+                setComposerText('');
+                setComposerErr('');
+                setInlineComposerFor(null);
+              }}
+            >
+              Cancel
+            </button>
+
+            <button
+              className="nb-btn nb-btn-primary"
+              onClick={() => {
+                const res = submitReply(post.id, 'volunteer', composerText);
+                if (!res.ok) setComposerErr(res.error);
+                else {
+                  try { localStorage.removeItem(draftKey); } catch (e) {}
+                  setComposerText('');
+                  setComposerErr('');
+                  setInlineComposerFor(null);
+                }
+              }}
+            >
+              Send offer
+            </button>
+          </div>
+        </div>
+      );
 
     if (!visibleReplies.length) {
       return (
         <div className="nb-thread-empty">
+          {/* Helpers summary lives in the thread area now */}
+          {isHelp ? (
+            <div className="nb-thread-summary">
+              Helpers now: {selectedIds.length}/{helpersNeeded} selected · {replyCount} volunteered
+            </div>
+          ) : null}
+
           {post.kind === 'rec' ? (
             <>
               <div className="nb-thread-empty-title">
@@ -3452,14 +4787,14 @@ const onboardingTooltip =
               </div>
             </>
           )}
+
+          {inlineComposerFor === post.id && !isOwner && post.status !== 'resolved' ? renderInlineComposer() : null}
+
         </div>
       );
     }
 
-    const isHelp = post.kind === 'help';
-
-    const helpersNeeded = isHelp ? getHelpersNeeded(post) : 1;
-    const selectedIds = isHelp ? getSelectedHelperIds(post) : [];
+    
 
     const hasChosen = isHelp && selectedIds.length > 0;
     const slotsFull = isHelp && selectedIds.length >= helpersNeeded;
@@ -3481,6 +4816,7 @@ const onboardingTooltip =
 
     return (
       <div className="nb-thread">
+        {inlineComposerFor === post.id && !isOwner && post.status !== 'resolved' ? renderInlineComposer() : null}
         {hasChosen ? (
           <div style={{ margin: '6px 0 10px' }}>
             {otherCount > 0 ? (
@@ -3518,8 +4854,11 @@ const onboardingTooltip =
           const comments = getRecComments(r);
 
           const isChosenHelper = isHelp && selectedIds.includes(r.authorId);
+          // M5: only an ACTIVE offer can be chosen (the server
+          // enforces the same rule in select_helpers).
           const canChooseThis =
-            canOwnerActions && isHelp && !slotsFull && !isChosenHelper;
+            canOwnerActions && isHelp && !slotsFull && !isChosenHelper
+            && (r.status || 'active') === 'active';
 
           const chatOtherUserId = isOwner ? r.authorId : post.ownerId;
 
@@ -3539,9 +4878,12 @@ const onboardingTooltip =
                 className="nb-avatar sm"
                 src={u?.avatar}
                 alt={u?.name || 'Neighbor'}
+                role="button"
+                tabIndex={0}
                 onClick={() =>
                   setModal({ type: 'user_profile', userId: r.authorId })
                 }
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ type: 'user_profile', userId: r.authorId }); } }}
                 style={{ cursor: 'pointer' }}
                 title="View profile"
               />
@@ -3557,6 +4899,15 @@ const onboardingTooltip =
                   >
                     {u?.name}
                     <UserBadge userId={r.authorId} />
+                    {post.kind === 'help' && r.helperStatus ? (
+                      <span
+                        className="nb-helper-status"
+                        title={`Status: ${r.helperStatus}`}
+                        style={{ marginLeft: 8, fontSize: 12, fontWeight: 900 }}
+                      >
+                        {r.helperStatus === 'offered' ? 'You offered' : r.helperStatus === 'started' ? 'Started' : r.helperStatus === 'done' ? 'Done' : r.helperStatus}
+                      </span>
+                    ) : null}
                     <span className="nb-handle">{u?.handle}</span>
                   </div>
                   <div className="nb-reply-time">{timeAgo(r.createdAt)}</div>
@@ -3565,8 +4916,26 @@ const onboardingTooltip =
                 <div className="nb-reply-text">{r.text}</div>
 
                 <div className="nb-reply-tags">
-                  {isHelp && isChosenHelper ? (
+                  {/* Selected/Marked-done describe the ACTIVE offer
+                      row only: after a cancel + re-offer the same
+                      author has two rows, and per-author keying put
+                      "Marked done ✓" on the cancelled row (E2E R5,
+                      check 8). Status-less demo rows count active. */}
+                  {isHelp && isChosenHelper && (r.status || 'active') === 'active' ? (
                     <span className="nb-tag top">Selected</span>
+                  ) : null}
+                  {/* M5 §9.2 state-as-surface: withdrawn/cancelled
+                      offers stay visible, labelled, for everyone —
+                      and a chosen helper's persistent done shows. */}
+                  {post._supabase && isHelp && r.status === 'withdrawn' ? (
+                    <span className="nb-tag" style={{ opacity: 0.75 }}>Withdrew</span>
+                  ) : null}
+                  {post._supabase && isHelp && r.status === 'cancelled' ? (
+                    <span className="nb-tag" style={{ opacity: 0.75 }}>Cancelled</span>
+                  ) : null}
+                  {post._supabase && isHelp && isChosenHelper && (r.status || 'active') === 'active'
+                    && (Array.isArray(post.helpers) ? post.helpers : []).find((h) => h && (h.id || h) === r.authorId)?.done_at ? (
+                    <span className="nb-tag top">Marked done ✓</span>
                   ) : null}
                   {r.topPick ? (
                     <span className="nb-tag top">Top pick</span>
@@ -3578,8 +4947,10 @@ const onboardingTooltip =
                   {/* -------- REC reply actions -------- */}
                   {post.kind === 'rec' ? (
                     <>
-                      {/* Owner-only moderation */}
-                      {canOwnerActions ? (
+                      {/* Owner-only moderation — demo-only concepts:
+                          helpful/top-pick have no server fields, so
+                          these controls must not render on real posts */}
+                      {canOwnerActions && !post._supabase ? (
                         <>
                           <button
                             className="nb-link"
@@ -3629,7 +5000,9 @@ const onboardingTooltip =
                         {heartCount > 0 ? `(${heartCount})` : ''}
                       </button>
 
-                      {/* Reply opens THREAD viewer (everyone can view, not forced to post) */}
+                      {/* Reply opens THREAD viewer (demo-only: comment
+                          threads on replies have no server storage) */}
+                      {!post._supabase ? (
                       <button
                         className="nb-link"
                         onClick={() =>
@@ -3640,6 +5013,7 @@ const onboardingTooltip =
                         Reply{' '}
                         {comments.length > 0 ? `(${comments.length})` : ''}
                       </button>
+                      ) : null}
                     </>
                   ) : null}
 
@@ -3647,15 +5021,37 @@ const onboardingTooltip =
                   {isHelp ? (
                     <>
                       {canChooseThis ? (
-                        <button
-                          className="nb-link"
-                          onClick={() => chooseOneForChat(post.id, r.authorId)}
-                          title="Select this helper"
-                        >
-                          {helpersNeeded > 1
-                            ? `Choose helper (${selectedIds.length}/${helpersNeeded})`
-                            : 'Choose helper'}
-                        </button>
+                        <>
+                          <button
+                            className="nb-link"
+                            onClick={() => setPendingSelection({ postId: post.id, userId: r.authorId, userName: usersById[r.authorId]?.name || 'Helper' })}
+                            title="Select this helper"
+                          >
+                            {helpersNeeded > 1
+                              ? `Choose helper (${selectedIds.length}/${helpersNeeded})`
+                              : 'Choose helper'}
+                          </button>
+
+                          {/* Inline pending-confirm row for owner to confirm selection */}
+                          {pendingSelection && pendingSelection.postId === post.id && pendingSelection.userId === r.authorId ? (
+                            <div className="nb-pending-confirm" style={{ marginTop: 8 }}>
+                              <span style={{ marginRight: 10 }}>Pick {pendingSelection.userName} as helper?</span>
+                              <button
+                                className="nb-btn nb-btn-primary"
+                                onClick={() => { chooseOneForChat(post.id, r.authorId); setPendingSelection(null); }}
+                              >
+                                Select helper
+                              </button>
+                              <button
+                                className="nb-btn nb-btn-ghost"
+                                style={{ marginLeft: 8 }}
+                                onClick={() => setPendingSelection(null)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : null}
+                        </>
                       ) : null}
 
                       {canChatThis ? (
@@ -3727,7 +5123,24 @@ function pushActivity(arg, meta = {}) {
     return getBlockedSet(me.id).has(otherUserId);
   }
 
-  function toggleBlockUser(otherUserId) {
+  async function toggleBlockUser(otherUserId) {
+    const currentlyBlocked = isBlockedUser(otherUserId);
+
+    // Phase 3: Real server-side blocking when M2 backend is available.
+    if (m2Ready && isAuthenticated) {
+      try {
+        const { blockUser, unblockUser } = await import('./m2.js');
+        if (currentlyBlocked) {
+          await unblockUser(otherUserId);
+        } else {
+          await blockUser(otherUserId);
+        }
+      } catch (e) {
+        notify(e.message || 'Could not update block.', { type: 'error' });
+        return;
+      }
+    }
+
     setBlockedByUser((prev) => {
       const base = prev && typeof prev === 'object' ? prev : {};
       const cur = new Set(Array.isArray(base[me.id]) ? base[me.id] : []);
@@ -3740,18 +5153,36 @@ function pushActivity(arg, meta = {}) {
     setChat((c) => (c?.otherUserId === otherUserId ? null : c));
 
     notify(
-      isBlockedUser(otherUserId) ? 'User unblocked.' : 'User blocked.',
+      currentlyBlocked ? 'User unblocked.' : 'User blocked.',
       { type: 'user_block', otherUserId }
     );
   }
 
-  function reportUser(otherUserId) {
-    const reason = window.prompt('Report reason (short):');
+  async function reportUser(otherUserId) {
+    const reason = window.prompt('Report reason (spam, harassment, inappropriate, scam, safety, other):');
     if (!reason) return;
 
-    const clean = normalizeText(reason);
-    if (!clean) return;
+    const clean = normalizeText(reason).toLowerCase().trim();
+    const validReasons = ['spam', 'harassment', 'inappropriate', 'scam', 'safety', 'other'];
+    const mappedReason = validReasons.includes(clean) ? clean : 'other';
 
+    // Phase 3: Real server-side reporting when M2 backend is available.
+    if (m2Ready && isAuthenticated) {
+      try {
+        const { fileReport } = await import('./m2.js');
+        await fileReport({ profileId: otherUserId, reason: mappedReason });
+        notify('Report submitted. Our team will review it.', {
+          type: 'user_report',
+          otherUserId,
+        });
+        return;
+      } catch (e) {
+        notify(e.message || 'Could not submit report.', { type: 'error' });
+        return;
+      }
+    }
+
+    // Local fallback (demo mode)
     setReports((prev) => [
       {
         id: uid('rep'),
@@ -3770,59 +5201,74 @@ function pushActivity(arg, meta = {}) {
   }
 
   // ---------------- POST LIFECYCLE ----------------
-  function inferLifecycle(post) {
-    // Prefer explicit lifecycle if present
-    if (post?.lifecycle) return post.lifecycle;
+  // Single lifecycle model: the server `stage` on the post is the only
+  // truth (open -> booked -> started -> done, or cancelled). The old
+  // local lifecycle layer (inferLifecycle / setPostLifecycle /
+  // nextLifecycle) invented states the server never had — it showed
+  // cancelled posts as "in progress" and let owners fake-complete a
+  // post with a purely local flag — so it was removed. UI labels
+  // derive from `stage` at render time; transitions go through
+  // doTransition only.
 
-    // Back-compat with your older states
-    if (post?.status === 'archived') return 'archived';
-    if (post?.status === 'resolved') return 'completed';
-
-    // Help posts already have stage — map it
-    if (post?.kind === 'help') {
-      if (post.stage === 'confirmed') return 'completed';
-      if (post.stage && post.stage !== 'open') return 'in_progress';
+  // Server-authorized lifecycle transition via the M2 backend.
+  // A server-backed post NEVER falls back to a local fake: if the
+  // backend is unreachable the user is told nothing changed. Local
+  // stage updates remain only for demo posts, which have no server
+  // record by design.
+  async function doTransition(postId, toStage) {
+    // Resolve from displayPosts first: for authenticated users the
+    // local `posts` list never contains server posts, so looking
+    // there misclassified every real post as a demo post and the
+    // transition silently took the local no-op path — the card's
+    // stage froze at 'open' while the server moved on without it.
+    const target =
+      (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p && p.id === postId) ||
+      (Array.isArray(posts) ? posts : []).find((p) => p && p.id === postId);
+    const isServerPost = !!target?._supabase;
+    if (isServerPost) {
+      if (!m2Ready) {
+        showToast("Can't reach the server right now — nothing changed.");
+        return;
+      }
+      try {
+        await m2TransitionPost(postId, toStage);
+        await refreshSupabasePosts();
+        showToast(`Post → ${toStage}`);
+      } catch (e) {
+        showToast(e.message || 'Transition failed');
+      }
+      return;
     }
-
-    return 'open';
-  }
-
-  function setPostLifecycle(postId, nextLifecycle) {
+    // Demo posts only: local simulation.
     setPosts((prev) =>
-      (Array.isArray(prev) ? prev : []).map((p) => {
-        if (!p || p.id !== postId) return p;
-
-        // Keep your old "status" in sync for backwards UI logic if needed
-        const nextStatus =
-          nextLifecycle === 'archived'
-            ? 'archived'
-            : nextLifecycle === 'completed'
-            ? 'resolved'
-            : 'open';
-
-        return {
-          ...p,
-          lifecycle: nextLifecycle,
-          status: nextStatus,
-        };
-      })
+      (Array.isArray(prev) ? prev : []).map((p) =>
+        p && p.id === postId
+          ? { ...p, stage: toStage, status: toStage === 'done' ? 'resolved' : toStage === 'cancelled' ? 'cancelled' : p.status }
+          : p
+      )
     );
-
-    notify(`Post moved to: ${nextLifecycle.replace('_', ' ')}`, {
-      type: 'post_status',
-      postId,
-    });
-  }
-
-  function nextLifecycle(cur) {
-    if (cur === 'open') return 'in_progress';
-    if (cur === 'in_progress') return 'completed';
-    if (cur === 'completed') return 'archived';
-    return 'open';
+    notify(`Post moved to: ${toStage}`, { type: 'post_status', postId });
   }
 
   // ---------------- EDIT / DELETE ----------------
-  function updatePost(postId, patch) {
+  // Phase 1: Real Supabase wiring — authenticated users' edits/deletes
+  // persist to the database. Demo mode keeps local behavior.
+  async function updatePost(postId, patch) {
+    if (isAuthenticated && authConfigured) {
+      try {
+        const { updatePost: sbUpdatePost } = await import('./posts.js');
+        await sbUpdatePost(postId, patch);
+        // Refetch to get the authoritative state
+        const { fetchAppPosts } = await import('./posts.js');
+        setSupabasePosts(await fetchAppPosts());
+        notify('Post updated.', { type: 'post_edit', postId });
+      } catch (e) {
+        console.error('[Supabase] Failed to update post:', e.message);
+        notify('Could not update post. Please try again.', { type: 'error' });
+      }
+      return;
+    }
+    // Demo mode: local only
     setPosts((prev) =>
       (Array.isArray(prev) ? prev : []).map((p) =>
         p && p.id === postId ? { ...p, ...patch } : p
@@ -3831,12 +5277,31 @@ function pushActivity(arg, meta = {}) {
     notify('Post updated.', { type: 'post_edit', postId });
   }
 
-  function deletePost(postId) {
+  async function deletePost(postId) {
     const ok = window.confirm(
-      'Delete this post? This cannot be undone (local demo).'
+      'Delete this post? This cannot be undone.'
     );
     if (!ok) return;
 
+    if (isAuthenticated && authConfigured) {
+      try {
+        const { deletePost: sbDeletePost } = await import('./posts.js');
+        await sbDeletePost(postId);
+        setSupabasePosts((prev) => prev.filter((p) => p.id !== postId));
+        notify('Post deleted.', { type: 'post_delete', postId });
+      } catch (e) {
+        console.error('[Supabase] Failed to delete post:', e.message);
+        notify('Could not delete post. Please try again.', { type: 'error' });
+      }
+      // Clean UI state
+      setExpandedThreads((prev) => {
+        const next = { ...(prev || {}) };
+        delete next[postId];
+        return next;
+      });
+      return;
+    }
+    // Demo mode: local only
     setPosts((prev) => (Array.isArray(prev) ? prev : []).filter((p) => p?.id !== postId));
 
     // Clean UI state so you don’t get “ghost thread/chat”
@@ -3854,10 +5319,18 @@ function pushActivity(arg, meta = {}) {
 
   function PostCard({ post }) {
     const isOwner = post.ownerId === me.id;
-    const lifecycle = inferLifecycle(post);
+    const [overflowOpen, setOverflowOpen] = useState(false);
+    const overflowRef = useRef(null);
+    const overflowBtnRef = useRef(null);
     const open = !!expandedThreads[post.id];
     const repliesVisible = (post.replies || []).filter((r) => !r.hidden);
-    const replyCount = repliesVisible.length;
+    // M5: on server help posts the Volunteers count reads ACTIVE
+    // volunteer offers only (withdrawn/cancelled rows stay visible
+    // in the thread, labelled, but out of the count). Suggestions
+    // and demo posts count as before.
+    const replyCount = post._supabase && post.kind === 'help'
+      ? repliesVisible.filter((r) => r.type !== 'volunteer' || (r.status || 'active') === 'active').length
+      : repliesVisible.length;
 
     const threadLabel =
       post.kind === 'rec'
@@ -3866,12 +5339,18 @@ function pushActivity(arg, meta = {}) {
 
     const helpersNeeded = post.kind === 'help' ? getHelpersNeeded(post) : 1;
 
+      // The old line asserted "No indoor entry" about EVERY
+      // request — a per-post fact the app never checks (and
+      // false for e.g. carrying furniture upstairs). The card
+      // now states only what it knows: helpers needed + the
+      // recognition rule. Safety guidance lives in the
+      // composer/chat, phrased as guidance.
       const rulesRow =
       post.kind === 'rec'
         ? 'Share a name + why you trust them'
-        : `No indoor entry • ${helpersNeeded} helper${
+        : `${helpersNeeded} helper${
             helpersNeeded > 1 ? 's' : ''
-          } needed • +20 NP after confirmed`;
+          } needed • +20 NP after confirmed help`;
 
     const canReply =
       post.status !== 'resolved' &&
@@ -3879,6 +5358,13 @@ function pushActivity(arg, meta = {}) {
       (post.kind === 'rec' || post.kind === 'help');
 
     const replyBtnLabel = post.kind === 'rec' ? 'Recommend' : 'Offer help';
+
+    // M5 §9.1: "has offered" keys on ACTIVE offers only — a
+    // withdrawn offer must never lock the member out of offering
+    // again (the server allows a fresh reply row).
+    const viewerAlreadyOffered = (post.replies || []).some(
+      (r) => r && r.authorId === me.id && r.type === 'volunteer' && (r.status || 'active') === 'active'
+    );
 
     const remaining = remainingRepliesToday(post.kind);
 
@@ -3914,68 +5400,71 @@ function pushActivity(arg, meta = {}) {
       return null;
     })();
 
+    const cardKindClass = post.kind === 'help' ? 'nb-card-help' : post.kind === 'rec' ? 'nb-card-rec' : '';
+
+    // The stage IS the story of a help post — say it in human words
+    // instead of whispering it from a corner pill.
+    const stageLine =
+      post.kind !== 'help'
+        ? null
+        : post.status === 'resolved'
+        ? '✓ Resolved — this neighbor got their help'
+        : post.stage === 'confirmed'
+        ? '✓ Help confirmed — this one\'s complete'
+        : post.stage === 'done'
+        ? '✓ Marked done — ready for thanks'
+        : post.stage === 'started'
+        ? '🤝 Help is happening now'
+        : post.stage === 'booked'
+        ? '📅 Helpers are booked'
+        : null;
+
     return (
-      <div className="nb-card">
+      <div id={`post_card_${post.id}`} className={"nb-card " + cardKindClass}>
         <PostMetaLine post={post} />
 
         <div className="nb-card-main">
-          <div className="nb-card-title">{post.title}</div>
+          <div className="nb-card-title" role="button" tabIndex={0} aria-expanded={open} onClick={() => toggleThread(post.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleThread(post.id); } }} style={{ cursor: 'pointer' }} title={open ? 'Tap to collapse' : 'Tap to read the full story'}>{post.title}</div>
           {post.kind === 'help' && post.photo ? (
             <img className="nb-card-photo" src={post.photo} alt="" />
           ) : null}
+          {post.kind === 'help' && post.completionPhoto ? (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontWeight: 950, marginBottom: 6, color: 'var(--good)' }}>Completed ✓</div>
+              <img className="nb-card-photo" src={post.completionPhoto} alt="Completion photo" />
+            </div>
+          ) : null}
 
           <div className="nb-meta-chips">
-            {/* At-a-glance (no duplicates) */}
+            {/* Simplified chips: category, location, time */}
             {post.kind === 'help' ? (
-  <>
-                <span
-                  className={`nb-meta-chip ${
-                    post.helpType === 'need' ? 'accent' : ''
-                  }`}
-                >
-                  {post.helpType === 'need' ? 'Need' : 'Offer'}
-                </span>
+              <>
                 <span className="nb-meta-chip">{post.category}</span>
                 <span className="nb-meta-chip">{post.area}</span>
                 {post.whenRange ? (
                   <span className="nb-meta-chip">{post.whenRange}</span>
                 ) : null}
-                <span className="nb-meta-chip">
-  Helpers now: {selectedHelperIds.length}/{helpersNeeded} selected · {replyCount}{' '}
-  volunteered
-</span>
               </>
             ) : null}
 
             {post.kind === 'rec' ? (
               <>
-                <div className="nb-meta-chips">
-                  <span className="nb-meta-chip accent">Recommendation</span>
-                  <span className="nb-meta-chip">{post.recCategory}</span>
-                  <span className="nb-meta-chip">{post.area}</span>
-
-                  {effectiveRecPrefTags(post)
-                    .slice(0, 2)
-                    .map((t) => (
-                      <span key={t} className="nb-meta-chip accent">
-                        {t}
-                      </span>
-                    ))}
-                </div>
-
-                {post.preferences || post.constraints ? (
-                  <div className="nb-constraints">
-                    <span className="nb-constraints-label">Preferences:</span>{' '}
-                    {post.preferences || post.constraints}
-                  </div>
-                ) : null}
+                <span className="nb-meta-chip accent">{post.recCategory || 'Recommendation'}</span>
+                <span className="nb-meta-chip">{post.area}</span>
               </>
             ) : null}
           </div>
 
-          <div className={`nb-card-details ${open ? '' : 'is-clamped'}`}>
+          {stageLine ? (
+            <div style={{ marginTop: 10, fontWeight: 900, fontSize: 14, color: 'var(--good)' }}>{stageLine}</div>
+          ) : null}
+
+          <div className={`nb-card-details ${open ? '' : 'is-clamped'}`} role="button" tabIndex={0} aria-expanded={open} onClick={() => toggleThread(post.id)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleThread(post.id); } }} style={{ cursor: 'pointer' }}>
             {post.details}
           </div>
+          {!open ? (
+            <div className="nb-muted" style={{ fontSize: 12, fontWeight: 800, marginTop: 4 }}>Tap to {replyCount > 0 ? 'read the story and meet the helpers' : 'read the full story'}</div>
+          ) : null}
 
           <div className="nb-rules-row">
             <span className="nb-rules-dot" />
@@ -3985,133 +5474,210 @@ function pushActivity(arg, meta = {}) {
           <div className="nb-card-actions">
             {canReply ? (
               <button
-                className="nb-btn nb-btn-primary"
-                onClick={() =>
-                  setModal({
-                    type: 'reply',
-                    postId: post.id,
-                    mode: post.kind === 'rec' ? 'suggest' : 'volunteer',
-                  })
-                }
+                className={`nb-btn nb-btn-primary ${viewerAlreadyOffered ? 'is-disabled' : ''}`}
+                disabled={viewerAlreadyOffered}
+                onClick={() => {
+                  if (viewerAlreadyOffered) return;
+                  if (post.kind === 'help') {
+                    setExpandedThreads((prev) => {
+                      const next = { ...(prev || {}) };
+                      const wasOpen = !!next[post.id];
+                      next[post.id] = true;
+                      if (!wasOpen) setComposerOpenedFor(post.id);
+                      return next;
+                    });
+                    setInlineComposerFor(post.id);
+                  } else {
+                    setModal({ type: 'reply', postId: post.id, mode: 'suggest' });
+                  }
+                }}
               >
-                {replyBtnLabel}
+                {viewerAlreadyOffered ? 'Offer sent' : replyBtnLabel}
               </button>
             ) : null}
 
-            {showChatButton ? (
+            {replyCount > 0 || selectedHelperIds.length > 0 ? (
+              <button className="nb-btn nb-btn-ghost nb-btn-sm" onClick={() => toggleThread(post.id)}>
+                {open ? 'Hide' : 'Show'} {replyCount > 0 ? threadLabel : 'helpers'}
+              </button>
+            ) : null}
+
+            {/* Overflow menu: consolidate secondary actions (Open chat, Share, Thread) into one menu for all users; owner items remain */}
+            <div style={{ position: 'relative' }} ref={overflowRef}>
               <button
-                className="nb-btn nb-btn-ghost"
-                onClick={() => openChat(post.id, chatOtherUserId)}
+                ref={overflowBtnRef}
+                className="nb-btn nb-btn-ghost nb-btn-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOverflowOpen((s) => !s);
+                }}
+                aria-haspopup="true"
+                aria-expanded={overflowOpen}
+                title="More"
               >
-                Open chat
+                ⋯
               </button>
-            ) : null}
 
-            {isOwner ? (
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button
-                  className="nb-btn nb-btn-ghost nb-btn-sm"
-                  onClick={() => setModal({ type: 'edit_post', postId: post.id })}
-                >
-                  Edit
-                </button>
+              <PostOverflowMenu
+                anchorRef={overflowBtnRef}
+                open={overflowOpen}
+                onClose={() => setOverflowOpen(false)}
+                items={(() => {
+                  const items = [];
+                  if (showChatButton) items.push({ label: 'Open chat', onClick: () => openChat(post.id, chatOtherUserId) });
+                  items.push({ label: 'Share', onClick: () => sharePost(post) });
+                  if (replyCount > 0) items.push({ label: open ? `Hide ${threadLabel}` : `Show ${threadLabel}`, onClick: () => toggleThread(post.id) });
+                  if (isOwner) {
+                    items.push({ label: 'Edit', onClick: () => setModal({ type: 'edit_post', postId: post.id }) });
+                    items.push({ label: 'Delete', danger: true, onClick: () => deletePost(post.id) });
+                  } else {
+                    items.push({ label: 'Report', onClick: () => reportUser(post.ownerId) });
+                  }
+                  return items;
+                })()}
+              />
+            </div>
 
-                <button
-                  className="nb-btn nb-btn-ghost nb-btn-sm"
-                  onClick={() => deletePost(post.id)}
-                >
-                  Delete
-                </button>
-
-                <button
-                  className="nb-btn nb-btn-ghost nb-btn-sm"
-                  onClick={() => setPostLifecycle(post.id, nextLifecycle(lifecycle))}
-                  title="Open → In progress → Completed → Archived"
-                >
-                  {lifecycle === 'open'
-                    ? 'Start'
-                    : lifecycle === 'in_progress'
-                    ? 'Complete'
-                    : lifecycle === 'completed'
-                    ? 'Archive'
-                    : 'Restore'}
-                </button>
+            {/* Lifecycle actions: server-stage transitions (M2 backend) */}
+            {isOwner && post.kind === 'help' && post._supabase ? (
+              <div className="nb-helpflow" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                {post.stage === 'open' && selectedHelperIds.length > 0 && (
+                  <button className="nb-btn nb-btn-primary nb-btn-sm"
+                    onClick={() => doTransition(post.id, 'booked')}>
+                    Book helpers
+                  </button>
+                )}
+                {post.stage === 'booked' && (
+                  <button className="nb-btn nb-btn-primary nb-btn-sm"
+                    onClick={() => doTransition(post.id, 'started')}>
+                    Start
+                  </button>
+                )}
+                {post.stage === 'started' && (
+                  <button className="nb-btn nb-btn-primary nb-btn-sm"
+                    onClick={() => doTransition(post.id, 'done')}>
+                    Mark done
+                  </button>
+                )}
+                {post.stage && !['confirmed', 'cancelled'].includes(post.stage) && (
+                  <button className="nb-btn nb-btn-ghost nb-btn-sm"
+                    onClick={() => {
+                      if (window.confirm('Cancel this post?')) doTransition(post.id, 'cancelled');
+                    }}>
+                    Cancel
+                  </button>
+                )}
               </div>
             ) : null}
 
-            {isOwner &&
-            post.kind === 'help' &&
-            (selectedHelperIds.length > 0) ? (
+            {isOwner && post.kind === 'help' && (selectedHelperIds.length > 0) ? (
               <div className="nb-helpflow">
                 <button
-                  className={`nb-mini ${
-                    post.stage === 'booked' ? 'is-on' : ''
-                  }`}
-                  onClick={() => advanceHelpStage(post.id, 'booked')}
+                  className={`nb-btn nb-btn-primary ${post.stage === 'confirmed' ? 'is-on' : ''}`}
+                  onClick={() => setModal({ type: 'confirm_award', postId: post.id, helperIds: getSelectedHelperIds(post) })}
+                  disabled={post.stage !== 'done'}
+                  title={
+                    post.stage === 'confirmed'
+                      ? 'Help confirmed — NP already awarded'
+                      : post.stage === 'done'
+                      ? 'Award +20 NP to selected helper(s)'
+                      : 'Waiting for helper to mark Completed'
+                  }
                 >
-                  Booked
+                  {post.stage === 'confirmed' ? 'Confirmed ✓ — NP awarded' : 'Confirm - Award NP'}
                 </button>
-
-                <button
-                  className={`nb-mini ${
-                    post.stage === 'started' ? 'is-on' : ''
-                  }`}
-                  onClick={() => advanceHelpStage(post.id, 'started')}
-                >
-                  Started
-                </button>
-
-                <button
-                  className={`nb-mini ${post.stage === 'done' ? 'is-on' : ''}`}
-                  onClick={() => advanceHelpStage(post.id, 'done')}
-                >
-                  Done
-                </button>
-
-                <button
-  className={`nb-mini ${post.stage === 'confirmed' ? 'is-on' : ''}`}
-  onClick={() => confirmHelp(post.id)}
-  disabled={post.stage !== 'done' && post.stage !== 'confirmed'}
-  title={
-    post.stage === 'done'
-      ? 'Confirm completion and award NP'
-      : 'Mark as Done first'
-  }
->
-  Confirm
-</button>
               </div>
             ) : null}
 
-            {!isOwner &&
-post.kind === 'help' &&
-selectedHelperIds.includes(me.id) &&
-post.status !== 'resolved' ? (
-  <div className="nb-helpflow">
-    <button
-      className={`nb-mini ${post.stage === 'started' ? 'is-on' : ''}`}
-      onClick={() => advanceHelpStage(post.id, 'started')}
-      title="Let the requester know you’ve started"
-    >
-      Started
-    </button>
+            {/* Selected helper UI: persistent Done state + cancel.
+                M5: on server posts the Done state is the server's
+                done_at on my helpers entry (survives reloads and
+                devices), and cancelling is a real server operation
+                — no message workaround, no session-only state. */}
+            {!isOwner && post.kind === 'help' && post.status !== 'resolved' && (post.replies || []).some((r) => r && r.authorId === me.id) && selectedHelperIds.includes(me.id) ? (
+              (() => {
+                const myReply = (post.replies || []).find((r) => r && r.authorId === me.id && (r.status || 'active') === 'active')
+                  || (post.replies || []).find((r) => r && r.authorId === me.id);
+                if (!myReply) return null;
+                const myEntry = (Array.isArray(post.helpers) ? post.helpers : []).find(
+                  (h) => h && (h.id || h) === me.id
+                );
+                const myDoneAt = myEntry?.done_at || null;
+                const cur = post._supabase
+                  ? (myDoneAt || post.stage === 'done' || post.stage === 'confirmed' ? 'done' : 'offered')
+                  : myReply.helperStatus || 'offered';
+                const ownerName = usersById[post.ownerId]?.name || 'the owner';
+                return (
+                  <div className="nb-helpflow">
+                    {cur !== 'done' ? (
+                      <button
+                        className="nb-btn nb-btn-primary"
+                        onClick={() => {
+                          if (!myReply) return;
+                          if (post._supabase) {
+                            m5MarkDone(post);
+                            return;
+                          }
+                          setHelperStatus(post.id, myReply.id, 'done');
+                          pushActivity({ text: `${usersById[me.id]?.name || 'You'} marked this as completed.`, actorId: me.id, postId: post.id, audienceIds: [me.id, post.ownerId] });
+                        }}
+                      >
+                        {post._supabase ? 'Mark done' : 'Completed'}
+                      </button>
+                    ) : (
+                      <span className="nb-muted small" style={{ fontWeight: 900 }}>
+                        {post._supabase ? `Finished ✓ — waiting for ${ownerName} to confirm` : 'Awaiting confirmation'}
+                      </span>
+                    )}
 
-    <button
-      className={`nb-mini ${post.stage === 'done' ? 'is-on' : ''}`}
-      onClick={() => advanceHelpStage(post.id, 'done')}
-      title="Marks the job done so the requester can confirm and award NP"
-    >
-      Done
-    </button>
+                    {post._supabase ? (
+                      !myDoneAt && post.stage !== 'done' && post.stage !== 'confirmed' ? (
+                        <button
+                          className="nb-btn nb-btn-ghost nb-btn-sm"
+                          onClick={() => m5CancelParticipation(post)}
+                          title="Cancel your participation"
+                        >
+                          Cancel participation
+                        </button>
+                      ) : null
+                    ) : (
+                    <button
+                      className="nb-btn nb-btn-ghost nb-btn-sm"
+                        onClick={() => {
+                        if (!myReply) return;
+                        const ok = window.confirm('Cancel your offer?');
+                        if (!ok) return;
+                        setPosts((prev) =>
+                          (prev || []).map((p) => {
+                            if (p.id !== post.id) return p;
+                            const nextReplies = (p.replies || []).filter((r) => r.id !== myReply.id);
+                            const prevSelected = Array.isArray(p.selectedUserIds)
+                              ? p.selectedUserIds
+                              : p.selectedUserId
+                              ? [p.selectedUserId]
+                              : [];
+                            const nextSelected = prevSelected.filter((id) => id !== myReply.authorId);
+                            return {
+                              ...p,
+                              replies: nextReplies,
+                              selectedUserIds: nextSelected.length ? nextSelected : undefined,
+                            };
+                          })
+                        );
+                        pushActivity({ text: `${usersById[me.id]?.name || 'You'} cancelled an offer.`, actorId: me.id, postId: post.id, audienceIds: [me.id, post.ownerId] });
+                      }}
+                      title="Cancel your offer"
+                    >
+                      Cancel offer
+                    </button>
+                    )}
+                  </div>
+                );
+              })()
+            ) : null}
 
-    {post.stage === 'done' ? (
-      <span className="nb-muted small" style={{ fontWeight: 900 }}>
-        Waiting for confirm
-      </span>
-    ) : null}
-  </div>
-) : null}
-<button
+            
+            <button
               type="button"
               className="nb-btn nb-btn-ghost nb-btn-sm"
               onClick={(e) => {
@@ -4122,13 +5688,7 @@ post.status !== 'resolved' ? (
             >
               Share
             </button>
-            <button
-              type="button"
-              className="nb-btn nb-btn-ghost nb-btn-sm"
-              onClick={() => toggleThread(post.id)}
-            >
-              {open ? 'Hide' : 'Show'} {threadLabel}
-            </button>
+
           </div>
 
           {open ? <ReplyList post={post} /> : null}
@@ -4354,317 +5914,144 @@ post.status !== 'resolved' ? (
   }
 
   function ThankYouModal({ postId, helperIds }) {
-  const post = posts.find((p) => p && p.id === postId);
-  const ids = Array.isArray(helperIds) ? helperIds.filter(Boolean) : [];
+    // The gratitude moment (concept E): this used to be a points
+    // receipt with a canned chat message, and it never called the
+    // post_gratitude RPC at all — the backend loop (public
+    // gratitude + helper notification) was built and dead. Now the
+    // owner writes real words, and sending records the gratitude
+    // publicly (helpers can hide it) and notifies the helper.
+    const post =
+      (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p && p.id === postId) ||
+      (Array.isArray(posts) ? posts : []).find((p) => p && p.id === postId);
+    const ids = Array.isArray(helperIds) ? helperIds.filter(Boolean) : [];
+    const helpers = ids
+      .map((id) => usersById[id])
+      .filter((u) => u && u.id);
 
-  const helpers = ids
-    .map((id) => usersById[id])
-    .filter((u) => u && u.id);
-
-  const totalAwarded = ids.length * 20;
-
-  return (
-    <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
-      <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="nb-modal-head">
-          <div className="nb-modal-title">Thank you</div>
-          <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">
-            ✕
-          </button>
-        </div>
-
-        <div className="nb-modal-sub">
-          Confirmed. {totalAwarded} NP awarded across {ids.length} helper
-          {ids.length === 1 ? '' : 's'}.
-        </div>
-
-        <div className="nb-modal-body-scroll" style={{ padding: 14 }}>
-          <div style={{ fontWeight: 950 }}>{post?.title || 'Help request'}</div>
-
-          <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
-            {helpers.map((h) => {
-              const canChat = post ? canOpenChatForPost(post, h.id) : false;
-
-              return (
-                <div
-                  key={h.id}
-                  style={{
-                    display: 'flex',
-                    gap: 10,
-                    alignItems: 'center',
-                    border: '1px solid var(--border)',
-                    borderRadius: 14,
-                    padding: '10px 12px',
-                    background: 'rgba(255,255,255,.03)',
-                  }}
-                >
-                  <img className="nb-avatar sm" src={h.avatar} alt={h.name} />
-
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 950, fontSize: 13 }}>
-                      {h.name}
-                      <UserBadge userId={h.id} />
-                      <span className="nb-handle">{h.handle}</span>
-                    </div>
-                    <div className="nb-muted" style={{ fontWeight: 850, fontSize: 12 }}>
-                      +20 NP awarded
-                    </div>
-                  </div>
-
-                  <button
-                    className="nb-btn nb-btn-ghost nb-btn-sm"
-                    disabled={!canChat}
-                    onClick={() => openChat(postId, h.id)}
-                    title={canChat ? 'Open chat' : 'Chat is locked'}
-                  >
-                    Chat
-                  </button>
-
-                  <button
-                    className="nb-btn nb-btn-primary nb-btn-sm"
-                    disabled={!canChat}
-                    onClick={() => {
-                      sendChatMessage(
-                        postId,
-                        h.id,
-                        'Thanks again — confirmed. Appreciate you.'
-                      );
-                      openChat(postId, h.id);
-                    }}
-                    title={canChat ? 'Send a quick thank-you' : 'Chat is locked'}
-                  >
-                    Send thanks
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="nb-modal-foot">
-          <div className="nb-muted">No payments in-app — keep it neighborly.</div>
-          <div className="nb-modal-actions">
-            <button className="nb-btn nb-btn-primary" onClick={() => setModal(null)}>
-              Done
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function OnboardingModal() {
-    const uid = me?.id || 'me';
-
-    // Step 1: check-in today
-    const ci = getCheckInFor(uid);
-    const checkedInToday = ci.lastDate === todayKey();
-
-    // Step 2: posted at least once
-    const hasPosted = (Array.isArray(posts) ? posts : []).some(
-      (p) => p && p.ownerId === uid
+    const [drafts, setDrafts] = useState(() =>
+      Object.fromEntries(
+        helpers.map((h) => [
+          h.id,
+          `Thanks again, ${(h.name || 'neighbor').split(' ')[0]} — you made this so much easier. I really appreciate it.`,
+        ])
+      )
     );
+    const [sent, setSent] = useState({});
+    const [busyId, setBusyId] = useState(null);
+    const [note, setNote] = useState('');
 
-    // Step 3: followed at least 1 person
-    const hasFollowed =
-      followingSet && typeof followingSet.size === 'number'
-        ? followingSet.size > 0
-        : false;
-
-    const doneCount = [checkedInToday, hasPosted, hasFollowed].filter(Boolean)
-      .length;
-
-    const claimed = hasOnboardingClaimed(uid);
-    const allDone = checkedInToday && hasPosted && hasFollowed;
-
-    const title = claimed
-      ? 'All set'
-      : allDone
-      ? 'Claim your bonus'
-      : 'Start here';
-
-    const sub = claimed
-      ? 'You already claimed your onboarding bonus.'
-      : allDone
-      ? 'Nice — you completed all 3 steps.'
-      : 'Do these 3 quick actions to unlock your first bonus.';
-
-    function goToPostHelp() {
-      setModal(null);
-      setActiveTab('post');
-      setPostFlow({ step: 'form', kind: 'help' });
+    async function sendThanks(h) {
+      if (busyId) return;
+      const msg = (drafts[h.id] || '').trim();
+      if (!msg) {
+        setNote('Write a line first — a thank-you in your own words lands best.');
+        return;
+      }
+      setBusyId(h.id);
+      setNote('');
+      let already = false;
+      try {
+        if (post?._supabase && isAuthenticated) {
+          const { postGratitude } = await import('./m2.js');
+          await postGratitude(post.id, h.id, msg);
+        }
+      } catch (e) {
+        const m = String(e?.message || '');
+        if (/duplicate|unique|already/i.test(m)) {
+          already = true;
+        } else {
+          console.error('[Gratitude] post failed:', m);
+        }
+      }
+      // The words also land in the chat, where the conversation lives.
+      try {
+        if (post && canOpenChatForPost(post, h.id)) {
+          sendChatMessage(postId, h.id, msg);
+        }
+      } catch { /* chat is a bonus; the gratitude itself already sent */ }
+      setSent((prev) => ({ ...prev, [h.id]: true }));
+      setBusyId(null);
+      if (already) {
+        setNote(`You already thanked ${(h.name || 'them').split(' ')[0]} for this one — your note still went to the chat.`);
+      }
     }
 
-    function goToPostRec() {
-      setModal(null);
-      setActiveTab('post');
-      setPostFlow({ step: 'form', kind: 'rec' });
-    }
-
-    function goToProfile() {
-      setModal(null);
-      setActiveTab('profile');
-    }
-
-    function doCheckIn() {
-      if (checkedInToday) return;
-      dailyCheckIn();
-    }
+    const firstNames = helpers.map((h) => (h.name || 'Your neighbor').split(' ')[0]).join(' & ');
 
     return (
       <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
         <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
           <div className="nb-modal-head">
-            <div className="nb-modal-title">{title}</div>
+            <div className="nb-modal-title">Thank your neighbor</div>
             <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">
               ✕
             </button>
           </div>
 
           <div className="nb-modal-sub">
-            <div style={{ fontWeight: 980 }}>{sub}</div>
-            {!claimed ? (
-              <div style={{ marginTop: 6, color: 'var(--muted)', fontWeight: 850 }}>
-                Progress: {doneCount}/3 • Bonus: +25 NP
-              </div>
-            ) : null}
+            {firstNames ? `${firstNames} showed up for you. ` : ''}A thank-you in your own
+            words is the reason neighbors help again — it takes ten seconds.
           </div>
 
           <div className="nb-modal-body-scroll" style={{ padding: 14 }}>
-            <div style={{ display: 'grid', gap: 10 }}>
-              {/* Step 1 */}
-              <div
-                style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: 16,
-                  padding: 12,
-                  background: 'rgba(255,255,255,.03)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 950 }}>
-                    1) Daily check-in {checkedInToday ? '✅' : ''}
-                  </div>
-                  <div className="nb-muted small" style={{ fontWeight: 850, marginTop: 4 }}>
-                    Quick win to get you moving.
-                  </div>
-                </div>
+            <div style={{ fontWeight: 950 }}>{post?.title || 'Help request'}</div>
 
-                <button
-                  className={checkedInToday ? 'nb-btn nb-btn-ghost nb-btn-sm' : 'nb-btn nb-btn-primary nb-btn-sm'}
-                  disabled={checkedInToday}
-                  onClick={doCheckIn}
-                  title={checkedInToday ? 'Done' : 'Check in'}
-                >
-                  {checkedInToday ? 'Done' : '+5 NP'}
-                </button>
-              </div>
-
-              {/* Step 2 */}
-              <div
-                style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: 16,
-                  padding: 12,
-                  background: 'rgba(255,255,255,.03)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 950 }}>
-                    2) Make your first post {hasPosted ? '✅' : ''}
+            <div style={{ marginTop: 12, display: 'grid', gap: 14 }}>
+              {helpers.map((h) => {
+                const isSent = !!sent[h.id];
+                return (
+                  <div key={h.id} className="nb-thanks-row" style={{ alignItems: 'flex-start' }}>
+                    <img className="nb-avatar sm" src={h.avatar} alt={h.name} />
+                    <div className="nb-thanks-main" style={{ flex: 1 }}>
+                      <div className="nb-thanks-top">
+                        <div className="nb-thanks-name">
+                          {h.name}
+                          <span style={{ marginLeft: 8 }}><UserBadge userId={h.id} /></span>
+                        </div>
+                        <div className="nb-thanks-np">💛 +20 NP for helping</div>
+                      </div>
+                      <textarea
+                        className="nb-input"
+                        rows={3}
+                        value={drafts[h.id] || ''}
+                        disabled={isSent}
+                        onChange={(e) => setDrafts((prev) => ({ ...prev, [h.id]: e.target.value }))}
+                        style={{ marginTop: 8, width: '100%' }}
+                        maxLength={400}
+                      />
+                      <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="nb-btn nb-btn-primary nb-btn-sm"
+                          disabled={isSent || busyId === h.id}
+                          onClick={() => sendThanks(h)}
+                        >
+                          {isSent ? 'Thank-you sent ✓' : busyId === h.id ? 'Sending…' : 'Send thank-you'}
+                        </button>
+                        {isSent && post && canOpenChatForPost(post, h.id) ? (
+                          <button
+                            type="button"
+                            className="nb-btn nb-btn-ghost nb-btn-sm"
+                            onClick={() => { setModal(null); setTimeout(() => openChat(postId, h.id), 80); }}
+                          >
+                            Open chat
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
-                  <div className="nb-muted small" style={{ fontWeight: 850, marginTop: 4 }}>
-                    Ask for help or request a recommendation.
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  <button
-                    className="nb-btn nb-btn-ghost nb-btn-sm"
-                    disabled={hasPosted}
-                    onClick={goToPostRec}
-                    title="Create a recommendation request"
-                  >
-                    Rec
-                  </button>
-                  <button
-                    className="nb-btn nb-btn-primary nb-btn-sm"
-                    disabled={hasPosted}
-                    onClick={goToPostHelp}
-                    title="Create a Need a hand post"
-                  >
-                    Help
-                  </button>
-                </div>
-              </div>
-
-              {/* Step 3 */}
-              <div
-                style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: 16,
-                  padding: 12,
-                  background: 'rgba(255,255,255,.03)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 950 }}>
-                    3) Follow 1 neighbor {hasFollowed ? '✅' : ''}
-                  </div>
-                  <div className="nb-muted small" style={{ fontWeight: 850, marginTop: 4 }}>
-                    Following makes your feed feel alive.
-                  </div>
-                </div>
-
-                <button
-                  className={hasFollowed ? 'nb-btn nb-btn-ghost nb-btn-sm' : 'nb-btn nb-btn-primary nb-btn-sm'}
-                  disabled={hasFollowed}
-                  onClick={goToProfile}
-                  title={hasFollowed ? 'Done' : 'Go follow someone'}
-                >
-                  {hasFollowed ? 'Done' : 'Go'}
-                </button>
-              </div>
+                );
+              })}
             </div>
+
+            {note ? <div className="nb-muted" style={{ marginTop: 10, fontWeight: 800 }}>{note}</div> : null}
           </div>
 
           <div className="nb-modal-foot">
-            <div className="nb-muted">
-              {claimed
-                ? 'You’re good. Now just use the app.'
-                : allDone
-                ? 'Claim your onboarding bonus now.'
-                : 'Finish all 3 steps to unlock the bonus.'}
-            </div>
-
+            <div className="nb-muted">No payments in-app — keep it neighborly.</div>
             <div className="nb-modal-actions">
-              <button className="nb-btn nb-btn-ghost" onClick={() => setModal(null)}>
-                Close
-              </button>
-
-              <button
-                className="nb-btn nb-btn-primary"
-                disabled={claimed || !allDone}
-                onClick={() => {
-                  claimOnboardingBonus();
-                  setModal(null);
-                }}
-                title={claimed ? 'Already claimed' : !allDone ? 'Complete all steps first' : 'Claim +25 NP'}
-              >
-                {claimed ? 'Claimed' : 'Claim +25'}
+              <button className="nb-btn nb-btn-primary" onClick={() => setModal(null)}>
+                Done
               </button>
             </div>
           </div>
@@ -4672,6 +6059,8 @@ function OnboardingModal() {
       </div>
     );
   }
+
+// Confetti removed: launchConfetti helper deleted
 
   function SavedSearchManageModal({ searchId }) {
     const s = (Array.isArray(savedSearches) ? savedSearches : []).find(
@@ -4790,11 +6179,22 @@ function OnboardingModal() {
   }
 
   function EditPostModal({ postId }) {
-    const post = posts.find((p) => p?.id === postId);
+    const post = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p?.id === postId) || posts.find((p) => p?.id === postId);
     const [title, setTitle] = useState(post?.title || '');
     const [details, setDetails] = useState(post?.details || '');
     const [area, setArea] = useState(post?.area || '');
     const [err, setErr] = useState('');
+
+    // Late-arriving post data: if the feed object gains its area
+    // after this modal mounted (feed refresh racing the open), an
+    // untouched empty Area field adopts it — saving a real post
+    // must never be blocked by a prefill the data actually has.
+    // (Observed live 2026-10-13: Edit opened with Area empty for a
+    // post whose area is "Worth" on the server and on its card.)
+    useEffect(() => {
+      if (!area && post?.area) setArea(post.area);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [post?.area]);
 
     if (!post) return null;
 
@@ -4849,7 +6249,7 @@ function OnboardingModal() {
           </div>
 
           <div className="nb-modal-foot">
-            <div className="nb-muted">Edits are local demo only.</div>
+            <div className="nb-muted">{post?._supabase ? 'Changes save to your post right away.' : 'Edits are local demo only.'}</div>
             <div className="nb-modal-actions">
               <button className="nb-btn nb-btn-ghost" onClick={() => setModal(null)}>
                 Cancel
@@ -4878,9 +6278,18 @@ function OnboardingModal() {
   }
 
   function ReplyModal({ postId, mode }) {
-    const post = posts.find((p) => p.id === postId);
+    const post = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p.id === postId) || posts.find((p) => p.id === postId);
     const [text, setText] = useState('');
     const [err, setErr] = useState('');
+    const replyTextareaRef = useRef(null);
+
+    useEffect(() => {
+      if (replyTextareaRef && replyTextareaRef.current) {
+        try {
+          replyTextareaRef.current.focus();
+        } catch (e) {}
+      }
+    }, []);
 
     if (!post) return null;
 
@@ -4918,6 +6327,7 @@ function OnboardingModal() {
           <div className="nb-modal-sub">{helperText}</div>
 
           <textarea
+            ref={replyTextareaRef}
             className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
             value={text}
             onChange={(e) => {
@@ -5187,21 +6597,161 @@ function OnboardingModal() {
   }
 
   function ChatDrawer() {
+    // Phase 2: Real message state — must be before early returns (hooks rule).
+    const [realMsgs, setRealMsgs] = useState(null); // null = local mode
+    const chatConvId = chat?.conversationId;
+
+    // Peer identity for server chats: if the directory doesn't know
+    // this user (real neighbors aren't in the demo seed), fetch their
+    // public profile so the header shows a name, not a blank.
+    const [peerProfile, setPeerProfile] = useState(null);
+    useEffect(() => {
+      setPeerProfile(null);
+      const otherId = chat?.otherUserId;
+      if (!otherId || usersById[otherId] || !m2Ready) return;
+      let cancelled = false;
+      (async () => {
+        try {
+          const { supabase } = await import('./supabase.js');
+          const { data } = await supabase
+            .from('profiles')
+            .select('id, display_name, handle, avatar_url')
+            .eq('id', otherId)
+            .single();
+          if (!cancelled && data) {
+            setPeerProfile({
+              id: data.id,
+              name: data.display_name || 'Neighbor',
+              handle: data.handle || '',
+              avatar: data.avatar_url || AVATAR,
+            });
+          }
+        } catch { /* directory fallback stands */ }
+      })();
+      return () => { cancelled = true; };
+    }, [chat?.otherUserId, m2Ready]);
+
+    // Server-conversation resolution (anti-impersonation): if this
+    // drawer was opened for a server help post WITHOUT a resolved
+    // conversation — openChat's lookup can fail transiently (an
+    // auth-refresh race is enough) — resolve it HERE rather than
+    // silently rendering the local thread as if it were the real
+    // one. Verified failure (2026-10-13): the owner's drawer showed
+    // "No messages yet" for a conversation whose messages were
+    // provably on the server.
+    const chatPostForResolve = chat
+      ? (displayPosts.find((p) => p.id === chat.postId) || posts.find((p) => p.id === chat.postId))
+      : null;
+    const needsServerConv = !!(
+      chat && !chat.conversationId && m2Ready &&
+      chatPostForResolve?._supabase && chatPostForResolve.kind === 'help'
+    );
+    const [convFailed, setConvFailed] = useState(false);
+    const [resolveNonce, setResolveNonce] = useState(0);
+    const [msgsFailed, setMsgsFailed] = useState(false);
+    const [msgsNonce, setMsgsNonce] = useState(0);
+    // Cold-open grace: on a fresh page load the backend probe
+    // (m2Ready) can still be running when the drawer opens. During
+    // that window a server help post must show the loading state —
+    // not the local thread (whose empty placeholder falsely claims
+    // "No messages yet") and not the locked body. The grace expires
+    // after 6s so a genuinely unreachable backend falls through to
+    // the pre-existing behavior instead of loading forever.
+    const [initGraceOver, setInitGraceOver] = useState(false);
+    useEffect(() => {
+      setInitGraceOver(false);
+      if (!chat) return undefined;
+      const t = setTimeout(() => setInitGraceOver(true), 6000);
+      return () => clearTimeout(t);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chat?.postId, chat?.otherUserId]);
+    const backendInitializing = !!(
+      chat && !m2Ready && !initGraceOver &&
+      chatPostForResolve?._supabase && chatPostForResolve.kind === 'help'
+    );
+    useEffect(() => {
+      if (!needsServerConv) return;
+      let cancelled = false;
+      (async () => {
+        try {
+          let cid = null;
+          if (me.id === chatPostForResolve.ownerId) {
+            const conv = await m2GetOrCreateConversation(chatPostForResolve.id, chat.otherUserId);
+            cid = conv?.id || null;
+          } else {
+            const convs = await m2FetchConversations();
+            cid = convs.find((c) => c.post_id === chatPostForResolve.id)?.id || null;
+          }
+          if (cancelled) return;
+          if (cid) {
+            setConvFailed(false);
+            setChat((prev) => (prev && !prev.conversationId ? { ...prev, conversationId: cid } : prev));
+          } else {
+            setConvFailed(true);
+          }
+        } catch { if (!cancelled) setConvFailed(true); }
+      })();
+      return () => { cancelled = true; };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [needsServerConv, resolveNonce, chat?.postId, chat?.otherUserId]);
+
+    useEffect(() => {
+      if (!chatConvId || !m2Ready) { setRealMsgs(null); return; }
+      let cancelled = false;
+      let unsub = null;
+      (async () => {
+        setRealMsgs(null);
+        setMsgsFailed(false);
+        try {
+          const msgs = await m2FetchMessages(chatConvId);
+          if (cancelled) return;
+          setMsgsFailed(false);
+          setRealMsgs(msgs.map(m => ({
+            id: m.id, fromId: m.sender_id, text: m.body,
+            ts: new Date(m.created_at).getTime(), _real: true,
+          })));
+          unsub = m2SubscribeToMessages(chatConvId, (row) => {
+            if (cancelled) return;
+            setRealMsgs(prev => [...(prev || []), {
+              id: row.id, fromId: row.sender_id, text: row.body,
+              ts: new Date(row.created_at).getTime(), _real: true,
+            }]);
+          });
+        } catch (e) {
+          console.log('[M2] Failed to load messages:', e.message);
+          if (!cancelled) { setRealMsgs(null); setMsgsFailed(true); }
+        }
+      })();
+      return () => { cancelled = true; if (unsub) unsub(); };
+    }, [chatConvId, m2Ready, msgsNonce]);
+
     if (!chat) return null;
-    const post = posts.find((p) => p.id === chat.postId);
+    const post = displayPosts.find((p) => p.id === chat.postId) || posts.find((p) => p.id === chat.postId);
     if (!post) return null;
 
-    const other = usersById[chat.otherUserId];
+    const other = usersById[chat.otherUserId] || peerProfile;
     const chatId = getChatId(post.id, me.id, chat.otherUserId);
     const rawMsgs = chats?.[chatId];
-    const msgs = Array.isArray(rawMsgs)
-      ? rawMsgs.filter(
-          (m) => m && typeof m === 'object' && typeof m.text === 'string'
-        )
-      : [];
+    // Phase 2: Prefer real messages when available, fall back to local.
+    const msgs = realMsgs !== null ? realMsgs : (
+      Array.isArray(rawMsgs)
+        ? rawMsgs.filter(
+            (m) => m && typeof m === 'object' && typeof m.text === 'string'
+          )
+        : []
+    );
 
-    // guard: only show if gated properly
-if (!canOpenChatForPost(post, chat.otherUserId)) {
+    // guard: only show if gated properly. A resolved server
+    // conversation (chat.conversationId, obtained via the authorized
+    // RPC in openChat) authorizes the thread for server posts —
+    // the local selection check can't see server-side selection.
+    const serverChat = !!(m2Ready && post._supabase && chat.conversationId);
+    // While a server conversation's messages are still loading
+    // (realMsgs === null) the list must say so — the local fallback
+    // would otherwise render "No messages yet" for a thread whose
+    // messages simply haven't arrived (observed live post-fix).
+    const serverMsgsPending = !!(serverChat && realMsgs === null && !msgsFailed);
+if (!serverChat && !needsServerConv && !backendInitializing && !canOpenChatForPost(post, chat.otherUserId)) {
   const lockedBody =
     post.kind === 'rec'
       ? 'This chat unlocks only after the post owner chooses a Top pick (and private chat is enabled).'
@@ -5239,8 +6789,37 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
 
         <div className="nb-chat-sub">{post.title}</div>
 
+        {(needsServerConv || backendInitializing) ? (
+          <div className="nb-chat-empty">
+            {convFailed ? (
+              <>
+                Couldn't load this conversation. Check your connection and try again.
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    className="nb-btn nb-btn-primary"
+                    onClick={() => { setConvFailed(false); setResolveNonce((n) => n + 1); }}
+                  >
+                    Retry
+                  </button>
+                </div>
+              </>
+            ) : (
+              'Loading conversation…'
+            )}
+          </div>
+        ) : (
+        <>
         <div className="nb-chat-scroll">
-          {msgs.length ? (
+          {(msgsFailed && serverChat) ? (
+            <div className="nb-chat-empty">
+              Could not load messages.{' '}
+              <button className="nb-btn nb-btn-sm" onClick={() => setMsgsNonce((n) => n + 1)}>
+                Retry
+              </button>
+            </div>
+          ) : serverMsgsPending ? (
+            <div className="nb-chat-empty">Loading messages…</div>
+          ) : msgs.length ? (
             msgs.map((m) => (
               <div
                 key={m.id}
@@ -5258,8 +6837,23 @@ if (!canOpenChatForPost(post, chat.otherUserId)) {
         </div>
 
         <ChatComposer
-          onSend={(text) => sendChatMessage(post.id, chat.otherUserId, text)}
+          onSend={async (text) => {
+            // Phase 2: Send via M2 backend when in a real conversation.
+            // The realtime subscription will append the echo.
+            if (chat.conversationId && m2Ready) {
+              try {
+                await m2SendMessage(chat.conversationId, text);
+                return;
+              } catch (e) {
+                showToast(e.message || 'Could not send message');
+                return;
+              }
+            }
+            sendChatMessage(post.id, chat.otherUserId, text);
+          }}
         />
+        </>
+        )}
       </div>
     );
   }
@@ -5467,70 +7061,121 @@ function setUserAvailability(userId, on, note) {
   setAvailabilityMap(m);
 }
 
-  function HomeHero() {
-    const ci = getCheckInFor(me?.id || 'me');
-    const checkedInToday = ci.lastDate === todayKey();
-    // --- Onboarding (for the mobile Start Something card nudge) ---
-const uid2 = me?.id || 'me';
-const ci2 = getCheckInFor(uid2);
-const checkedInToday2 = ci2.lastDate === todayKey();
+  // SmartHero: Shows WelcomeHero for new users, HomeHero for established.
+  // New = authenticated, no intro written, joined in last 7 days.
+  function SmartHero() {
+    const [showWelcome, setShowWelcome] = useState(false);
+    const [welcomeChecked, setWelcomeChecked] = useState(false);
+    const [townSkipped, setTownSkipped] = useState(false);
+    const { updateProfile } = useAuth();
 
-const hasPosted2 = (Array.isArray(posts) ? posts : []).some(
-  (p) => p && p.ownerId === uid2
-);
+    useEffect(() => {
+      if (!isAuthenticated || !authProfile) {
+        setWelcomeChecked(true);
+        return;
+      }
+      // Show welcome if: no intro AND joined recently AND not dismissed
+      const hasIntro = !!(authProfile.intro && authProfile.intro.trim());
+      const joinedAt = authProfile.created_at ? new Date(authProfile.created_at) : null;
+      const daysSinceJoin = joinedAt
+        ? (Date.now() - joinedAt.getTime()) / (1000 * 60 * 60 * 24)
+        : 999;
+      const dismissed = (() => {
+        try {
+          return localStorage.getItem(`nb_welcome_dismissed_${authProfile.id}`) === '1';
+        } catch { return false; }
+      })();
 
-const hasFollowed2 =
-  followingSet && typeof followingSet.size === 'number'
-    ? followingSet.size > 0
-    : false;
+      setShowWelcome(!hasIntro && daysSinceJoin < 7 && !dismissed);
+      setWelcomeChecked(true);
+    }, [isAuthenticated, authProfile]);
 
-const onboardingDoneCount2 = [checkedInToday2, hasPosted2, hasFollowed2].filter(Boolean).length;
-const onboardingClaimed2 = hasOnboardingClaimed(uid2);
-const onboardingAllDone2 = checkedInToday2 && hasPosted2 && hasFollowed2;
+    if (!welcomeChecked) return null;
 
-const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
+    // B2: ask the town plainly before the welcome hero — new
+    // profiles have no town, and without one the hero can't name
+    // the place or count its neighbors (the app otherwise guesses
+    // towns from free text in several places). Skippable per
+    // session; returns next visit until answered.
+    if (isAuthenticated && authProfile && !authProfile.town && !townSkipped) {
+      return (
+        <TownAskWrapper
+          displayName={authProfile?.display_name}
+          onSave={async (town) => { await updateProfile({ town }); }}
+          onSkip={() => setTownSkipped(true)}
+        />
+      );
+    }
+
+    if (showWelcome && isAuthenticated) {
+      return (
+        <WelcomeHeroWrapper
+          town={authProfile?.town}
+          displayName={authProfile?.display_name}
+          hasIntro={!!(authProfile?.intro && authProfile.intro.trim())}
+          onIntroduce={() => setModal({ type: 'intro_composer' })}
+          onDismiss={() => {
+            try {
+              localStorage.setItem(`nb_welcome_dismissed_${authProfile.id}`, '1');
+            } catch {}
+            setShowWelcome(false);
+          }}
+        />
+      );
+    }
+
+    return <HomeHero />;
+  }
+
+  // Lazy wrapper for TownAsk (same code-split pattern as WelcomeHero).
+  function TownAskWrapper(props) {
+    const [Comp, setComp] = useState(null);
+    useEffect(() => {
+      import('./Welcome.jsx').then(m => setComp(() => m.TownAsk));
+    }, []);
+    if (!Comp) return <HeroLoadingFrame />;
+    return <Comp {...props} />;
+  }
+
+  // Branded placeholder while a lazy hero chunk loads — the hero
+  // slot used to render nothing, so Home's first paint opened on
+  // whatever came next and the hero "popped in" (or appeared
+  // missing in screenshots).
+  function HeroLoadingFrame() {
     return (
       <div className="nb-hero">
-        {(typeof BUSINESS_MODE !== 'undefined' && BUSINESS_MODE) ? (
-          <div className="nb-hero-bar">
-            <div className="nb-hero-bar-left">
-              <div className="nb-hero-title">Promote Your Business</div>
-              <div className="nb-hero-sub">
-                Reach neighbors with local offers
-              </div>
-            </div>
+        <div className="nb-hero-card">
+          <div className="nb-hero-card-title">🌼 Neighbloom</div>
+          <div className="nb-hero-card-sub">Meeting your neighbors…</div>
+        </div>
+      </div>
+    );
+  }
 
-            <button
-              type="button"
-              className="nb-hero-cta"
-              onClick={() => window.open('mailto:contact@neighbloom.com')}
-            >
-              Contact Us
-            </button>
-          </div>
-        ) : null}
+  // Lazy wrapper for WelcomeHero (code-split, only loaded for new users).
+  function WelcomeHeroWrapper(props) {
+    const [Comp, setComp] = useState(null);
+    useEffect(() => {
+      import('./Welcome.jsx').then(m => setComp(() => m.WelcomeHero));
+    }, []);
+    if (!Comp) return <HeroLoadingFrame />;
+    return <Comp {...props} onAnswerQuestion={props.onDismiss} />;
+  }
+
+  function HomeHero() {
+    // Design pass (2026-10-13): the returning-member hero is a
+    // compact action card, not a billboard. Two primary actions
+    // + two quiet links. Gone from Home: the daily check-in
+    // button (it lives in Profile now) and the invite link's
+    // "(+20 NP)" suffix — no invite award exists, so the claim
+    // was never true.
+    return (
+      <div className="nb-hero">
 
         <div className="nb-hero-card">
           <div className="nb-hero-card-title">Start something</div>
           <div className="nb-hero-card-sub">
             Ask for a quick hand or request a recommendation.
-            {showMobileOnboardingNudge ? (
-  <button
-    type="button"
-    className="nb-onbNudge"
-    onClick={() => setModal({ type: 'onboarding' })}
-    title="Complete 3 quick steps to earn +25 NP"
-  >
-    <span className="nb-onbNudge-left">
-      <span className="nb-onbNudge-emoji" aria-hidden="true">✨</span>
-      <span className="nb-onbNudge-text">Quick start</span>
-    </span>
-    <span className="nb-onbNudge-right">
-      <span className="nb-onbNudge-steps">Steps {onboardingDoneCount2}/3</span>
-      <span className="nb-onbNudge-reward">+25</span>
-    </span>
-  </button>
-) : null}
           </div>
 
           <div className="nb-hero-actions">
@@ -5563,6 +7208,15 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
                 setActiveTab('home');
                 setHomeChip('help');
                 setHomeShowAll(false);
+                // ensure we're showing requests (not just following)
+                setHomeFollowOnly(false);
+                // clear any existing search so all help posts are visible
+                setHomeQuery('');
+                // give immediate visual feedback by scrolling the feed into view
+                setTimeout(() => {
+                  const feed = document.querySelector('.nb-feed');
+                  if (feed) feed.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 50);
               }}
             >
               Prefer to help?{' '}
@@ -5573,19 +7227,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
               className="nb-herolink"
               onClick={() => shareInviteLink(meId)}
             >
-              Invite a neighbor{' '}
-              <span className="nb-herolink-accent">(+20 NP)</span>
-            </button>
-            <button
-              type="button"
-              className="nb-quickbtn nb-quickbtn-ghost"
-              onClick={() => dailyCheckIn()}
-              disabled={checkedInToday}
-              title={checkedInToday ? 'Come back tomorrow' : 'Claim your daily NP'}
-            >
-              {checkedInToday
-                ? `Checked in ✅ (${Math.max(1, ci.streak)}-day streak)`
-                : 'Daily check-in (+5 NP)'}
+              Invite a neighbor
             </button>
           </div>
           <LiveBoard
@@ -5643,13 +7285,27 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
   const [what, setWhat] = useState('');
   const [area, setArea] = useState(me?.location || '');
   const [whenRange, setWhenRange] = useState('');
+  const DRAFT_KEY = `nb_draft_post_v1:${kind}`;
+  const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+  const [draftAvailable, setDraftAvailable] = useState(false);
+  const autosaveRef = useRef(null);
+  const suppressAutosaveRef = useRef(false);
+  const [whenIsCustom, setWhenIsCustom] = useState(false);
   const [helpersNeeded, setHelpersNeeded] = useState(1);
   const [details, setDetails] = useState('');
+  const [message, setMessage] = useState('');
+  const [whenMode, setWhenMode] = useState(''); // "", preset, "__custom__"
+  const [whenCustom, setWhenCustom] = useState('');
+  const [photoErr, setPhotoErr] = useState('');
   const [prefTags, setPrefTags] = useState([]);
+  function toggleTag(t) {
+    setPrefTags((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]);
+  }
   const [photo, setPhoto] = useState('');
   const [photoBytes, setPhotoBytes] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [showInferConfirm, setShowInferConfirm] = useState(false);
 
   useEffect(() => {
     // Reset when switching kinds
@@ -5658,11 +7314,77 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
     setWhenRange('');
     setHelpersNeeded(1);
     setDetails('');
+    setMessage('');
     setPrefTags([]);
     setPhoto('');
     setPhotoBytes(0);
     setErr('');
   }, [kind, me?.location]);
+
+  // Load draft if present for this kind
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return setDraftAvailable(false);
+      const obj = JSON.parse(raw);
+      if (!obj) return setDraftAvailable(false);
+      // TTL: ignore drafts older than 7 days
+      if (obj.savedAt && typeof obj.savedAt === 'number') {
+        if (Date.now() - obj.savedAt > DRAFT_TTL_MS) {
+          try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+          return setDraftAvailable(false);
+        }
+      }
+      // Only consider drafts that have meaningful content (not just default area)
+      const hasContent = (obj.what && String(obj.what).trim()) || (obj.details && String(obj.details).trim()) || (obj.message && String(obj.message).trim());
+      if (hasContent) {
+        // Auto-restore draft into form fields
+        if (obj.message) setMessage(obj.message);
+        if (obj.what) setWhat(obj.what);
+        if (obj.details) setDetails(obj.details);
+        if (obj.area) setArea(obj.area);
+        setDraftAvailable(true);
+      }
+      else {
+        try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+        setDraftAvailable(false);
+      }
+    } catch (e) {
+      setDraftAvailable(false);
+    }
+  }, [DRAFT_KEY]);
+
+  function saveDraft() {
+    try {
+      const hasContent = (what && String(what).trim()) || (details && String(details).trim()) || (message && String(message).trim());
+      if (!hasContent) {
+        try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+        setDraftAvailable(false);
+        return;
+      }
+      const payload = { what: what || '', area: area || '', details: details || '', message: message || '', savedAt: Date.now() };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+      setDraftAvailable(true);
+    } catch (e) {}
+  }
+
+  function clearDraft() {
+    try { localStorage.removeItem(DRAFT_KEY); setDraftAvailable(false); } catch (e) {}
+  }
+
+  // Autosave on changes (debounced)
+  useEffect(() => {
+    if (autosaveRef.current) clearTimeout(autosaveRef.current);
+    autosaveRef.current = setTimeout(() => {
+      if (suppressAutosaveRef.current) { suppressAutosaveRef.current = false; return; }
+      const hasContent = (what && String(what).trim()) || (details && String(details).trim());
+      if (hasContent) saveDraft();
+    }, 800);
+    return () => {
+      if (autosaveRef.current) clearTimeout(autosaveRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [what, details, area]);
 
   const helpExamples = [
     'shovel my driveway',
@@ -5688,30 +7410,90 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
   function fillHelpTemplate(t) {
     setErr('');
-    setWhat(
-      normalizeText(t?.title || '')
-        .replace(/^need help/i, '')
-        .replace(/^need /i, '')
-        .trim() || ''
-    );
-    setDetails(t?.details || '');
-    setWhenRange(t?.whenRange || '');
-    // keep area as-is (user’s town often differs per post)
+    const raw = String(t?.label || t?.title || '').trim();
+    const n = normalizeText(raw || '');
+    let friendly = n;
+    const low = n.toLowerCase();
+    // remove restrictive phrases
+    friendly = friendly.replace(/curb[- ]to[- ]curb/gi, '').replace(/one item\.?/gi, '').trim();
+    if (/driveway/i.test(low)) {
+      friendly = 'Need help shoveling my driveway (snow).';
+    } else if (/rake|leaf|leaves/i.test(low)) {
+      friendly = 'Need help raking and bagging leaves.';
+    } else if (/couch|sofa|move/i.test(low)) {
+      friendly = 'Need help moving a couch.';
+    } else if (/\bbin\b|bins|trash/i.test(low)) {
+      friendly = 'Need help bringing trash bins to the curb.';
+    } else if (/pickup|drop|pickup\/drop|pick up|drop off/i.test(low)) {
+      friendly = 'Need help picking up or dropping off an item.';
+    } else if (!/[a-z]/i.test(friendly)) {
+      friendly = 'Need help with a task.';
+    } else {
+      if (!/need|help|looking/i.test(friendly)) friendly = 'Need help with ' + friendly.replace(/^:/, '').trim();
+      friendly = friendly.charAt(0).toUpperCase() + friendly.slice(1);
+      if (!/[.!?]$/.test(friendly)) friendly = friendly + '.';
+    }
+    // Replace the message to avoid accumulation
+    setMessage(friendly);
+    const first = String(friendly).split(/\.|\n/)[0].trim();
+    setWhat(first.replace(/^need help (with )?/i, '').trim());
+    try { if (t?.details && String(t.details).trim() && String(t.details).length < 120) setDetails(t.details); } catch (e) {}
+    try { if (t?.whenRange && String(t.whenRange).trim() && String(t.whenRange).length < 80) setWhenRange(t.whenRange); } catch (e) {}
   }
 
   function fillRecQuick(cat) {
     setErr('');
     setWhat(cat);
+    const friendly = (typeof cat === 'string' && cat.trim()) ? `Looking for ${cat}.` : 'Looking for a recommendation.';
+    setMessage(friendly);
+  }
+
+  // UI submit wrapper: show inline hint and expand details if needed
+  const [autoOpenDetails, setAutoOpenDetails] = useState(false);
+  function uiSubmit() {
+    const msg = validate();
+    if (msg) {
+      setErr(msg);
+      setAutoOpenDetails(true);
+      return;
+    }
+    submit();
+  }
+
+  // When message changes, derive `what` (first line/sentence) and `details`
+  function handleMessageChange(v) {
+    setMessage(v);
+    setErr('');
+    const lines = v.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      setWhat('');
+      setDetails('');
+      return;
+    }
+    // first line as short phrase
+    const first = lines[0];
+    // rest joined as details
+    const rest = lines.slice(1).join('\n');
+    setWhat(first);
+    if (rest) setDetails(rest);
+  }
+
+  function getMessagePlaceholder() {
+    // Only show structured placeholder when message is empty; placeholder only appears when textarea has no value.
+    if (message && String(message).trim()) return '';
+    if (isHelp) return 'Need help with [what] — [where/how], [when].';
+    return 'Looking for [what] in [area] — include timing if relevant.';
   }
 
   function validate() {
   const w = normalizeText(what);
-  const a = normalizeText(area);
+  // allow falling back to the user's profile location to reduce friction
+  const a = normalizeText(area) || normalizeText(me?.location || '');
+  // Details are optional now to reduce friction; encourage but don't block posting
   const d = normalizeText(details);
 
   if (!w) return 'Start with what you need (one short phrase).';
   if (!a) return 'Add an area (town / neighborhood).';
-  if (!d || d.length < 5) return 'Add a quick detail so people can help.';
 
   // No content blocking. Guidance lives in placeholders + hint text.
   return '';
@@ -5719,7 +7501,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
   function buildHelpPost() {
     const w = normalizeText(what);
-    const a = normalizeText(area);
+    const a = normalizeText(area) || normalizeText(me?.location || '');
     const d = normalizeText(details);
     const when = normalizeText(whenRange);
 
@@ -5749,7 +7531,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
   function buildRecPost() {
     const w = normalizeText(what);
-    const a = normalizeText(area);
+    const a = normalizeText(area) || normalizeText(me?.location || '');
     const d = normalizeText(details);
 
     const prefs = Array.isArray(prefTags) && prefTags.length ? prefTags : [];
@@ -5794,7 +7576,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
     }
   }
 
-  function submit() {
+  async function submit() {
     const msg = validate();
     if (msg) {
       setErr(msg);
@@ -5803,19 +7585,45 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
 
     const post = isHelp ? buildHelpPost() : buildRecPost();
 
-    setPosts((prev) => [post, ...(Array.isArray(prev) ? prev : [])]);
+    // Phase 1: Atomic creation — authenticated users save to Supabase FIRST.
+    // Only add to local state on success (or in demo mode). No phantom posts.
+    if (isAuthenticated && authConfigured) {
+      try {
+        const { createPost } = await import('./posts.js');
+        const supabasePost = await createPost({
+          kind: post.kind,
+          title: post.title,
+          details: post.details || post.message || '',
+          area: post.area || '',
+          category: post.category || post.recCategory || null,
+          prefTags: post.prefTags || [],
+          helpersNeeded: post.helpersNeeded || 1,
+        });
+        // Refresh Supabase posts to include the new one
+        const { fetchAppPosts } = await import('./posts.js');
+        setSupabasePosts(await fetchAppPosts());
+      } catch (e) {
+        console.error('[Supabase] Failed to save post:', e.message);
+        setErr('Could not publish your post. Please check your connection and try again.');
+        return; // Don't navigate away on failure — let them retry
+      }
+    } else {
+      // Demo mode: local only
+      setPosts((prev) => [post, ...(Array.isArray(prev) ? prev : [])]);
+    }
 
-    // Make it feel instant: go home, focus the relevant chip, and auto-expand the new post.
+    // Make it feel instant: go home and focus the relevant chip. Do not auto-expand threads.
     setHomeChip(isHelp ? 'help' : 'rec');
     setHomeShowAll(false);
     setHomeQuery('');
     setActiveSavedSearchId(null);
-    setExpandedThreads((prev) => ({ ...(prev || {}), [post.id]: true }));
 
     notify('Post created.', { type: 'post_create', postId: post.id });
 
     setActiveTab('home');
     setPostFlow({ step: 'chooser', kind: null });
+    // Clear any saved draft for this kind on successful post
+    try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
   }
 
   const headerTitle = isHelp ? 'Need a hand' : 'Recommendations';
@@ -5824,38 +7632,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
       ? 'Write it like a text to a neighbor. Be clear about where/how (porch, curb, driveway, indoors, etc.). One solid detail beats a paragraph.'
       : 'Ask for exactly what you want. One detail about price/timing helps a lot.';
 
-  const quickRow = isHelp ? (
-    <div className="nb-suggest-row" style={{ marginTop: 10 }}>
-      {(typeof HELP_TEMPLATES !== 'undefined' && Array.isArray(HELP_TEMPLATES) ? HELP_TEMPLATES : []).map((t) => (
-        <button
-          key={t.label}
-          type="button"
-          className="nb-suggest"
-          onClick={() => fillHelpTemplate(t)}
-          title="Fill a quick template"
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
-  ) : (
-    <div className="nb-suggest-row" style={{ marginTop: 10 }}>
-      {(typeof REC_CATEGORIES !== 'undefined' && Array.isArray(REC_CATEGORIES) ? REC_CATEGORIES : [])
-  .filter((x) => x && x !== '__custom__')
-        .slice(0, 8)
-        .map((c) => (
-          <button
-            key={c}
-            type="button"
-            className="nb-suggest"
-            onClick={() => fillRecQuick(c)}
-            title="Use a common request"
-          >
-            {c}
-          </button>
-        ))}
-    </div>
-  );
+  const messageRef = useRef(null);
 
   return (
     <div className="nb-page">
@@ -5864,9 +7641,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
           <div className="nb-form-head">
             <div>
               <div className="nb-form-title">{headerTitle}</div>
-              <div className="nb-form-sub">{sub}</div>
             </div>
-
             <button
               type="button"
               className="nb-btn nb-btn-ghost nb-btn-sm"
@@ -5877,180 +7652,98 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
             </button>
           </div>
 
-          {quickRow}
-
-          <div className="nb-row" style={{ marginTop: 12 }}>
-            <label className="nb-label">
-              {isHelp ? 'What do you need?' : 'What are you looking for?'}
-            </label>
-            <input
-              className="nb-input"
-              value={what}
+          {/* Main message textarea (simplified) */}
+          <div className="nb-card" style={{ marginTop: 12 }}>
+            <label className="nb-label">Message</label>
+            <textarea
+              ref={messageRef}
+              className={`nb-input nb-textarea nb-message ${err ? 'has-error' : ''}`}
+              value={message}
               onChange={(e) => {
-                setWhat(e.target.value);
-                setErr('');
+                handleMessageChange(e.target.value);
+                // auto-resize
+                const el = messageRef.current;
+                if (el) {
+                  el.style.height = 'auto';
+                  el.style.height = `${Math.min(400, el.scrollHeight)}px`;
+                }
               }}
-              placeholder={
-  isHelp
-    ? 'e.g., shovel driveway, move couch to curb, bring bins to curb'
-    : 'e.g., plumber, mechanic, barber, dentist'
-}
+              placeholder={getMessagePlaceholder()}
+              rows={3}
             />
           </div>
 
-          <div className="nb-row">
-            <label className="nb-label">Area</label>
-            <input
-              className="nb-input"
-              value={area}
-              onChange={(e) => {
-                setArea(e.target.value);
-                setErr('');
-              }}
-              placeholder="Example: Tinley Park near 183rd"
-            />
-          </div>
-
+          {/* Always-visible fields row (help: helpers, photo, timing) */}
           {isHelp ? (
-            <div className="nb-row">
-              <label className="nb-label">When</label>
-              <input
-                className="nb-input"
-                value={whenRange}
-                onChange={(e) => {
-                  setWhenRange(e.target.value);
-                  setErr('');
-                }}
-                placeholder="Example: Today 6–8pm"
-              />
+            <div className="nb-card" style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label className="nb-label" style={{ marginRight: 6, marginBottom: 0 }}>How many helpers?</label>
+                <button type="button" className="nb-btn nb-btn-ghost nb-btn-sm" onClick={() => setHelpersNeeded((v) => Math.max(1, Number(v) - 1))}>−</button>
+                <div style={{ minWidth: 28, textAlign: 'center', fontWeight: 900 }}>{helpersNeeded}</div>
+                <button type="button" className="nb-btn nb-btn-ghost nb-btn-sm" onClick={() => setHelpersNeeded((v) => Math.min(10, Number(v) + 1))}>+</button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input id="nb_help_photo_main" className="nb-file" type="file" accept="image/*" onChange={(e) => onPickPhoto(e.target.files?.[0])} />
+                <label htmlFor="nb_help_photo_main" className="nb-btn nb-btn-ghost nb-filebtn">{photo ? 'Change photo' : 'Add photo'}</label>
+                <div className="nb-muted small" style={{ marginLeft: 6 }}>Helps with clarity</div>
+              </div>
+
+              <div style={{ marginLeft: 'auto' }}>
+                <select className="nb-input" value={whenMode} onChange={(e) => { const v = e.target.value; setWhenMode(v); if (v !== '__custom__') setWhenCustom(''); setErr(''); }}>
+                  <option value="ASAP">ASAP</option>
+                  <option value="Today">Today</option>
+                  <option value="Tomorrow">Tomorrow</option>
+                  <option value="This week">This week</option>
+                  <option value="__custom__">Pick date/time</option>
+                </select>
+              </div>
             </div>
           ) : null}
 
-          <div className="nb-row">
-            <label className="nb-label">Details (required)</label>
-            <textarea
-              className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
-              value={details}
-              onChange={(e) => {
-                setDetails(e.target.value);
-                setErr('');
-              }}
-              placeholder={
-  isHelp
-    ? 'Add 1–2 specifics: what/where (porch/curb), timing, anything heavy, tools needed'
-    : 'Add a name + why they’re good (price, turnaround time, warranty, experience)'
-}
-            />
-          </div>
-
-          <details className="nb-details" style={{ marginTop: 10 }}>
-            <summary>Optional details</summary>
-
-            {isHelp ? (
-              <>
-                <div className="nb-row" style={{ marginTop: 10 }}>
-                  <label className="nb-label">How many helpers?</label>
-                  <div className="nb-stepper">
+          {!isHelp ? (
+            <div className="nb-card" style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+              <div>
+                <label className="nb-label">Category</label>
+                <select
+                  className="nb-input"
+                  value={what}
+                  onChange={(e) => { setWhat(e.target.value); setErr(''); }}
+                >
+                  <option value="">Choose a category…</option>
+                  {REC_CATEGORIES.filter((c) => c && c !== '__custom__').map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="nb-label">Quick preferences (tap to add)</label>
+                <div className="nb-seg nb-seg-compact nb-seg-scroll">
+                  {REC_PREF_TAGS.map((t) => (
                     <button
+                      key={t}
                       type="button"
-                      onClick={() => setHelpersNeeded((n) => Math.max(1, (Number(n) || 1) - 1))}
+                      className={`nb-segbtn ${prefTags.includes(t) ? 'is-on' : ''}`}
+                      onClick={() => toggleTag(t)}
+                      title="Tap to toggle"
                     >
-                      −
+                      {t}
                     </button>
-                    <div className="nb-stepper-num">{helpersNeeded}</div>
-                    <button
-                      type="button"
-                      onClick={() => setHelpersNeeded((n) => Math.min(6, (Number(n) || 1) + 1))}
-                    >
-                      +
-                    </button>
-                    <div className="nb-muted" style={{ fontWeight: 850 }}>
-                      (max 6)
-                    </div>
-                  </div>
+                  ))}
                 </div>
+              </div>
+            </div>
+          ) : null}
 
-                <div className="nb-row">
-                  <label className="nb-label">Attach photo (optional)</label>
-                  <div className="nb-photo-row">
-                    {photo ? (
-                      <img className="nb-photo-thumb" src={photo} alt="" />
-                    ) : (
-                      <div className="nb-muted" style={{ fontWeight: 850 }}>
-                        Helps with clarity (driveway, item, etc.)
-                      </div>
-                    )}
-
-                    <div style={{ display: 'grid', gap: 8 }}>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => onPickPhoto(e.target.files?.[0])}
-                        disabled={busy}
-                      />
-                      {photo ? (
-                        <button
-                          type="button"
-                          className="nb-btn nb-btn-ghost nb-btn-sm"
-                          onClick={() => {
-                            setPhoto('');
-                            setPhotoBytes(0);
-                          }}
-                        >
-                          Remove photo {photoBytes ? `(${prettyBytes(photoBytes)})` : ''}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="nb-row" style={{ marginTop: 10 }}>
-                  <label className="nb-label">Preference chips (optional)</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {(typeof REC_PREF_TAGS !== 'undefined' && Array.isArray(REC_PREF_TAGS) ? REC_PREF_TAGS : []).map((t) => {
-                      const on = prefTags.includes(t);
-                      return (
-                        <button
-                          key={t}
-                          type="button"
-                          className={`nb-suggest ${on ? 'is-on' : ''}`}
-                          onClick={() => togglePref(t)}
-                        >
-                          {t}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-          </details>
+          {photo ? <img className="nb-photopreview" src={photo} alt="Preview" style={{ marginTop: 12 }} /> : null}
+          {photoErr ? <div className="nb-error" style={{ marginTop: 10 }}>{photoErr}</div> : null}
 
           {err ? <div className="nb-error" style={{ marginTop: 10 }}>{err}</div> : null}
 
-          <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-            <button
-              type="button"
-              className="nb-btn nb-btn-ghost"
-              onClick={onBack}
-            >
-              Cancel
-            </button>
-
-            <button
-              type="button"
-              className="nb-btn nb-btn-primary"
-              onClick={submit}
-              disabled={busy}
-              style={{ flex: 1, justifyContent: 'center' }}
-            >
-              {busy ? 'Working…' : 'Post'}
-            </button>
+          <div className="nb-formactions" style={{ marginTop: 12 }}>
+            <button className="nb-btn nb-btn-ghost" onClick={onBack}>Cancel</button>
+            <button className="nb-btn nb-btn-primary" onClick={uiSubmit} disabled={busy || !message.trim()}>{busy ? 'Working…' : 'Post'}</button>
           </div>
-
-          
         </div>
       </div>
     </div>
@@ -6101,8 +7794,8 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
           </div>
 
           <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 12 }}>
-            <div style={{ fontWeight: 980, fontSize: 18 }}>{helpfulRepliesCount}</div>
-            <div className="nb-muted" style={{ fontWeight: 850, fontSize: 12 }}>Helpful</div>
+            <div style={{ fontWeight: 980, fontSize: 18 }}>{impactHelpCount}</div>
+            <div className="nb-muted" style={{ fontWeight: 850, fontSize: 12 }}>Neighbors helped</div>
           </div>
         </div>
 
@@ -6122,6 +7815,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
             View badges & points
           </button>
 
+          {!isAuthenticated && (
           <button
             className="nb-btn nb-btn-ghost"
             onClick={() => {
@@ -6138,6 +7832,7 @@ const showMobileOnboardingNudge = !onboardingClaimed2 && !onboardingAllDone2;
           >
             Reset demo data
           </button>
+          )}
         </div>
 
         <div style={{ marginTop: 16 }}>
@@ -6260,8 +7955,6 @@ useEffect(() => {
 const [nearText, setNearText] = useState('');
 
     // Premium Timing: single selector + optional custom field (no chip spam)
-    const [whenMode, setWhenMode] = useState(''); // "", preset, "__custom__"
-    const [whenCustom, setWhenCustom] = useState('');
     useEffect(() => {
       if (category === 'Curb-to-curb move' && helpersNeeded < 2) {
         setHelpersNeeded(2);
@@ -6270,9 +7963,41 @@ const [nearText, setNearText] = useState('');
     }, [category]);
 
     const [details, setDetails] = useState('');
-    const [photo, setPhoto] = useState(null); // dataURL (local demo only)
-    const [err, setErr] = useState('');
-    const [photoErr, setPhotoErr] = useState('');
+    // New simplified message for Need a hand posts
+    const [message, setMessage] = useState('');
+    const messageRef = useRef(null);
+    const [suggestedTemplates, setSuggestedTemplates] = useState([]);
+    // Template keyword map
+    const TEMPLATE_KEYWORDS = {
+      shovel: 'Shoveling',
+      rake: 'Rake & bag',
+      bin: 'Bins',
+      bins: 'Bins',
+      trash: 'Bins',
+      heavy: 'One heavy item',
+      furniture: 'One heavy item',
+      couch: 'One heavy item',
+      table: 'One heavy item',
+      pickup: 'Pickup/drop',
+      drop: 'Pickup/drop',
+    };
+
+    // Debounced detection of keywords to show suggestion chips
+    useEffect(() => {
+      let t = null;
+      const check = () => {
+        const v = (message || '').toLowerCase();
+        const found = [];
+        for (const k of Object.keys(TEMPLATE_KEYWORDS)) {
+          if (v.includes(k) && !found.includes(TEMPLATE_KEYWORDS[k])) {
+            found.push(TEMPLATE_KEYWORDS[k]);
+          }
+        }
+        setSuggestedTemplates(found.slice(0, 3));
+      };
+      t = setTimeout(check, 300);
+      return () => clearTimeout(t);
+    }, [message]);
 
     function clearPhoto() {
       setPhoto(null);
@@ -6306,25 +8031,13 @@ const [nearText, setNearText] = useState('');
       setErr('');
       setPhotoErr('');
 
-      const t = title.trim();
-      const a = normalizeText(
-        nearText ? `${townKey} (near ${nearText})` : `${townKey}`
-      );
-      const d = details.trim();
-
+      const msg = message.trim();
       const whenRange =
-        whenMode === '__custom__'
-          ? normalizeText(whenCustom)
-          : normalizeText(whenMode);
+        whenMode === '__custom__' ? normalizeText(whenCustom) : normalizeText(whenMode);
 
-      if (!category) return setErr('Category is required.');
-      if (!t) return setErr('Title is required.');
-      if (!a) return setErr('Location is required.');
-      if (!d) return setErr('Details are required.');
-      if (d.length < 12)
-        return setErr('Add one more detail (time, size, or constraints).');
+      if (!msg) return setErr('Write a short message describing what you need.');
 
-      const combined = `${t} ${d}`;
+      const combined = msg;
 
       // Guidance only (no blocking)
 if (mentionsReward(combined)) {
@@ -6337,14 +8050,15 @@ if (mentionsIndoor(combined)) {
   // setErr('Tip: For indoor tasks, consider a Recommendation post instead.');
 }
 
+      const titleText = msg.split('\n')[0].slice(0, 80);
       const p = {
         id: uid('p'),
         kind: 'help',
         helpType,
-        category,
-        title: normalizeText(t),
-        details: normalizeText(d),
-        area: normalizeText(a),
+        category: category || 'Help',
+        title: normalizeText(titleText || 'Need a hand'),
+        details: normalizeText(msg),
+        area: normalizeText(townKey || ''),
         townKey,
         whenRange,
         helpersNeeded: Math.max(1, Number(helpersNeeded || 1)),
@@ -6357,10 +8071,14 @@ if (mentionsIndoor(combined)) {
         createdAt: NOW(),
         replies: [],
         selectedUserId: null,
+        completionPhoto: null,
+        completionPhotoMeta: null,
+        completionPhotoApproved: false,
+        awardQueuedUntil: null,
       };
 
       setPosts((prev) => [p, ...(Array.isArray(prev) ? prev : [])]);
-      pushActivity('Created a help request.');
+      pushActivity({ type: 'post_created', text: 'Created a help request.', actorId: me.id, postId: p.id, postOwnerId: me.id, audienceIds: [me.id] });
       setActiveTab('home');
       setHomeChip('help');
       setHomeShowAll(false);
@@ -6382,222 +8100,96 @@ if (mentionsIndoor(combined)) {
           </div>
         </div>
 
-        <div className="nb-form">
-          {/* Category (premium segmented + optional More picker) */}
-          <div className="nb-row">
-            <label className="nb-label">Category</label>
-
-            <div className="nb-seg nb-seg-compact nb-seg-scroll">
-              {PRIMARY_CATS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  className={`nb-segbtn ${category === c ? 'is-on' : ''}`}
-                  onClick={() => {
-                    setCategory(c);
-                    setShowAllCats(false);
-                    setErr('');
-                  }}
-                  title={c}
-                >
-                  {CAT_SHORT[c] || c}
-                </button>
-              ))}
-
-              <button
-                type="button"
-                className={`nb-segbtn ${showAllCats ? 'is-on' : ''}`}
-                onClick={() => setShowAllCats((v) => !v)}
-                title="All categories"
-              >
-                More
-              </button>
+          <div className="nb-form">
+            {/* Main message */}
+            <div className="nb-row">
+              <label className="nb-label">Message</label>
+              <textarea
+                ref={messageRef}
+                rows={3}
+                className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
+                value={message}
+                onChange={(e) => {
+                  setMessage(e.target.value);
+                  setErr('');
+                  // auto-resize
+                  const el = messageRef.current;
+                  if (el) {
+                    el.style.height = 'auto';
+                    el.style.height = `${Math.min(400, el.scrollHeight)}px`;
+                  }
+                }}
+                placeholder="What do you need help with?"
+                maxLength={500}
+              />
             </div>
 
-            {showAllCats ? (
-              <select
-                className="nb-input"
-                value={category}
-                onChange={(e) => {
-                  setCategory(e.target.value);
-                  setErr('');
-                }}
-              >
-                {HELP_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+            {/* Template suggestion chips (debounced) */}
+            {suggestedTemplates && suggestedTemplates.length ? (
+              <div className="nb-row" style={{ overflowX: 'auto' }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {suggestedTemplates.slice(0, 3).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className="nb-chip"
+                      onClick={() => {
+                        const insert = `Need help with ${s} — [where/how], [when].`;
+                        setMessage((prev) => (prev ? `${prev}\n${insert}` : insert));
+                        setErr('');
+                        // resize after insert
+                        setTimeout(() => {
+                          const el = messageRef.current;
+                          if (el) {
+                            el.style.height = 'auto';
+                            el.style.height = `${Math.min(400, el.scrollHeight)}px`;
+                          }
+                        }, 0);
+                      }}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : null}
-          </div>
 
-          {/* Title */}
-<div className="nb-row">
-  <label className="nb-label">Title</label>
-  <input
-    className="nb-input"
-    value={title}
-    onChange={(e) => {
-      setTitle(e.target.value);
-      setErr('');
-    }}
-    placeholder="Example: Need help shoveling my driveway"
-  />
-</div>
-          <div className="nb-row">
-  <label className="nb-label">Location</label>
+            {/* Always-visible fields row */}
+            <div className="nb-row" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label className="nb-label" style={{ marginRight: 6 }}>How many helpers?</label>
+                <button type="button" className="nb-btn nb-btn-ghost nb-btn-sm" onClick={() => setHelpersNeeded((v) => Math.max(1, Number(v) - 1))}>-</button>
+                <div style={{ minWidth: 28, textAlign: 'center', fontWeight: 900 }}>{helpersNeeded}</div>
+                <button type="button" className="nb-btn nb-btn-ghost nb-btn-sm" onClick={() => setHelpersNeeded((v) => Math.min(10, Number(v) + 1))}>+</button>
+              </div>
 
-  <select
-    className="nb-input"
-    value={townKey}
-    onChange={(e) => {
-      setTownKey(e.target.value);
-      setErr('');
-    }}
-  >
-    {(typeof TOWN_KEYS !== 'undefined' && Array.isArray(TOWN_KEYS) ? TOWN_KEYS : []).map((k) => (
-      <option key={k} value={k}>{k}</option>
-    ))}
-  </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input id="nb_help_photo" className="nb-file" type="file" accept="image/*" onChange={(e) => onPickPhoto(e.target.files?.[0])} />
+                <label htmlFor="nb_help_photo" className="nb-btn nb-btn-ghost nb-filebtn">{photo ? 'Change photo' : 'Add photo'}</label>
+                <div className="nb-muted small" style={{ marginLeft: 6 }}>Helps with clarity</div>
+              </div>
 
-  <input
-    className="nb-input"
-    value={nearText}
-    onChange={(e) => {
-      setNearText(e.target.value);
-      setErr('');
-    }}
-    placeholder="Optional: near cross-street or landmark (e.g., near 183rd/Harlem)"
-    style={{ marginTop: 10 }}
-  />
-</div>
-
-          {/* Helpers needed */}
-          <div className="nb-row">
-            <label className="nb-label">Helpers needed</label>
-            <select
-              className="nb-input"
-              value={helpersNeeded}
-              onChange={(e) => setHelpersNeeded(Number(e.target.value))}
-            >
-              <option value={1}>1 helper</option>
-              <option value={2}>2 helpers</option>
-              <option value={3}>3 helpers</option>
-              <option value={4}>4 helpers</option>
-            </select>
-            <div className="nb-hintrow">
-              Only select more than 1 if it truly requires multiple people
-              (heavy item / safety).
-            </div>
-          </div>
-
-          {/* Timing */}
-          <div className="nb-row">
-            <label className="nb-label">Timing (optional)</label>
-
-            <select
-              className="nb-input"
-              value={whenMode}
-              onChange={(e) => {
-                const v = e.target.value;
-                setWhenMode(v);
-                if (v !== '__custom__') setWhenCustom('');
-                setErr('');
-              }}
-            >
-              <option value="">Not sure yet</option>
-              {TIME_PRESETS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-              <option value="__custom__">Custom…</option>
-            </select>
-
-            {whenMode === '__custom__' ? (
-              <input
-                className="nb-input"
-                value={whenCustom}
-                onChange={(e) => {
-                  setWhenCustom(e.target.value);
-                  setErr('');
-                }}
-                placeholder="Example: Today 6–8pm"
-              />
-            ) : null}
-          </div>
-
-          {/* Photo */}
-          <div className="nb-row">
-            <label className="nb-label">Photo (optional)</label>
-
-            <div className="nb-photorow">
-              <input
-                id="nb_help_photo"
-                className="nb-file"
-                type="file"
-                accept="image/*"
-                onChange={(e) => onPickPhoto(e.target.files?.[0])}
-              />
-              <label
-                htmlFor="nb_help_photo"
-                className="nb-btn nb-btn-ghost nb-filebtn"
-              >
-                {photo ? 'Change photo' : 'Add photo'}
-              </label>
-
-              {photo ? (
-                <button type="button" className="nb-link" onClick={clearPhoto}>
-                  Remove
-                </button>
-              ) : null}
+              <div style={{ marginLeft: 'auto' }}>
+                <select className="nb-input" value={whenMode} onChange={(e) => { const v = e.target.value; setWhenMode(v); if (v !== '__custom__') setWhenCustom(''); setErr(''); }}>
+                  <option value="ASAP">ASAP</option>
+                  <option value="Today">Today</option>
+                  <option value="Tomorrow">Tomorrow</option>
+                  <option value="This week">This week</option>
+                  <option value="__custom__">Pick date/time</option>
+                </select>
+              </div>
             </div>
 
             {photoErr ? <div className="nb-error">{photoErr}</div> : null}
-            {photo ? (
-              <img className="nb-photopreview" src={photo} alt="Preview" />
-            ) : null}
-          </div>
+            {photo ? <img className="nb-photopreview" src={photo} alt="Preview" /> : null}
 
-          {/* Details */}
-          <div className="nb-row">
-            <div className="nb-labelrow">
-              <label className="nb-label">Details</label>
-              <span className="nb-muted small">{details.length}/400</span>
-            </div>
+            {err ? <div className="nb-error">{err}</div> : null}
 
-            <textarea
-              className={`nb-input nb-textarea ${err ? 'has-error' : ''}`}
-              value={details}
-              onChange={(e) => {
-                setDetails(e.target.value);
-                setErr('');
-              }}
-              maxLength={400}
-              placeholder="Add specifics: what you need, where (porch/curb/outdoor), timing, tools you have, and anything tricky (stairs, ice, parking)."
-            />
-
-            <div className="nb-hintrow">
-              Include time estimate, tools you have, and anything tricky
-              (stairs, ice, parking).
+            <div className="nb-formactions">
+              <button className="nb-btn nb-btn-ghost" onClick={() => setPostFlow({ step: 'chooser', kind: null })}>Cancel</button>
+              <button className="nb-btn nb-btn-primary" onClick={submit} disabled={!message.trim()}>Post</button>
             </div>
           </div>
-
-          {err ? <div className="nb-error">{err}</div> : null}
-
-          <div className="nb-formactions">
-            <button
-              className="nb-btn nb-btn-ghost"
-              onClick={() => setPostFlow({ step: 'chooser', kind: null })}
-            >
-              Cancel
-            </button>
-            <button className="nb-btn nb-btn-primary" onClick={submit}>
-              Post
-            </button>
-          </div>
-        </div>
       </div>
     );
   }
@@ -6700,7 +8292,7 @@ const [nearText, setNearText] = useState('');
       };
 
       setPosts((prev) => [p, ...(Array.isArray(prev) ? prev : [])]);
-      pushActivity('Created a recommendation request.');
+      pushActivity({ type: 'post_created', text: 'Created a recommendation request.', actorId: me.id, postId: p.id, postOwnerId: me.id, audienceIds: [me.id] });
       setActiveTab('home');
       setHomeChip('rec');
       setHomeShowAll(false);
@@ -6864,145 +8456,214 @@ const [nearText, setNearText] = useState('');
 
   function ActivityTab() {
     const visibleActivity = useMemo(() => {
-  const list = Array.isArray(activity) ? activity : [];
-  return list.filter((a) => {
-    if (!a || typeof a !== 'object') return false;
-    const aud = Array.isArray(a.audienceIds) ? a.audienceIds : [];
-    return aud.includes(me.id);
-  });
-}, [activity, me.id]);
-    const shownChatCtas = useMemo(() => new Set(), [visibleActivity.length]);
+      const list = Array.isArray(activity) ? activity : [];
+      return list.filter((a) => {
+        if (!a || typeof a !== 'object') return false;
+        const aud = Array.isArray(a.audienceIds) ? a.audienceIds : [];
+        return aud.includes(me.id);
+      });
+    }, [activity, me.id]);
 
-    function onActivityRowClick(a) {
-  const isChatEvent = a?.type === 'chat_unlocked' || a?.type === 'chat_message';
-  const post = a?.postId ? posts.find((p) => p.id === a.postId) : null;
-  const otherId = otherIdFromActivity(a, me.id);
+    // Group activity by postId (fallback to actor/type key)
+    const groups = useMemo(() => {
+      const map = new Map();
+      for (const a of visibleActivity) {
+        const key = a?.postId ? String(a.postId) : a?.conversationId ? `c_${a.conversationId}` : `x_${a?.actorId}_${a?.type}`;
+        const arr = map.get(key) || [];
+        arr.push(a);
+        map.set(key, arr);
+      }
 
-  // If it's a chat-related event and it's actually unlocked, open the chat
-  if (isChatEvent && post && otherId && canOpenChatForPost(post, otherId)) {
-    openChat(post.id, otherId);
-    return;
-  }
+      const out = Array.from(map.entries()).map(([key, events]) => {
+        const last = events.reduce((m, e) => (e && e.ts > (m?.ts || 0) ? e : m), events[0]);
+        const preview = activityText(last, me.id);
 
-  // Otherwise, if the activity points to a post, jump to Home and expand that thread
-  if (post) {
-    setChat(null);
-    setThread(null);
-    setModal(null);
+        // Try to find a postId anywhere in the group's events (some events may omit postId)
+        const foundPost = events.find((ev) => ev && ev.postId);
+        const groupPostId = foundPost ? foundPost.postId : last?.postId || null;
 
-    setActiveTab('home');
+        // aggregate unread for chat threads inside this group
+        let unread = 0;
+        let primary = { type: 'view', postId: groupPostId };
 
-    // Clear filters that could hide the post
-    setHomeChip('all');
-    setHomeQuery('');
-    setHomeFollowOnly(false);
+        for (const ev of events) {
+          const isChatEvent = ev?.type === 'chat_unlocked' || ev?.type === 'chat_message' || !!(ev?.conversationId && ev?.chatOtherId);
+          const post = ev?.postId ? displayPosts.find((p) => p.id === ev.postId) : null;
+          const otherId = ev?.chatOtherId || otherIdFromActivity(ev, me.id);
+          // A server conversation is itself proof of an authorized chat
+          // (the RPC created it for these two users; RLS guards the
+          // drawer), so remote message events don't need the local
+          // reply-state check that server posts can't satisfy.
+          const chatAllowed = canOpenChatForPost(post, otherId) || !!(ev?.conversationId && ev?.chatOtherId);
+          if (isChatEvent && post && otherId && chatAllowed) {
+            const viewerChatId = getChatId(post.id, me.id, otherId);
+            unread += unreadCount(viewerChatId, me.id);
+            // prefer chat as primary action
+            primary = { type: 'chat', postId: post.id, otherId };
+          }
+        }
 
-    // If the post is resolved, Home might be hiding it → show All
-    if (post.status === 'resolved') setHomeShowAll(true);
+        return {
+          id: key,
+          postId: groupPostId,
+          events,
+          last,
+          preview,
+          unread,
+          primary,
+          count: events.length,
+          remoteUnread: events.filter((ev) => ev?.remoteId && !ev.readAt).length,
+          isRemote: !!last?.remoteId,
+          postTitle: groupPostId ? (displayPosts.find((p) => p.id === groupPostId)?.title || null) : null,
+        };
+      });
 
-    // Expand the post thread
-    setExpandedThreads((prev) => ({ ...(prev || {}), [post.id]: true }));
-  }
-}
+      return out.sort((a, b) => (b.last?.ts || 0) - (a.last?.ts || 0));
+    }, [visibleActivity, displayPosts, chats, lastRead, me.id]);
+
+    function openGroupPrimary(g, e) {
+      if (e && e.stopPropagation) e.stopPropagation();
+      trackEvent('activity_primary_cta', { type: g.primary?.type, postId: g.postId });
+      const unreadIds = (g.events || []).filter((ev) => ev?.remoteId && !ev.readAt).map((ev) => ev.remoteId);
+      if (unreadIds.length) markRemoteRead(unreadIds);
+      if (g.primary?.type === 'chat' && g.primary.otherId) {
+        console.debug('Activity: open chat', g.primary);
+        openChat(g.primary.postId, g.primary.otherId);
+        return;
+      }
+
+      if (g.postId) {
+        console.debug('Activity: jump to post', g.postId);
+        // use existing helper to ensure consistent behavior
+        jumpToPostFromActivity(g.postId);
+      }
+    }
+
+    function quickReply(g, text, e) {
+      if (e && e.stopPropagation) e.stopPropagation();
+      if (g.primary?.type !== 'chat' || !g.primary.otherId || !g.primary.postId) return;
+      trackEvent('activity_quick_reply', { postId: g.primary.postId, otherId: g.primary.otherId, text });
+      sendChatMessage(g.primary.postId, g.primary.otherId, text);
+    }
+
+    const remoteUnreadTotal = visibleActivity.filter((a) => a?.remoteId && !a.readAt).length;
+    const markAllRemoteRead = () => {
+      const ids = visibleActivity.filter((a) => a?.remoteId && !a.readAt).map((a) => a.remoteId);
+      if (ids.length) markRemoteRead(ids);
+    };
 
     return (
       <div className="nb-page">
         <div className="nb-section">
           <div className="nb-section-title">Activity</div>
-          <div className="nb-section-sub">
-            Replies, chat unlocks, and resolution updates show up here.
-          </div>
+          <div className="nb-section-sub">Replies, chat unlocks, and resolution updates show up here.</div>
         </div>
 
-        {visibleActivity.length === 0 ? (
+        {notifSync === 'error' ? (
+          <div className="nb-notif-sync nb-notif-sync--error" role="status">
+            <span>Couldn't refresh your updates — showing what's already on this device.</span>
+            <button type="button" className="nb-btn nb-btn-sm" onClick={() => refreshRemoteNotifications()}>Retry</button>
+          </div>
+        ) : null}
+
+        {remoteUnreadTotal > 0 ? (
+          <div className="nb-notif-sync">
+            <span>{remoteUnreadTotal} unread update{remoteUnreadTotal > 1 ? 's' : ''}</span>
+            <button type="button" className="nb-btn nb-btn-sm" onClick={markAllRemoteRead}>Mark all read</button>
+          </div>
+        ) : null}
+
+        {groups.length === 0 && notifSync === 'loading' ? (
           <EmptyState
-            title="No activity yet"
-            body="That usually means nobody is posting. The fastest fix: create one structured post."
-            ctaLabel="Go to Home"
-            onCta={() => setActiveTab('home')}
+            title="Checking for updates"
+            body="Pulling your latest replies, messages, and thank-yous."
+          />
+        ) : groups.length === 0 ? (
+          <EmptyState
+            title="Your activity starts here"
+            body="Create a post to see replies and updates."
+            ctaLabel="Create a post"
+            onCta={() => {
+              setActiveTab('post');
+              setPostFlow({ step: 'form', kind: null });
+            }}
           />
         ) : (
           <div className="nb-list">
-            {visibleActivity.map((a) => {
-              const isChatEvent =
-                a?.type === 'chat_unlocked' || a?.type === 'chat_message';
-              const post = a?.postId
-                ? posts.find((p) => p.id === a.postId)
-                : null;
-              const otherId = otherIdFromActivity(a, me.id);
-
-              const canCta =
-                isChatEvent &&
-                post &&
-                otherId &&
-                canOpenChatForPost(post, otherId);
-
-              // thread key based on the two participants (not viewer)
-              const threadKey = canCta
-                ? getChatId(a.postId, a.actorId, a.otherUserId)
-                : null;
-
-              const showCta =
-                canCta && threadKey && !shownChatCtas.has(threadKey);
-              if (showCta) shownChatCtas.add(threadKey);
-
-              const viewerChatId = canCta
-                ? getChatId(post.id, me.id, otherId)
-                : null;
-              const unread = viewerChatId
-                ? unreadCount(viewerChatId, me.id)
-                : 0;
-              const unreadLabel = unread > 9 ? '9+' : String(unread);
+            {groups.map((g) => {
+              const actor = usersById[g.last?.actorId];
+              const actorPoints = (typeof npPointsByUser === 'object' && actor && actor.id) ? (npPointsByUser?.[actor.id] || 0) : 0;
+              const avatar = actor?.avatar || AVATAR;
+              const title = activityText(g.last, me.id);
+              const time = timeAgo(g.last?.ts || Date.now());
+              const unreadLabel = g.unread > 9 ? '9+' : String(g.unread || '');
 
               return (
                 <div
-  key={a.id}
-  className="nb-listitem"
-  role="button"
-  tabIndex={0}
-  onClick={() => onActivityRowClick(a)}
-  onKeyDown={(e) => {
-    if (e.key === 'Enter' || e.key === ' ') onActivityRowClick(a);
-  }}
-  style={{ cursor: 'pointer' }}
->
-                  <div className="nb-listdot" />
-                  <div className="nb-listtext">
-                    <div className="nb-listmain">{activityText(a, me.id)}</div>
-                    <div className="nb-listsub">{timeAgo(a.ts)}</div>
+                  key={g.id}
+                  className={`nb-activity-group${g.remoteUnread ? ' has-unread' : ''}`}
+                  role="group"
+                  tabIndex={0}
+                  onClick={() => openGroupPrimary(g)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') openGroupPrimary(g, e);
+                  }}
+                >
+                  <div className="nb-activity-left">
+                    {g.isRemote ? (
+                      <div className="nb-activity-glyph" aria-hidden="true">{notifGlyph(g.last?.type)}</div>
+                    ) : (
+                    <img
+                      src={avatar}
+                      alt={actor?.name || ''}
+                      className="nb-avatar sm is-loading"
+                      loading="lazy"
+                      onLoad={(ev) => ev.currentTarget.classList.remove('is-loading')}
+                    />
+                    )}
                   </div>
 
-                  {showCta ? (
-                    <button
-                      type="button"
-                      className="nb-btn nb-btn-ghost nb-btn-sm"
-                      onClick={(e) => {
-  e.stopPropagation();
-  openChat(post.id, otherId);
-}}
-                    >
-                      Open chat
-                      {unread > 0 ? (
-                        <span
-                          aria-label={`${unread} unread`}
-                          title={`${unread} unread`}
-                          style={{
-                            marginLeft: 8,
-                            padding: '2px 8px',
-                            borderRadius: 999,
-                            fontSize: 12,
-                            fontWeight: 900,
-                            lineHeight: '16px',
-                            background: 'rgba(255,145,90,.95)',
-                            color: '#111',
-                            border: '1px solid rgba(255,255,255,.12)',
-                          }}
-                        >
-                          {unreadLabel}
-                        </span>
+                  <div className="nb-activity-main">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div className="nb-activity-title" style={{ flex: 1 }}>{g.remoteUnread ? <span className="nb-unread-dot" aria-label="Unread" /> : null}{title}</div>
+                      {!g.isRemote ? (
+                        <div className="nb-activity-token" title={badgeParts(badgeFor(actorPoints)).name}>
+                          {badgeParts(badgeFor(actorPoints)).emoji}
+                        </div>
                       ) : null}
-                    </button>
-                  ) : null}
+                    </div>
+                    <div className="nb-activity-sub">{g.preview}</div>
+                    {g.isRemote && g.postTitle ? (
+                      <div className="nb-activity-postref">on “{g.postTitle}”</div>
+                    ) : null}
+                    <div className="nb-activity-meta">{time} · {g.count} event{g.count>1?'s':''}</div>
+
+                    <div className="nb-activity-footer">
+                      <div className="nb-activity-ctas">
+                        {g.primary?.type !== 'none' && g.primary ? (
+                          <button
+                            type="button"
+                            className={`nb-btn nb-btn-primary nb-btn-sm ${!g.postId && g.primary?.type === 'view' ? 'disabled' : ''}`}
+                            onClick={(e) => {
+                              // prevent no-op if there's no postId
+                              if (g.primary?.type === 'view' && !g.postId) return;
+                              openGroupPrimary(g, e);
+                            }}
+                          >
+                            {g.primary?.type === 'chat' ? 'Open chat' : 'View post'}
+                          </button>
+                        ) : null}
+
+                        {g.unread > 0 ? (
+                          <div className="nb-unread-pill" aria-label={`${g.unread} unread`}>
+                            {unreadLabel}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {/* Quick replies removed from activity list - kept inside chat view instead */}
+                    </div>
+                  </div>
                 </div>
               );
             })}
@@ -7077,6 +8738,33 @@ const [nearText, setNearText] = useState('');
   }
 
   function UserProfileModal({ userId }) {
+    // Server trust record (P2): for real members, helps and
+    // thank-yous come from the server. The local activity array
+    // only knows this device's demo world, and the local NP map
+    // has no server source for other members — so in a server
+    // context those local numbers are not shown at all.
+    const [serverHelps, setServerHelps] = useState(null);
+    const [serverThanks, setServerThanks] = useState([]);
+    useEffect(() => {
+      if (!isAuthenticated || !m2Ready || !userId) return;
+      let live = true;
+      (async () => {
+        try {
+          const { getHelpCount, fetchGratitude } = await import('./m2.js');
+          const [n, g] = await Promise.all([
+            getHelpCount(userId).catch(() => null),
+            fetchGratitude(50).catch(() => []),
+          ]);
+          if (!live) return;
+          if (typeof n === 'number') setServerHelps(n);
+          setServerThanks(
+            (Array.isArray(g) ? g : []).filter((row) => row && row.helper_id === userId).slice(0, 3)
+          );
+        } catch {}
+      })();
+      return () => { live = false; };
+    }, [userId]);
+
     const u = usersById[userId];
     if (!u) return null;
 
@@ -7091,9 +8779,23 @@ const [nearText, setNearText] = useState('');
       ? followsByUser[userId].filter(Boolean).length
       : 0;
 
-    const theirPosts = posts
+    const theirPosts = displayPosts
       .filter((p) => p && p.ownerId === userId)
       .sort((a, b) => b.createdAt - a.createdAt);
+
+    // Highlights info (opt-in + current boost)
+    const highlightInfo = highlightsByUser?.[userId] || {};
+    const isHighlighted = highlightInfo.tempBoostUntil && Date.now() < highlightInfo.tempBoostUntil;
+    const allowHighlights = !!highlightInfo.allowHighlights;
+
+    // compute helps count from activity events (approx)
+    const helpsCount = Array.isArray(activity)
+      ? activity.filter((a) => a && a.type === 'help_confirmed' && a.actorId === userId).length
+      : 0;
+    const displayHelps = isAuthenticated
+      ? (serverHelps !== null ? serverHelps : '…')
+      : helpsCount;
+    const npBalance = npPointsByUser?.[userId] || 0;
 
     return (
       <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
@@ -7114,7 +8816,7 @@ const [nearText, setNearText] = useState('');
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 980, fontSize: 16 }}>
                 {u.name} <span className="nb-handle">{u.handle}</span>
-                <UserBadge userId={u.id} showText />
+                {!isAuthenticated ? <UserBadge userId={u.id} showText /> : null}
               </div>
               <div style={{ marginTop: 4, color: 'var(--muted)', fontWeight: 850 }}>
                 {u.location || ''}
@@ -7157,6 +8859,13 @@ const [nearText, setNearText] = useState('');
           </div>
 
           <div style={{ padding: '0 14px 14px' }}>
+            {/* NP / Followers / Following are local-state numbers with
+                no server source for other members — in a server context
+                this grid would present invented stats (observed live:
+                "NP 0" for a helper with a real server balance). The
+                server trust record below (Helps + thank-yous) is what
+                a real profile shows. */}
+            {!isAuthenticated ? (
             <div
               style={{
                 display: 'grid',
@@ -7212,6 +8921,7 @@ const [nearText, setNearText] = useState('');
                 </div>
               </div>
             </div>
+            ) : null}
 
             <div
               style={{
@@ -7220,12 +8930,70 @@ const [nearText, setNearText] = useState('');
                 paddingTop: 14,
               }}
             >
+              {/* Profile ledger + highlights */}
+              <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                  <div style={{ fontWeight: 900 }}>{u.name}</div>
+                  <div style={{ color: 'var(--muted)', fontSize: 13 }}>Helps: {displayHelps}</div>
+                  {!isAuthenticated ? (
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>NP: {npBalance}</div>
+                  ) : null}
+                  {isHighlighted ? <div className="nb-badge">Highlighted</div> : null}
+                </div>
+
+                {isAuthenticated && serverThanks.length > 0 ? (
+                  <div>
+                    <div style={{ fontWeight: 950, fontSize: 13 }}>Recent thank-yous</div>
+                    {serverThanks.map((g) => (
+                      <div key={g.id} style={{ marginTop: 4, color: 'var(--muted)', fontSize: 13 }}>
+                        {`"${g.message}"`} — {g.thanker?.display_name?.split(' ')[0] || 'A neighbor'}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {isAuthenticated ? (
+                  <div style={{ color: 'var(--muted)', fontSize: 12 }}>
+                    Helps and thank-yous here are recorded by Neighbloom from completed helps —
+                    members can't edit them. Membership starts with an email account; hometowns are
+                    self-declared, and Neighbloom does not check ID.
+                  </div>
+                ) : null}
+
+                {isMe ? (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>Allow public highlights</div>
+                    <button
+                      className={`nb-btn ${allowHighlights ? 'nb-btn-primary' : 'nb-btn-ghost'}`}
+                      onClick={() => setUserHighlightOptIn(userId, !allowHighlights)}
+                    >
+                      {allowHighlights ? 'Enabled' : 'Enable'}
+                    </button>
+                  </div>
+                ) : null}
+
+                {me.id === 'me' && !isMe ? (
+                  <div>
+                    {isHighlighted ? (
+                      <button className="nb-btn nb-btn-ghost" onClick={() => setUserTempBoost(userId, null)}>Remove highlight</button>
+                    ) : (
+                      <button className="nb-btn nb-btn-primary" onClick={() => setUserTempBoost(userId, Date.now() + 1000 * 60 * 60 * 24 * 7)}>Highlight for 7 days (dev)</button>
+                    )}
+                  </div>
+                ) : null}
+              </div>
               <div style={{ fontWeight: 980 }}>Posts</div>
 
               {theirPosts.length === 0 ? (
-                <div className="nb-muted" style={{ marginTop: 10 }}>
-                  No posts yet.
-                </div>
+                <EmptyState
+                  title="No posts here"
+                  body="Be the first to start a thread for this neighbor."
+                  ctaLabel="Create a post"
+                  onCta={() => {
+                    setActiveTab('post');
+                    setPostFlow({ step: 'chooser', kind: null });
+                  }}
+                />
               ) : (
                 <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
                   {theirPosts.map((p) => (
@@ -7246,7 +9014,6 @@ const [nearText, setNearText] = useState('');
           </div>
 
           <div className="nb-modal-foot">
-            <div className="nb-muted">Profiles are local-demo only right now.</div>
             <div className="nb-modal-actions">
               <button className="nb-btn nb-btn-primary" onClick={() => setModal(null)}>
                 Close
@@ -7277,7 +9044,13 @@ const [nearText, setNearText] = useState('');
         return { u, v, on: isAvailabilityActive(v) };
       })
       .filter((x) => x?.u?.id && x.on && x.u.id !== meId)
-      .sort((a, b) => (Number(b?.v?.ts || 0) - Number(a?.v?.ts || 0)));
+      .sort((a, b) => {
+        // prefer highlighted users (temporary boost)
+        const ah = highlightsByUser?.[a.u?.id]?.tempBoostUntil && Date.now() < highlightsByUser[a.u.id].tempBoostUntil ? 1 : 0;
+        const bh = highlightsByUser?.[b.u?.id]?.tempBoostUntil && Date.now() < highlightsByUser[b.u.id].tempBoostUntil ? 1 : 0;
+        if (ah !== bh) return bh - ah; // highlighted first
+        return Number(b?.v?.ts || 0) - Number(a?.v?.ts || 0);
+      });
   }, [users, meId, tick]);
 
   return (
@@ -7345,7 +9118,174 @@ const [nearText, setNearText] = useState('');
   );
 }
 
+  // --- Completion photo helper UI (inline modal-like small component) ---
+  function CompletionPhotoForm({ postId, onSave }) {
+    const post = posts.find((p) => p && p.id === postId) || {};
+    const [preview, setPreview] = useState(post?.completionPhoto || '');
+    const [meta, setMeta] = useState(post?.completionPhotoMeta || null);
+    const [err, setErr] = useState('');
+
+    async function handleFile(f) {
+      setErr('');
+      if (!f) return;
+      // prefer camera capture on mobile
+      try {
+        // quick recency check
+        const now = Date.now();
+        if (f.lastModified && Math.abs(now - f.lastModified) > 1000 * 60 * 60 * 48) {
+          // older than 48h
+          setErr('Please take a recent photo (within 48 hours).');
+        }
+
+        const out = await compressImageFileToDataUrl(f, { maxDim: 1600, quality: 0.82 });
+        // basic heuristic: resolution
+        const img = new Image();
+        img.src = out.dataUrl;
+        await new Promise((res) => { img.onload = res; img.onerror = res; });
+        if (img.width < 320 || img.height < 240) {
+          setErr('Photo too small. Take a clearer picture.');
+        }
+
+        // variance check: draw small canvas to sample pixels
+        try {
+          const c = document.createElement('canvas');
+          c.width = Math.min(64, img.width);
+          c.height = Math.min(64, img.height);
+          const ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, 0, c.width, c.height);
+          const data = ctx.getImageData(0, 0, c.width, c.height).data;
+          let sum = 0, sumsq = 0, cnt = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            const lum = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
+            sum += lum; sumsq += lum*lum; cnt++;
+          }
+          const mean = sum / cnt; const variance = Math.max(0, sumsq / cnt - mean*mean);
+          if (variance < 30) {
+            setErr('Photo looks too uniform — please capture the scene (include the helper or vehicle).');
+          }
+        } catch (e) {}
+
+        // accept
+        setPreview(out.dataUrl || '');
+        const metaObj = { name: f.name, lastModified: f.lastModified || Date.now(), size: f.size || 0 };
+        setMeta(metaObj);
+        // persist into posts state (helper uploaded proof; not yet owner-approved)
+        setPosts((prev) => prev.map((p) => (p && p.id === postId ? { ...p, completionPhoto: out.dataUrl, completionPhotoMeta: metaObj, completionPhotoApproved: false } : p)));
+        onSave && onSave(out.dataUrl, metaObj, false);
+      } catch (e) {
+        setErr('Could not process that photo.');
+      }
+    }
+
+    return (
+      <div style={{ marginTop: 8 }}>
+        <div className="nb-label">Completion photo (optional but recommended)</div>
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={(e) => handleFile(e.target.files?.[0])}
+          style={{ marginTop: 8 }}
+        />
+        {err ? <div className="nb-error" style={{ marginTop: 8 }}>{err}</div> : null}
+        {preview ? (
+          <div style={{ marginTop: 8 }}>
+            <img src={preview} alt="preview" style={{ width: '100%', maxWidth: 320, borderRadius: 10 }} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button className="nb-btn nb-btn-ghost" onClick={() => { setPreview(''); setMeta(null); setPosts((prev) => prev.map((p) => (p && p.id === postId ? { ...p, completionPhoto: null, completionPhotoMeta: null, completionPhotoApproved: false } : p))); onSave && onSave(null, null, false); }}>Remove</button>
+              <button className="nb-btn nb-btn-primary" onClick={() => { setPosts((prev) => prev.map((p) => (p && p.id === postId ? { ...p, completionPhotoApproved: true } : p))); onSave && onSave(preview, meta, true); }}>Save & mark ready</button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  function EditProfileModal() {
+    const { profile: prof, updateProfile } = useAuth();
+    // Keep in sync with TOWN_OPTIONS in Welcome.jsx (duplicated to
+    // preserve Welcome's lazy code-split).
+    const EDIT_TOWNS = [
+      'Worth', 'Palos Hills', 'Palos Heights', 'Palos Park', 'Hickory Hills',
+      'Oak Lawn', 'Orland Park', 'Orland Hills', 'Tinley Park', 'Homer Glen',
+      'Lemont', 'Lockport', 'New Lenox', 'Mokena', 'Frankfort',
+    ];
+    const currentTown = prof?.town || '';
+    const townInList = EDIT_TOWNS.includes(currentTown);
+    const [name, setName] = useState(prof?.display_name || '');
+    const [townSel, setTownSel] = useState(currentTown ? (townInList ? currentTown : '__other') : '');
+    const [customTown, setCustomTown] = useState(townInList ? '' : currentTown);
+    const [intro, setIntro] = useState(prof?.intro || '');
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+
+    const chosenTown = townSel === '__other' ? customTown.trim() : townSel;
+
+    async function save() {
+      if (busy) return;
+      const cleanName = name.trim();
+      if (!cleanName) { setErr("Your name can't be empty — neighbors should know who you are."); return; }
+      if (cleanName.length > 60) { setErr('That name is a bit long — 60 characters max.'); return; }
+      if (!chosenTown) { setErr('Pick your town so neighbors near you can find you.'); return; }
+      if (intro.trim().length > 200) { setErr('Intros are 200 characters max — keep it short and neighborly.'); return; }
+      setBusy(true);
+      setErr('');
+      try {
+        // Intro writes through m2 (updateProfile's allowlist excludes
+        // intro by design). Name/town go through updateProfile last:
+        // its re-read refreshes the whole profile in the UI.
+        if (intro.trim() !== (prof?.intro || '')) {
+          const { updateIntro } = await import('./m2.js');
+          await updateIntro({ intro: intro.trim() });
+        }
+        await updateProfile({ display_name: cleanName, town: chosenTown });
+        setModal(null);
+        showToast('Profile saved');
+      } catch (e) {
+        setErr(e?.message || 'Could not save — try again.');
+        setBusy(false);
+      }
+    }
+
+    return (
+      <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
+        <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="nb-modal-head">
+            <div className="nb-modal-title">Edit profile</div>
+            <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">✕</button>
+          </div>
+
+          <div className="nb-label" style={{ marginTop: 12 }}>Your name</div>
+          <input className="nb-input" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="e.g. Rosa Martinez" autoComplete="name" />
+
+          <div className="nb-label" style={{ marginTop: 14 }}>Your town</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {EDIT_TOWNS.map((t) => (
+              <button key={t} type="button" className={`nb-chip ${townSel === t ? 'is-active' : ''}`} onClick={() => setTownSel(t)}>{t}</button>
+            ))}
+            <button type="button" className={`nb-chip ${townSel === '__other' ? 'is-active' : ''}`} onClick={() => setTownSel('__other')}>Another town</button>
+          </div>
+          {townSel === '__other' ? (
+            <input className="nb-input" style={{ marginTop: 10 }} value={customTown} onChange={(e) => setCustomTown(e.target.value)} maxLength={60} placeholder="Your town" autoComplete="address-level2" />
+          ) : null}
+
+          <div className="nb-label" style={{ marginTop: 14 }}>Say hello</div>
+          <textarea className="nb-input" rows={3} value={intro} onChange={(e) => setIntro(e.target.value)} maxLength={200} placeholder="A line or two so neighbors know who's nearby — what you love here, what you're handy with." />
+          <div className="nb-muted" style={{ fontSize: 12, marginTop: 4 }}>{intro.length}/200 · This is what neighbors see when they meet you.</div>
+
+          {err ? <div className="nb-error" style={{ marginTop: 10 }}>{err}</div> : null}
+
+          <div className="nb-formactions" style={{ marginTop: 14 }}>
+            <button className="nb-btn nb-btn-ghost" onClick={() => setModal(null)} disabled={busy}>Cancel</button>
+            <button className="nb-btn nb-btn-primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save profile'}</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function ProfileTab() {
+    const scrollRef = useRef(null);
     const myFollowers = Array.isArray(followersByUser?.[me.id])
       ? followersByUser[me.id].length
       : 0;
@@ -7354,116 +9294,210 @@ const [nearText, setNearText] = useState('');
       ? followsByUser[me.id].filter(Boolean).length
       : 0;
 
-    const discover = USERS_SEED.filter((u) => u.id !== me.id && !isBlockedUser(u.id));
+    // Authenticated users never see demo people: discovery opens
+    // with the real launch cohort, not the seed directory.
+    const discover = isAuthenticated ? [] : USERS_SEED.filter((u) => u.id !== me.id && !isBlockedUser(u.id));
 
     return (
       <div className="nb-page nb-scroll" ref={scrollRef}>
-        <div className="nb-ptr-slot" style={{ height: pull }}>
-  <div className="nb-ptr-label">
-    {refreshing ? (
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-        <span className="nb-spinner" aria-hidden="true" />
-        Refreshing…
-      </span>
-    ) : pull >= threshold ? (
-      'Release to refresh'
-    ) : (
-      'Pull to refresh'
-    )}
-  </div>
-</div>
-        <div className="nb-section">
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <img className="nb-avatar" src={me.avatar} alt={me.name} />
+        <div className="nb-section nb-profile-hero">
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <div style={{ flex: '0 0 auto' }}>
+              <img src={me.avatar} alt={me.name} style={{ width: 120, height: 120, borderRadius: 16, objectFit: 'cover', border: '2px solid var(--gold)', padding: 2 }} />
+            </div>
+
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 980, fontSize: 18 }}>
-                {me.name} <span className="nb-handle">{me.handle}</span>
-                <UserBadge userId={me.id} showText />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 980, fontSize: 20 }}>
+                <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{me.name}</div>
+                <div className="nb-handle">{me.handle}</div>
+                <div style={{ marginLeft: 6, fontSize: 18 }}>🌱</div>
               </div>
-              <div style={{ marginTop: 4, color: 'var(--muted)', fontWeight: 850 }}>
-                {me.location || ''}
+              <div style={{ marginTop: 6, color: 'var(--muted)', fontWeight: 850 }}>{me.location || 'Worth'}</div>
+              {isAuthenticated ? (
+                authProfile?.intro ? (
+                  <div style={{ marginTop: 8, fontWeight: 850 }}>{authProfile.intro}</div>
+                ) : (
+                  <button type="button" onClick={() => setModal({ type: 'edit_profile' })} style={{ marginTop: 8, padding: 0, background: 'none', border: 'none', color: 'var(--muted)', fontWeight: 850, fontSize: 14, cursor: 'pointer', textAlign: 'left' }}>
+                    Say hello to your neighbors →
+                  </button>
+                )
+              ) : (
+                <div style={{ marginTop: 8, fontWeight: 850 }}>{me.tagline || 'Little missions, big city.'}</div>
+              )}
+              <div style={{ marginTop: 6, color: 'var(--muted)', fontWeight: 800, fontSize: 13 }}>
+                {(() => {
+                  try {
+                    const real = isAuthenticated && authProfile?.created_at ? new Date(authProfile.created_at) : null;
+                    if (real && !isNaN(real)) {
+                      return `Joined ${real.toLocaleString('default', { month: 'short' })} ${real.getFullYear()}`;
+                    }
+                    const d = new Date(); d.setMonth(d.getMonth() - 1); // demo fallback only
+                    return `Joined ${d.toLocaleString('default', { month: 'short' })} ${d.getFullYear()}`;
+                  } catch { return ''; }
+                })()}
               </div>
-              {me.tagline ? (
-                <div style={{ marginTop: 8, fontWeight: 850 }}>{me.tagline}</div>
-              ) : null}
+
+              <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {isAuthenticated && (
+                  <button className="nb-btn nb-btn-ghost" onClick={() => setModal({ type: 'edit_profile' })}>Edit profile</button>
+                )}
+                <button className="nb-btn nb-btn-ghost" onClick={() => setModal({ type: 'badges' })}>View badges & points</button>
+                {!isAuthenticated && (
+                  <button className="nb-btn nb-btn-ghost" onClick={() => { resetDemoData(); showToast('Demo data reset'); }}>Reset demo data</button>
+                )}
+                {isAuthenticated && (
+                  <button
+                    className="nb-btn nb-btn-ghost"
+                    onClick={async () => {
+                      const ok = window.confirm('Log out of Neighbloom?');
+                      if (!ok) return;
+                      try { await signOut(); } catch (e) {
+                        console.error('[Auth] Sign out failed:', e.message);
+                      }
+                    }}
+                  >
+                    Log out
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
-          <div
-            style={{
-              marginTop: 14,
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 10,
-            }}
-          >
-            <div
-              style={{
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                padding: 12,
-                background: 'rgba(255,255,255,.03)',
-              }}
-            >
-              <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
-                NP
-              </div>
-              <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
-                {npPoints}
-              </div>
-            </div>
+          {/* Trust signals — only claims backed by real data.
+              (Removed 'ID verified', 'Trusted by neighbors', and
+              'Responsive': no system verifies any of them, and an
+              unearned badge is a lie told in the product's voice.) */}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 980, fontSize: 15 }}>Trust</div>
+            <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 6 }}>
+              {(authProfile?.town || (!isAuthenticated && me?.location)) ? (
+                <li style={{ display: 'flex', gap: 8, alignItems: 'center' }}>🏡 {authProfile?.town || me.location} neighbor</li>
+              ) : null}
+              {impactHelpCount > 0 ? (
+                <li style={{ display: 'flex', gap: 8, alignItems: 'center' }}>🤝 Helped {impactHelpCount} neighbor{impactHelpCount === 1 ? '' : 's'}</li>
+              ) : null}
+              {(authProfile?.intro && authProfile.intro.trim()) ? (
+                <li style={{ display: 'flex', gap: 8, alignItems: 'center' }}>✍️ Introduced themselves to the neighborhood</li>
+              ) : null}
+              {!authProfile?.town && impactHelpCount === 0 && !(authProfile?.intro && authProfile.intro.trim()) ? (
+                <li style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--muted)' }}>New here — trust grows as you help and get helped.</li>
+              ) : null}
+            </ul>
+          </div>
 
-            <div
-              style={{
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                padding: 12,
-                background: 'rgba(255,255,255,.03)',
-              }}
-            >
-              <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
-                Helpful
+          {/* Design pass (2026-10-13): one participation story +
+              the NP record, replacing the zeros-first two-card
+              grid. Counts are real: server help count, own posts
+              in the merged feed, own gratitude from the public
+              record. A brand-new member gets a starter line, not
+              a row of zeros. The NP progress (ex-header) and the
+              daily check-in (ex-hero) live here now. */}
+          {(() => {
+            const pts = npPoints;
+            const curBadge = BADGES.slice().reverse().find((b) => pts >= b.min) || BADGES[0];
+            const nxtBadge = BADGES.find((b) => pts < b.min) || null;
+            const prevMin = curBadge.min;
+            const nextMin = nxtBadge ? nxtBadge.min : prevMin;
+            const denom = nxtBadge ? Math.max(1, nextMin - prevMin) : 1;
+            const prog = nxtBadge ? Math.min(1, (pts - prevMin) / denom) : 1;
+            const toNext = nxtBadge ? Math.max(0, nextMin - pts) : 0;
+            const nxtParts = nxtBadge ? badgeParts(nxtBadge.name) : { emoji: '', name: '' };
+            const ci = getCheckInFor(me.id);
+            const checkedToday = ci.lastDate === todayKey();
+            const storyBits = [];
+            if (impactHelpCount > 0) storyBits.push(`🤝 Helped ${impactHelpCount} neighbor${impactHelpCount === 1 ? '' : 's'}`);
+            if (myPostCount > 0) storyBits.push(`📣 Posted ${myPostCount} request${myPostCount === 1 ? '' : 's'} & recommendations`);
+            if (myGratitude.received > 0) storyBits.push(`💛 Received ${myGratitude.received} thank-you${myGratitude.received === 1 ? '' : 's'}`);
+            if (myGratitude.sent > 0) storyBits.push(`🙏 Thanked ${myGratitude.sent} neighbor${myGratitude.sent === 1 ? '' : 's'}`);
+            return (
+              <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 12, padding: 14, background: 'rgba(255,255,255,.02)' }}>
+                <div style={{ fontWeight: 950 }}>Your story in {authProfile?.town || me.location || 'the neighborhood'}</div>
+                {storyBits.length > 0 ? (
+                  <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 6 }}>
+                    {storyBits.map((b) => (
+                      <li key={b} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>{b}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div style={{ marginTop: 8, color: 'var(--muted)' }}>
+                    Your story starts with your first ask or offer — it takes about a minute.
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setModal({ type: 'points' })}
+                  aria-label={`Neighbor Points ${pts} points`}
+                  style={{ marginTop: 12, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <span style={{ fontWeight: 980, fontSize: 16 }}>{pts} NP</span>
+                    <span style={{ color: 'var(--muted)', fontSize: 13 }}>
+                      {nxtBadge ? `${toNext} more to unlock ${nxtParts.emoji} ${nxtParts.name}` : 'Top tier reached'}
+                    </span>
+                  </div>
+                  <div className="nb-np-progress" aria-hidden="true" style={{ marginTop: 6 }}>
+                    <div className="nb-np-progress-inner" style={{ width: `${Math.round(prog * 100)}%` }} />
+                  </div>
+                </button>
+                <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--muted)', fontSize: 13 }}>
+                    {ci.streak > 0 ? `${ci.streak}-day check-in streak 🔥` : 'No check-in streak yet'}
+                  </span>
+                  <button
+                    type="button"
+                    className="nb-btn nb-btn-ghost nb-btn-sm"
+                    onClick={() => dailyCheckIn()}
+                    disabled={checkedToday}
+                    title={checkedToday ? 'Come back tomorrow' : 'Claim your daily NP'}
+                  >
+                    {checkedToday ? 'Checked in ✅' : 'Daily check-in (+5 NP)'}
+                  </button>
+                </div>
               </div>
-              <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
-                {helpfulRepliesCount}
-              </div>
-            </div>
+            );
+          })()}
 
-            <div
-              style={{
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                padding: 12,
-                background: 'rgba(255,255,255,.03)',
-              }}
-            >
-              <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
-                Followers
-              </div>
-              <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
-                {myFollowers}
-              </div>
-            </div>
-
-            <div
-              style={{
-                border: '1px solid var(--border)',
-                borderRadius: 14,
-                padding: 12,
-                background: 'rgba(255,255,255,.03)',
-              }}
-            >
-              <div style={{ color: 'var(--muted)', fontWeight: 850, fontSize: 12 }}>
-                Following
-              </div>
-              <div style={{ marginTop: 6, fontWeight: 980, fontSize: 16 }}>
-                {myFollowing}
-              </div>
+          {/* Recent activity */}
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 980, fontSize: 15 }}>Recent activity</div>
+            <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
+              {(() => {
+                const list = [];
+                // recent posts (merged feed — includes my server posts)
+                for (const p of (displayPosts || []).slice().reverse()) {
+                  if (p.ownerId === me.id) list.push({ text: `Posted: ${p.title || p.kind}`, ts: p.createdAt });
+                }
+                // activity entries (local events I caused). NOTE:
+                // local entries carry their message in `text` — the
+                // old chain never checked it, so text-only entries
+                // rendered as the literal word "Activity".
+                for (const a of (activity || []).slice().reverse()) {
+                  if (a && a.actorId === me.id) list.push({ text: a.title || a.text || a.body || a.action || a.label || a.msg || 'Update', ts: a.activityTs || a.ts || 0 });
+                }
+                // my server notifications (merged into activity with
+                // remoteId set; their actorId is null so the loop
+                // above skips them)
+                if (isAuthenticated) {
+                  for (const a of (activity || []).slice().reverse()) {
+                    // Server items carry text as "Title — body"; the
+                    // profile line shows the title segment.
+                    if (a && a.remoteId) list.push({ text: a.title || (a.text ? String(a.text).split(' — ')[0] : 'Update'), ts: a.activityTs || a.ts || 0 });
+                  }
+                }
+                list.sort((x, y) => (y.ts || 0) - (x.ts || 0));
+                // limit
+                const out = list.slice(0, 5);
+                if (out.length === 0) return <div style={{ color: 'var(--muted)' }}>No recent activity</div>;
+                return out.map((it, idx) => (
+                  <div key={idx} style={{ color: 'var(--text)', fontWeight: 850 }}>• {it.text} - {timeAgo(it.ts)}</div>
+                ));
+              })()}
             </div>
           </div>
         </div>
 
-        {/* Demo user switcher (optional but useful for testing) */}
+        {/* Demo user switcher — hidden for authenticated users (real identity only) */}
+        {!isAuthenticated && (
         <div className="nb-section">
           <div className="nb-section-title">Demo user</div>
           <div className="nb-section-sub">
@@ -7483,12 +9517,18 @@ const [nearText, setNearText] = useState('');
             ))}
           </select>
         </div>
+        )}
 
         <div className="nb-section">
           <div className="nb-section-title">Discover neighbors</div>
           <div className="nb-section-sub">
-            Follow someone to enable the “Following” feed filter.
+            {isAuthenticated ? 'Your town’s neighbors, as they join.' : 'Follow someone to enable the “Following” feed filter.'}
           </div>
+          {isAuthenticated ? (
+            <div style={{ color: 'var(--muted)', fontWeight: 850, marginBottom: 10 }}>
+              Real neighbor discovery opens with the Worth launch cohort. For now, you’ll meet neighbors through their posts and replies.
+            </div>
+          ) : null}
 
           <div style={{ display: 'grid', gap: 10 }}>
             {discover.map((u) => {
@@ -7510,7 +9550,10 @@ const [nearText, setNearText] = useState('');
                     className="nb-avatar sm"
                     src={u.avatar}
                     alt={u.name}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setModal({ type: 'user_profile', userId: u.id })}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ type: 'user_profile', userId: u.id }); } }}
                     style={{ cursor: 'pointer' }}
                     title="View profile"
                   />
@@ -7544,7 +9587,15 @@ const [nearText, setNearText] = useState('');
           </div>
 
           {myPosts.length === 0 ? (
-            <div className="nb-muted">No posts yet.</div>
+            <EmptyState
+              title="You haven't posted yet"
+              body="Share a local question or request to get responses."
+              ctaLabel="Create a post"
+              onCta={() => {
+                setActiveTab('post');
+                setPostFlow({ step: 'chooser', kind: null });
+              }}
+            />
           ) : (
             <div style={{ display: 'grid', gap: 8 }}>
               {myPosts.map((p) => (
@@ -7573,12 +9624,144 @@ const blockedSet = getBlockedSet(me.id);
     if (!p) return false;
     if (blockedSet.has(p.ownerId)) return false;
 
-    // hide archived by default (only show when "All" is toggled on)
-    const lc = inferLifecycle(p);
-    if (!homeShowAll && lc === 'archived') return false;
+    // Hide cancelled posts (and legacy locally-archived ones) by
+    // default; the "All" toggle shows everything.
+    const isCancelled = p.stage === 'cancelled' || p.status === 'cancelled';
+    const legacyArchived = p.lifecycle === 'archived' || p.status === 'archived';
+    if (!homeShowAll && (isCancelled || legacyArchived)) return false;
 
     return true;
   });
+  
+  function CompletionPhotoForm({ postId }) {
+    const [preview, setPreview] = useState(null);
+    const [loadingPhoto, setLoadingPhoto] = useState(false);
+
+    async function onPick(file) {
+      if (!file) return;
+      setLoadingPhoto(true);
+      try {
+        const { dataUrl } = await compressImageFileToDataUrl(file);
+        setPreview(dataUrl);
+      } catch (e) {
+        showToast('Couldn’t process that photo.');
+      } finally {
+        setLoadingPhoto(false);
+      }
+    }
+
+    return (
+      <div style={{ display: 'grid', gap: 10 }}>
+        {preview ? (
+          <img src={preview} alt="Preview" style={{ width: '100%', borderRadius: 12 }} />
+        ) : null}
+
+        <input
+          id="nb-completion-photo"
+          type="file"
+          accept="image/*"
+          style={{ display: 'block' }}
+          onChange={(e) => onPick(e.target.files && e.target.files[0])}
+        />
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            className="nb-btn nb-btn-primary"
+            disabled={loadingPhoto || !preview}
+            onClick={() => {
+              if (!preview) return;
+              // attach photo to post and mark done (demo posts only —
+              // this form no longer renders for server posts)
+              setPosts((prev) =>
+                (prev || []).map((p) => (p && p.id === postId ? { ...p, completionPhoto: preview } : p))
+              );
+              doTransition(postId, 'done');
+              setModal(null);
+            }}
+          >
+            Attach & mark Done
+          </button>
+
+          <button
+            className="nb-btn nb-btn-ghost"
+            onClick={() => {
+              // allow retry: clear preview
+              setPreview(null);
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+    );
+  }
+  // Auth gate (Milestone 1): show AuthScreen if Supabase configured but not authenticated
+  // Public post view remains accessible without auth (shareable links)
+  //
+  // PRODUCTION SAFETY: Demo mode (no Supabase) is only allowed in development.
+  // A production build without Supabase configuration shows an error, never demo data.
+  const isProd = import.meta.env.PROD;
+  if (!authConfigured && isProd && !publicViewPostId) {
+    return (
+      <div className="nb-auth-screen" style={{
+        minHeight: '100dvh', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', padding: 24,
+        background: '#031628', color: '#fff',
+      }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+        <h1 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Configuration Error</h1>
+        <p style={{ opacity: 0.7, textAlign: 'center', maxWidth: 320 }}>
+          This application requires Supabase configuration. Demo mode is not available in production.
+        </p>
+      </div>
+    );
+  }
+
+  // While the session restores, show a neutral splash — rendering
+  // the app shell here briefly flashed the demo identity (name,
+  // avatar, NP) before the real user settled.
+  if (authConfigured && authLoading) {
+    return (
+      <div className="nb-auth-screen" style={{
+        minHeight: '100dvh', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', padding: 24,
+        background: '#031628', color: '#fff',
+      }}>
+        <div style={{ fontWeight: 980, fontSize: 28 }}>Neighbloom</div>
+        <div style={{ marginTop: 10, opacity: 0.7, fontWeight: 700 }}>Loading your neighborhood…</div>
+      </div>
+    );
+  }
+
+  // Password-recovery landing: the email link creates a session, so
+  // this gate must precede the app shell or the reset form never shows.
+  if (authConfigured && authRecovery) {
+    return <PasswordResetScreen />;
+  }
+
+  if (authConfigured && !authLoading && !isAuthenticated && !publicViewPostId) {
+    return <AuthScreen />;
+  }
+
+  if (publicViewPostId) {
+    const p = (posts || []).find((x) => x && x.id === publicViewPostId);
+    return (
+      <div className="nb-app">
+        <Header />
+        <div className="nb-content nb-page-post">
+          <div style={{ maxWidth: 840, margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontWeight: 980, fontSize: 18 }}>{p?.title || 'Post'}</div>
+              <div>
+                <button className="nb-btn nb-btn-ghost" onClick={() => { history.back(); }}>Back</button>
+              </div>
+            </div>
+            {p ? <PostCard post={p} /> : <div className="nb-empty">Post not found</div>}
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="nb-app">
       <Header />
@@ -7588,11 +9771,35 @@ const blockedSet = getBlockedSet(me.id);
         </div>
       ) : null}
 
+      {updateReady ? (
+        <div
+          role="status"
+          style={{
+            position: 'fixed', left: 12, right: 12, bottom: 86, zIndex: 1200,
+            display: 'flex', alignItems: 'center', gap: 10,
+            background: '#123524', color: '#eaf5ec', border: '1px solid rgba(255,255,255,.18)',
+            borderRadius: 14, padding: '10px 12px', boxShadow: '0 10px 30px rgba(0,0,0,.35)',
+          }}
+        >
+          <span style={{ flex: 1, fontWeight: 750, fontSize: 14 }}>A fresher Neighbloom is ready.</span>
+          <button type="button" className="nb-btn nb-btn-primary nb-btn-sm" onClick={() => window.location.reload()}>
+            Refresh
+          </button>
+          <button type="button" className="nb-x" aria-label="Dismiss" onClick={() => setUpdateDismissed(true)} style={{ color: '#eaf5ec' }}>
+            ✕
+          </button>
+        </div>
+      ) : null}
+
       {activeTab === 'home' ? (
   <HomeScreen
-    Hero={HomeHero}
+    Hero={SmartHero}
+    kindness={gratitudeItems}
+    away={{ asks: awayAsks, updates: activityNewCount }}
     Chips={Chips}
     EmptyState={EmptyState}
+    SparseTownPanel={SparseTownPanel}
+    isSparseTown={isAuthenticated && displayPosts.length === 0}
     PostCard={PostCard}
     homeChip={homeChip}
     refreshing={homeRefreshing}
@@ -7628,36 +9835,25 @@ onRefresh={refreshHome}
 ) : activeTab === 'activity' ? (
   <ActivityTab />
 ) : (
-  <ProfileScreen />
+  <ProfileTab />
 )}
 
 
-      <BottomTabs
-        activeTab={activeTab}
-        onChange={(k) => {
-          setActiveTab(k);
-          try {
-  if (typeof markSeen === 'function') markSeen(me.id, k);
-} catch (e) {
-  // swallow in demo mode so tab switching never breaks
-}
-        }}
-        badges={tabBadges}
-      />
+      <BottomTabs />
 
       {/* Drawers / overlays */}
       {chat ? <ChatDrawer /> : null}
 
       {/* Modals (modal state) */}
       {modal?.type === 'edit_post' ? (
-        <EditPostModal postId={modal.postId} />
+        <EditPostModal key={modal.postId} postId={modal.postId} />
       ) : null}
       {modal?.type === 'reply' ? (
-        <ReplyModal postId={modal.postId} mode={modal.mode} />
+        <ReplyModal key={`${modal.postId}:${modal.mode || ''}`} postId={modal.postId} mode={modal.mode} />
       ) : null}
 
       {modal?.type === 'points' ? <PointsModal /> : null}
-      {modal?.type === 'onboarding' ? <OnboardingModal /> : null}
+      {modal?.type === 'edit_profile' ? <EditProfileModal /> : null}
 
       {modal?.type === 'home_setup' ? <HomeSetupModal /> : null}
 
@@ -7681,63 +9877,208 @@ onRefresh={refreshHome}
   />
 ) : null}
 
+      {modal?.type === 'completion_photo' ? (
+        <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
+          <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="nb-modal-head">
+              <div className="nb-modal-title">Mark this help as done?</div>
+              <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">✕</button>
+            </div>
+
+            {(() => {
+              const targetPost = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p && p.id === modal.postId) || posts.find((p) => p && p.id === modal.postId);
+              if (targetPost?._supabase) {
+                // Real posts: completion photos have no server storage
+                // yet, so do not offer one. Marking done goes through
+                // the server lifecycle (owner-only RPC).
+                return (
+                  <>
+                    <div style={{ padding: 14 }}>
+                      <div className="nb-muted" style={{ fontWeight: 850 }}>
+                        This tells your helpers the work is done. Next you’ll confirm, award Neighbloom Points, and send thanks. (Completion photos aren’t saved for real posts yet.)
+                      </div>
+                    </div>
+                    <div className="nb-modal-foot">
+                      <div className="nb-modal-actions">
+                        <button className="nb-btn nb-btn-ghost" onClick={() => setModal(null)}>
+                          Not yet
+                        </button>
+                        <button className="nb-btn nb-btn-primary" onClick={() => { doTransition(modal.postId, 'done'); setModal(null); }}>
+                          Mark done
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                );
+              }
+              return (
+                <>
+                  <div style={{ padding: 14 }}>
+                    <div className="nb-muted" style={{ marginBottom: 8, fontWeight: 850 }}>
+                      Optionally attach a photo showing the completed work (helps the requester verify).
+                    </div>
+
+                    <CompletionPhotoForm postId={modal.postId} />
+                  </div>
+
+                  <div className="nb-modal-foot">
+                    <div className="nb-muted">You can skip and mark the job done without a photo.</div>
+                    <div className="nb-modal-actions">
+                      <button className="nb-btn nb-btn-ghost" onClick={() => { doTransition(modal.postId, 'done'); setModal(null); }}>
+                        Skip & mark Done
+                      </button>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      ) : null}
+
+      {youOfferedOpen ? <YouOfferedPanel /> : null}
+
+      {modal?.type === 'confirm_award' ? (
+        <div className="nb-modal-backdrop" onClick={() => setModal(null)}>
+          <div className="nb-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="nb-modal-head">
+              <div className="nb-modal-title">Confirm award</div>
+              <button className="nb-x" onClick={() => setModal(null)} aria-label="Close">✕</button>
+            </div>
+
+            <div style={{ padding: 14 }}>
+              <div className="nb-muted" style={{ marginBottom: 8, fontWeight: 850 }}>
+                Are you sure you want to award +20 NP to the selected helper(s)? This will mark the post resolved.
+              </div>
+
+              {(() => {
+                const post = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p && p.id === modal.postId) || posts.find((p) => p && p.id === modal.postId);
+                if (!post) return null;
+                const names = (modal.helperIds || [])
+                  .map((id) => usersById[id]?.name || 'Helper')
+                  .filter(Boolean)
+                  .join(', ');
+                return (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    <div style={{ fontWeight: 950 }}>To: {names || 'Selected helpers'}</div>
+                    {post.completionPhoto ? (
+                      <div>
+                        <div style={{ fontWeight: 850, marginBottom: 6 }}>Attached photo</div>
+                        <img src={post.completionPhoto} alt="completion" style={{ width: '100%', maxWidth: 360, borderRadius: 8 }} />
+                      </div>
+                    ) : (
+                      <div className="nb-muted">No completion photo attached.</div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="nb-modal-foot">
+              <div className="nb-modal-actions">
+                <button
+                  className="nb-btn nb-btn-primary"
+                  onClick={() => {
+                    const pid = modal.postId;
+                    const helpers = modal.helperIds || [];
+                    // Close the confirm modal first so confetti is visible on the main screen
+                    setModal(null);
+                    setTimeout(() => {
+                      awardHelpers(pid, helpers);
+                    }, 100);
+                  }}
+                >
+                  Confirm and award
+                </button>
+
+                <button className="nb-btn nb-btn-ghost" onClick={() => setModal(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* award_guard modal removed: confirm_award now proceeds directly to awarding */}
+
       {/* Recommendation thread modal (separate state) */}
       {thread ? <RecThreadModal postId={thread.postId} replyId={thread.replyId} /> : null}
-    </div>
-  );
-}
-
-function BottomTabs({ activeTab, onChange, badges }) {
-  const tabs = [
-    { key: 'home', label: 'Home', icon: '🏠' },
-    { key: 'post', label: 'Post', icon: '➕' },
-    { key: 'activity', label: 'Activity', icon: '🔔' },
-    { key: 'profile', label: 'Profile', icon: '👤' },
-  ];
-
-  return (
-    <nav className="nb-bottomtabs" role="navigation" aria-label="Bottom Tabs">
-      {tabs.map((t) => {
-        const isActive = activeTab === t.key;
-        return (
-          <button
-            key={t.key}
-            type="button"
-            className={`nb-bottomtab ${isActive ? 'active' : ''}`}
-            onClick={() => onChange(t.key)}
-            aria-current={isActive ? 'page' : undefined}
+        {/* Share modal (mobile-first) */}
+        {shareModalOpen && shareTargetPost ? (
+          <div
+            className="nb-modal-backdrop"
+            onClick={() => {
+              setShareModalOpen(false);
+              setShareTargetPost(null);
+            }}
           >
-            <span className="nb-bottomtab-ico" aria-hidden="true">
-              {t.icon}
-            </span>
-            <span className="nb-bottomtab-label">{t.label}</span>
-            {badges && badges[t.key] > 0 ? (
-              <span
-                aria-label={`${badges[t.key]} new`}
-                title={`${badges[t.key]} new`}
-                style={{
-                  marginLeft: 6,
-                  minWidth: 18,
-                  height: 18,
-                  padding: '0 6px',
-                  borderRadius: 999,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 12,
-                  fontWeight: 950,
-                  background: 'rgba(255,145,90,.95)',
-                  color: '#111',
-                  border: '1px solid rgba(255,255,255,.12)',
-                }}
-              >
-                {badges[t.key] > 9 ? '9+' : badges[t.key]}
-              </span>
-            ) : null}
-          </button>
-        );
-      })}
-    </nav>
+            <div className="nb-modal" ref={shareModalRef} onClick={(e) => e.stopPropagation()}>
+              <div className="nb-modal-head">
+                <div className="nb-modal-title">Share post</div>
+                <button
+                  className="nb-x"
+                  onClick={() => {
+                    setShareModalOpen(false);
+                    setShareTargetPost(null);
+                  }}
+                  aria-label="Close"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div style={{ padding: 14 }}>
+                <div style={{ fontWeight: 900, marginBottom: 8 }}>
+                  {shareTargetPost.title || 'Post'}
+                </div>
+                <div className="nb-muted" style={{ marginBottom: 14 }}>
+                  Share this post with your neighbors.
+                </div>
+
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {/* Button ordering may be A/B tested via localStorage flag */}
+                  {(() => {
+                    const variant = localStorage.getItem('nb_share_variant') || (localStorage.setItem('nb_share_variant', Math.random() < 0.5 ? 'A' : 'B') || localStorage.getItem('nb_share_variant'));
+                    const A = [
+                      { k: 'whatsapp', label: 'Share via WhatsApp', cls: 'nb-btn nb-btn-primary' },
+                      { k: 'email', label: 'Share via Email', cls: 'nb-btn nb-btn-ghost' },
+                      { k: 'facebook', label: 'Share on Facebook', cls: 'nb-btn nb-btn-ghost' },
+                      { k: 'sms', label: 'Share via SMS', cls: 'nb-btn nb-btn-ghost' },
+                    ];
+                    const B = [
+                      { k: 'email', label: 'Share via Email', cls: 'nb-btn nb-btn-primary' },
+                      { k: 'whatsapp', label: 'Share via WhatsApp', cls: 'nb-btn nb-btn-ghost' },
+                      { k: 'facebook', label: 'Share on Facebook', cls: 'nb-btn nb-btn-ghost' },
+                      { k: 'sms', label: 'Share via SMS', cls: 'nb-btn nb-btn-ghost' },
+                    ];
+                    const list = variant === 'B' ? B : A;
+                    return list.map((it, idx) => (
+                      <button
+                        key={it.k}
+                        ref={idx === 0 ? shareModalFirstBtnRef : undefined}
+                        className={it.cls}
+                        aria-label={it.label}
+                        onClick={() => performShareAction({ action: it.k, post: shareTargetPost })}
+                      >
+                        {it.label}
+                      </button>
+                    ));
+                  })()}
+
+                  <button
+                    className="nb-btn nb-btn-ghost"
+                    aria-label="Copy link"
+                    onClick={() => performShareAction({ action: 'copy', post: shareTargetPost })}
+                  >
+                    Copy link
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+    </div>
   );
 }
 

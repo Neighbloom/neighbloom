@@ -1,0 +1,169 @@
+name: M2 Migration Tests
+
+on:
+  push:
+    branches: ["felix/m1-auth-posts"]
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/APPLY_M2_VIA_DASHBOARD.sql"
+      - "supabase/TEST_M2_MIGRATIONS.sql"
+      - ".github/workflows/test-migrations.yml"
+  workflow_dispatch:
+
+jobs:
+  test-migrations:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: neighbloom_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Wait for PostgreSQL
+        run: |
+          until pg_isready -h localhost -p 5432 -U postgres; do
+            echo "Waiting for postgres..."
+            sleep 2
+          done
+
+      - name: Create Supabase-compatible auth roles and schema
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d neighbloom_test << 'EOF'
+          -- Create Supabase-compatible roles (not present in vanilla PostgreSQL)
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+              CREATE ROLE anon NOLOGIN;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+              CREATE ROLE authenticated NOLOGIN;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+              CREATE ROLE service_role NOLOGIN BYPASSRLS;
+            END IF;
+          END
+          $$;
+
+          -- Minimal mock for Supabase Auth; M1 references auth.users and
+          -- installs an AFTER INSERT trigger that creates public.profiles.
+          -- This table is for CI only, never deployed to Supabase.
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE TABLE IF NOT EXISTS auth.users (
+            id UUID PRIMARY KEY,
+            raw_user_meta_data JSONB NOT NULL DEFAULT '{}'::jsonb
+          );
+
+          -- Create auth schema with mock auth.uid() for testing
+          -- Real Supabase: auth.uid() reads from JWT. Here we simulate via
+          -- request.jwt.claims setting, which the test suite sets via _test_as_user().
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE OR REPLACE FUNCTION auth.uid()
+          RETURNS UUID
+          LANGUAGE sql STABLE
+          AS $$
+            SELECT NULLIF(
+              current_setting('request.jwt.claims', true)::json->>'sub',
+              ''
+            )::UUID;
+          $$;
+
+          -- Grant usage so migrations and tests can call auth.uid()
+          GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
+          GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
+
+          -- Grant basic privileges needed for RLS testing
+          GRANT CONNECT ON DATABASE neighbloom_test TO anon, authenticated;
+          EOF
+          echo "Supabase-compatible auth setup complete"
+
+      - name: Apply M1 baseline
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d neighbloom_test \
+            -f supabase/APPLY_VIA_DASHBOARD.sql
+          echo "M1 applied successfully"
+
+      - name: Apply M2 migrations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d neighbloom_test \
+            -f supabase/APPLY_M2_VIA_DASHBOARD.sql
+          echo "M2 applied successfully"
+
+      - name: Test idempotency (rerun M2)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d neighbloom_test \
+            -f supabase/APPLY_M2_VIA_DASHBOARD.sql
+          echo "M2 rerun successful (idempotent)"
+
+      - name: Create test users
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d neighbloom_test << 'EOF'
+          -- Create test auth users (simulating Supabase Auth)
+          -- In real Supabase, these come from auth.users via trigger
+          INSERT INTO auth.users (id, raw_user_meta_data)
+          VALUES
+            ('00000000-0000-0000-0000-000000000001', '{"display_name":"Test User A"}'::jsonb),
+            ('00000000-0000-0000-0000-000000000002', '{"display_name":"Test User B"}'::jsonb)
+          ON CONFLICT (id) DO NOTHING;
+          -- Existing M1 trigger inserts the profiles automatically.
+          UPDATE public.profiles SET town = 'Worth'
+          WHERE id IN (
+            '00000000-0000-0000-0000-000000000001',
+            '00000000-0000-0000-0000-000000000002'
+          );
+          EOF
+          echo "Test users created"
+
+      - name: Run test suite
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Replace placeholder UUIDs with test UUIDs
+          sed -e "s/00000000-0000-0000-0000-000000000001/00000000-0000-0000-0000-000000000001/g" \
+              -e "s/00000000-0000-0000-0000-000000000002/00000000-0000-0000-0000-000000000002/g" \
+            supabase/TEST_M2_MIGRATIONS.sql > /tmp/test_run.sql
+          
+          psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d neighbloom_test \
+            -f /tmp/test_run.sql
+          
+          echo "All tests passed!"
+
+      - name: Verify no test contamination
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Ensure test helpers were cleaned up
+          remaining=$(psql -v ON_ERROR_STOP=1 -tA -h localhost -U postgres -d neighbloom_test \
+            -c "SELECT COUNT(*) FROM pg_proc WHERE proname LIKE '_test%';")
+          if [ "$remaining" != "0" ]; then
+            echo "FAIL: $remaining test helpers remain"
+            exit 1
+          fi
+          echo "Test helpers cleaned up"
