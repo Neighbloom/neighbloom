@@ -4916,7 +4916,12 @@ expandedOtherVols,
                 <div className="nb-reply-text">{r.text}</div>
 
                 <div className="nb-reply-tags">
-                  {isHelp && isChosenHelper ? (
+                  {/* Selected/Marked-done describe the ACTIVE offer
+                      row only: after a cancel + re-offer the same
+                      author has two rows, and per-author keying put
+                      "Marked done ✓" on the cancelled row (E2E R5,
+                      check 8). Status-less demo rows count active. */}
+                  {isHelp && isChosenHelper && (r.status || 'active') === 'active' ? (
                     <span className="nb-tag top">Selected</span>
                   ) : null}
                   {/* M5 §9.2 state-as-surface: withdrawn/cancelled
@@ -4928,7 +4933,7 @@ expandedOtherVols,
                   {post._supabase && isHelp && r.status === 'cancelled' ? (
                     <span className="nb-tag" style={{ opacity: 0.75 }}>Cancelled</span>
                   ) : null}
-                  {post._supabase && isHelp && isChosenHelper
+                  {post._supabase && isHelp && isChosenHelper && (r.status || 'active') === 'active'
                     && (Array.isArray(post.helpers) ? post.helpers : []).find((h) => h && (h.id || h) === r.authorId)?.done_at ? (
                     <span className="nb-tag top">Marked done ✓</span>
                   ) : null}
