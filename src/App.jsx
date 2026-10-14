@@ -1141,18 +1141,63 @@ onRefresh,
       {Array.isArray(kindness) && kindness.length > 0 ? (
         <div className="nb-section" style={{ marginTop: 12 }}>
           <div className="nb-section-title">💛 Kindness in the neighborhood</div>
-          <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-            {kindness.slice(0, 3).map((g) => (
-              <div key={g.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px', background: 'rgba(255,255,255,.02)' }}>
-                <div style={{ fontWeight: 900, fontSize: 14 }}>
-                  {g.thanker?.display_name || 'A neighbor'} thanked {g.helper?.display_name || 'a neighbor'}
+          {/* Design pass (2026-10-13): gratitude is the emotional
+              core — the newest thank-you gets a designed card
+              (faces first, the words prominent, brand coral),
+              the rest stay one tap-readable compact rows. Same
+              real data, nothing added. */}
+          {(() => {
+            const [first, ...rest] = kindness.slice(0, 3);
+            const face = (person, fallback) =>
+              person?.avatar_url ? (
+                <img className="nb-avatar sm" src={person.avatar_url} alt="" />
+              ) : (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 32, height: 32, borderRadius: '50%', flex: '0 0 auto',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--coral, #F35B50)', color: '#fff', fontWeight: 900, fontSize: 14,
+                  }}
+                >
+                  {(person?.display_name || fallback || 'N').charAt(0)}
+                </span>
+              );
+            return (
+              <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                <div
+                  style={{
+                    border: '1px solid var(--border)', borderLeft: '3px solid var(--coral, #F35B50)',
+                    borderRadius: 12, padding: '12px 14px',
+                    background: 'rgba(243, 91, 80, 0.07)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {face(first.helper, 'N')}
+                    <div style={{ fontWeight: 900, fontSize: 14 }}>
+                      {first.helper?.display_name || 'A neighbor'}
+                    </div>
+                  </div>
+                  {first.message ? (
+                    <div style={{ marginTop: 8, fontSize: 15, lineHeight: 1.45 }}>{`"${first.message}"`}</div>
+                  ) : null}
+                  <div className="nb-muted" style={{ marginTop: 6, fontSize: 13 }}>
+                    — thanked by {first.thanker?.display_name || 'a neighbor'}
+                  </div>
                 </div>
-                {g.message ? (
-                  <div className="nb-muted" style={{ marginTop: 2, fontSize: 13 }}>{`"${g.message}"`}</div>
-                ) : null}
+                {rest.map((g) => (
+                  <div key={g.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px', background: 'rgba(255,255,255,.02)' }}>
+                    <div style={{ fontWeight: 900, fontSize: 14 }}>
+                      {g.thanker?.display_name || 'A neighbor'} thanked {g.helper?.display_name || 'a neighbor'}
+                    </div>
+                    {g.message ? (
+                      <div className="nb-muted" style={{ marginTop: 2, fontSize: 13 }}>{`"${g.message}"`}</div>
+                    ) : null}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            );
+          })()}
         </div>
       ) : null}
 
@@ -2227,6 +2272,29 @@ const chatsById = chats;
     })();
     return () => { cancelled = true; };
   }, [isAuthenticated, m2Ready]);
+
+  // Design pass (2026-10-13): the Profile story card counts the
+  // signed-in member's OWN gratitude from the same public record
+  // (recent 50 neighborhood-wide) — received as a helper, sent
+  // as a thanker. Demo mode keeps both at 0 and the card falls
+  // back to its local signals.
+  const [myGratitude, setMyGratitude] = useState({ received: 0, sent: 0 });
+  useEffect(() => {
+    if (!isAuthenticated || !m2Ready || !authProfile?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { fetchGratitude } = await import('./m2.js');
+        const rows = await fetchGratitude(50);
+        if (cancelled || !Array.isArray(rows)) return;
+        setMyGratitude({
+          received: rows.filter((g) => g?.helper?.id === authProfile.id).length,
+          sent: rows.filter((g) => g?.thanker?.id === authProfile.id).length,
+        });
+      } catch { /* story card treats unknown as 0 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, m2Ready, authProfile?.id]);
 
   // "While you were away" (Pulse, honest edition): snapshot the
   // home last-seen timestamp when this session's identity lands —
@@ -4203,20 +4271,10 @@ expandedOtherVols,
         ? followingSet.size > 0
         : false;
 
-    // NP badge calculations (show progress to next level)
-    const points = npPoints;
-    const displayedPoints = useAnimatedNumber(npPoints, 1000);
-    const currentBadge =
-      BADGES.slice()
-        .reverse()
-        .find((b) => points >= b.min) || BADGES[0];
-    const nextBadge = BADGES.find((b) => points < b.min) || null;
-    const prevMin = currentBadge.min;
-    const nextMin = nextBadge ? nextBadge.min : prevMin;
-    const denom = nextBadge ? Math.max(1, nextMin - prevMin) : 1;
-    const progress = nextBadge ? Math.min(1, (points - prevMin) / denom) : 1;
-    const toNext = nextBadge ? Math.max(0, nextMin - points) : 0;
-    const nextParts = nextBadge ? badgeParts(nextBadge.name) : { emoji: '', name: '' };
+    // Design pass (2026-10-13): the NP progress badge no longer
+    // sits under the header on every tab — it lives in the
+    // Profile tab, where points context belongs. Home's first
+    // screen is for neighborhood content.
 
     return (
       <>
@@ -4257,33 +4315,6 @@ expandedOtherVols,
           </div>
         </div>
 
-        {/* NP badge sits in its own row below the header to avoid overlap */}
-        <div className="nb-np-row" style={{ padding: '10px 14px' }}>
-          <button
-            type="button"
-            className="nb-np-badge"
-            title="Neighbor Points"
-            aria-label={`Neighbor Points ${npPoints} points`}
-            onClick={() => setModal({ type: 'points' })}
-          >
-              <div className="nb-np-main">
-              <div className="nb-np-value">{displayedPoints}</div>
-              <div style={{ flex: 1 }}>
-                <div className="nb-np-sub">{points} / {nextMin} NP</div>
-                <div className="nb-np-progress" aria-hidden="true">
-                  <div
-                    className="nb-np-progress-inner"
-                    style={{ width: `${Math.round(progress * 100)}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="nb-np-note">
-              {toNext} more to unlock {nextParts.emoji} {nextParts.name}
-            </div>
-          </button>
-        </div>
       </>
     );
   }
@@ -5236,12 +5267,18 @@ function pushActivity(arg, meta = {}) {
 
     const helpersNeeded = post.kind === 'help' ? getHelpersNeeded(post) : 1;
 
+      // The old line asserted "No indoor entry" about EVERY
+      // request — a per-post fact the app never checks (and
+      // false for e.g. carrying furniture upstairs). The card
+      // now states only what it knows: helpers needed + the
+      // recognition rule. Safety guidance lives in the
+      // composer/chat, phrased as guidance.
       const rulesRow =
       post.kind === 'rec'
         ? 'Share a name + why you trust them'
-        : `No indoor entry • ${helpersNeeded} helper${
+        : `${helpersNeeded} helper${
             helpersNeeded > 1 ? 's' : ''
-          } needed • +20 NP after confirmed`;
+          } needed • +20 NP after confirmed help`;
 
     const canReply =
       post.status !== 'resolved' &&
@@ -7030,8 +7067,12 @@ function setUserAvailability(userId, on, note) {
   }
 
   function HomeHero() {
-    const ci = getCheckInFor(me?.id || 'me');
-    const checkedInToday = ci.lastDate === todayKey();
+    // Design pass (2026-10-13): the returning-member hero is a
+    // compact action card, not a billboard. Two primary actions
+    // + two quiet links. Gone from Home: the daily check-in
+    // button (it lives in Profile now) and the invite link's
+    // "(+20 NP)" suffix — no invite award exists, so the claim
+    // was never true.
     return (
       <div className="nb-hero">
 
@@ -7090,19 +7131,7 @@ function setUserAvailability(userId, on, note) {
               className="nb-herolink"
               onClick={() => shareInviteLink(meId)}
             >
-              Invite a neighbor{' '}
-              <span className="nb-herolink-accent">(+20 NP)</span>
-            </button>
-            <button
-              type="button"
-              className="nb-quickbtn nb-quickbtn-ghost"
-              onClick={() => dailyCheckIn()}
-              disabled={checkedInToday}
-              title={checkedInToday ? 'Come back tomorrow' : 'Claim your daily NP'}
-            >
-              {checkedInToday
-                ? `Checked in ✅ (${Math.max(1, ci.streak)}-day streak)`
-                : 'Daily check-in (+5 NP)'}
+              Invite a neighbor
             </button>
           </div>
           <LiveBoard
@@ -9260,19 +9289,77 @@ const [nearText, setNearText] = useState('');
             </ul>
           </div>
 
-          {/* Impact / Activity highlights */}
-          <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,.02)' }}>
-              <div style={{ fontWeight: 950 }}>Your impact</div>
-              <div style={{ marginTop: 8, color: 'var(--muted)' }}>Helped {impactHelpCount} neighbors</div>
-              <div style={{ marginTop: 6, fontWeight: 980 }}>{npPoints} NP</div>
-            </div>
-
-            <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,.02)' }}>
-              <div style={{ fontWeight: 950 }}>Your activity</div>
-              <div style={{ marginTop: 6, fontWeight: 980 }}>{((getCheckInFor && getCheckInFor(me.id)?.streak) || 0) > 0 ? `${(getCheckInFor(me.id)?.streak) || 0} days 🔥` : 'No streak yet'}</div>
-            </div>
-          </div>
+          {/* Design pass (2026-10-13): one participation story +
+              the NP record, replacing the zeros-first two-card
+              grid. Counts are real: server help count, own posts
+              in the merged feed, own gratitude from the public
+              record. A brand-new member gets a starter line, not
+              a row of zeros. The NP progress (ex-header) and the
+              daily check-in (ex-hero) live here now. */}
+          {(() => {
+            const pts = npPoints;
+            const curBadge = BADGES.slice().reverse().find((b) => pts >= b.min) || BADGES[0];
+            const nxtBadge = BADGES.find((b) => pts < b.min) || null;
+            const prevMin = curBadge.min;
+            const nextMin = nxtBadge ? nxtBadge.min : prevMin;
+            const denom = nxtBadge ? Math.max(1, nextMin - prevMin) : 1;
+            const prog = nxtBadge ? Math.min(1, (pts - prevMin) / denom) : 1;
+            const toNext = nxtBadge ? Math.max(0, nextMin - pts) : 0;
+            const nxtParts = nxtBadge ? badgeParts(nxtBadge.name) : { emoji: '', name: '' };
+            const ci = getCheckInFor(me.id);
+            const checkedToday = ci.lastDate === todayKey();
+            const storyBits = [];
+            if (impactHelpCount > 0) storyBits.push(`🤝 Helped ${impactHelpCount} neighbor${impactHelpCount === 1 ? '' : 's'}`);
+            if (myPostCount > 0) storyBits.push(`📣 Posted ${myPostCount} request${myPostCount === 1 ? '' : 's'} & recommendations`);
+            if (myGratitude.received > 0) storyBits.push(`💛 Received ${myGratitude.received} thank-you${myGratitude.received === 1 ? '' : 's'}`);
+            if (myGratitude.sent > 0) storyBits.push(`🙏 Thanked ${myGratitude.sent} neighbor${myGratitude.sent === 1 ? '' : 's'}`);
+            return (
+              <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 12, padding: 14, background: 'rgba(255,255,255,.02)' }}>
+                <div style={{ fontWeight: 950 }}>Your story in {authProfile?.town || me.location || 'the neighborhood'}</div>
+                {storyBits.length > 0 ? (
+                  <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 6 }}>
+                    {storyBits.map((b) => (
+                      <li key={b} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>{b}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div style={{ marginTop: 8, color: 'var(--muted)' }}>
+                    Your story starts with your first ask or offer — it takes about a minute.
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setModal({ type: 'points' })}
+                  aria-label={`Neighbor Points ${pts} points`}
+                  style={{ marginTop: 12, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <span style={{ fontWeight: 980, fontSize: 16 }}>{pts} NP</span>
+                    <span style={{ color: 'var(--muted)', fontSize: 13 }}>
+                      {nxtBadge ? `${toNext} more to unlock ${nxtParts.emoji} ${nxtParts.name}` : 'Top tier reached'}
+                    </span>
+                  </div>
+                  <div className="nb-np-progress" aria-hidden="true" style={{ marginTop: 6 }}>
+                    <div className="nb-np-progress-inner" style={{ width: `${Math.round(prog * 100)}%` }} />
+                  </div>
+                </button>
+                <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--muted)', fontSize: 13 }}>
+                    {ci.streak > 0 ? `${ci.streak}-day check-in streak 🔥` : 'No check-in streak yet'}
+                  </span>
+                  <button
+                    type="button"
+                    className="nb-btn nb-btn-ghost nb-btn-sm"
+                    onClick={() => dailyCheckIn()}
+                    disabled={checkedToday}
+                    title={checkedToday ? 'Come back tomorrow' : 'Claim your daily NP'}
+                  >
+                    {checkedToday ? 'Checked in ✅' : 'Daily check-in (+5 NP)'}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Recent activity */}
           <div style={{ marginTop: 16 }}>
