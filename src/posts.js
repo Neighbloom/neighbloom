@@ -174,6 +174,10 @@ export function toAppReply(r) {
     helpful: false,
     topPick: false,
     hidden: false,
+    // M5 lifecycle: 'active' | 'withdrawn' | 'cancelled'. Rows
+    // fetched before the M5 columns exist read as active.
+    status: r.status || 'active',
+    statusAt: r.status_at ? new Date(r.status_at).getTime() : 0,
     _supabase: true,
   };
 }

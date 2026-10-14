@@ -41,6 +41,53 @@ export async function selectHelpers(postId, helperIds) {
 }
 
 /**
+ * Withdraw the signed-in user's own active volunteer offer on a
+ * post (M5). Server-validated: offer must be active, post open,
+ * caller not selected. Idempotent — returns { result } where
+ * result is 'withdrawn' or 'already_withdrawn'. Throws with the
+ * server's precise message on any other rejection.
+ */
+export async function withdrawOffer(postId) {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.rpc('withdraw_offer', {
+    p_post_id: postId,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/**
+ * Cancel the signed-in user's participation as a SELECTED helper
+ * (M5). Valid while the post is open/booked/started and the
+ * helper has not marked done. If the caller was the last helper
+ * on a booked/started post, the server reopens the post.
+ * Returns { result: 'cancelled' | 'already_cancelled', reopened }.
+ */
+export async function cancelParticipation(postId) {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.rpc('cancel_participation', {
+    p_post_id: postId,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/**
+ * Persistently mark the signed-in helper's work complete (M5).
+ * Sets done_at on the caller's helpers entry — the system of
+ * record that replaces the session-only "notified" flag.
+ * Returns { result: 'done' | 'already_done' }.
+ */
+export async function helperMarkDone(postId) {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.rpc('helper_mark_done', {
+    p_post_id: postId,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/**
  * Get the transition history for a post (audit trail).
  */
 export async function fetchTransitions(postId) {

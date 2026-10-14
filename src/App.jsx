@@ -22,6 +22,9 @@ import {
   getNeighborCount as m2GetNeighborCount,
   fetchInAppNotifications as m2FetchNotifications,
   markNotificationRead as m2MarkNotificationRead,
+  withdrawOffer as m2WithdrawOffer,
+  cancelParticipation as m2CancelParticipation,
+  helperMarkDone as m2HelperMarkDone,
 } from './m2.js';
 
 /* ---------- NB: show fatal errors on-screen (prod-friendly) ---------- */
@@ -2329,12 +2332,6 @@ const chatsById = chats;
   // Aggregated "You offered" panel state + computed offers
   const [youOfferedOpen, setYouOfferedOpen] = useState(false);
 
-  // Server posts: a helper signals completion by messaging the owner
-  // (the backend has no per-reply helper status). Session-level record
-  // of which posts this helper has already signalled on; the durable
-  // record is the message itself plus the owner's stage transitions.
-  const [helperDoneNotified, setHelperDoneNotified] = useState({});
-
   const myOffers = useMemo(() => {
     const out = [];
     for (const p of displayPosts || []) {
@@ -2343,6 +2340,9 @@ const chatsById = chats;
         if (!r || r.authorId !== me.id) continue;
         // only show volunteer replies (help flow)
         if (p.kind === 'help' && (r.type === 'volunteer' || !r.type)) {
+          const myEntry = (Array.isArray(p.helpers) ? p.helpers : []).find(
+            (h) => h && (h.id || h) === me.id
+          );
           out.push({
             postId: p.id,
             postTitle: p.title || p.details || 'Help request',
@@ -2350,6 +2350,11 @@ const chatsById = chats;
             postOwnerId: p.ownerId,
             replyId: r.id,
             helperStatus: r.helperStatus || 'offered',
+            // M5: lifecycle state of MY offer on server posts —
+            // 'active' | 'withdrawn' | 'cancelled' (server record).
+            replyStatus: r.status || 'active',
+            // M5: persistent completion stamp from posts.helpers.
+            myDoneAt: myEntry?.done_at || null,
             postStage: p.stage || 'open',
             selected: getSelectedHelperIds(p).includes(me.id),
             createdAt: r.createdAt || 0,
@@ -2362,14 +2367,66 @@ const chatsById = chats;
     return out;
   }, [displayPosts, me.id]);
 
+  // ── M5 lifecycle (server posts): withdraw / cancel / done ──
+  // The server owns these states now (migration M5): replies carry
+  // a status, completion is a persistent done_at on the helpers
+  // entry, and the owner is notified by the RPCs themselves —
+  // including with notification preferences off. Errors from the
+  // server state the exact rule; surface them verbatim.
+  async function m5Withdraw(post) {
+    if (!post) return;
+    if (!m2Ready) { showToast("Can't reach the server right now — nothing changed."); return; }
+    const ownerName = usersById[post.ownerId]?.name || 'The owner';
+    if (!window.confirm(`Withdraw your offer? ${ownerName} will be notified.`)) return;
+    try {
+      await m2WithdrawOffer(post.id);
+      await refreshSupabasePosts();
+      showToast('Offer withdrawn — the owner has been notified.');
+    } catch (e) {
+      showToast(e.message || 'Could not withdraw your offer.');
+    }
+  }
+
+  async function m5CancelParticipation(post) {
+    if (!post) return;
+    if (!m2Ready) { showToast("Can't reach the server right now — nothing changed."); return; }
+    const onlyHelper = getSelectedHelperIds(post).length <= 1;
+    const willReopen = onlyHelper && (post.stage === 'booked' || post.stage === 'started');
+    if (!window.confirm(willReopen
+      ? "Cancel your participation? You're the only helper, so this request will reopen for other neighbors. The owner will be notified."
+      : 'Cancel your participation? The owner will be notified.')) return;
+    try {
+      const res = await m2CancelParticipation(post.id);
+      await refreshSupabasePosts();
+      showToast(res?.reopened
+        ? 'Participation cancelled — the request has reopened.'
+        : 'Participation cancelled — the owner has been notified.');
+    } catch (e) {
+      showToast(e.message || 'Could not cancel your participation.');
+    }
+  }
+
+  async function m5MarkDone(post) {
+    if (!post) return;
+    if (!m2Ready) { showToast("Can't reach the server right now — nothing changed."); return; }
+    try {
+      await m2HelperMarkDone(post.id);
+      await refreshSupabasePosts();
+      const ownerName = usersById[post.ownerId]?.name || 'the owner';
+      showToast(`Marked done — waiting for ${ownerName} to confirm.`);
+    } catch (e) {
+      showToast(e.message || 'Could not mark this done.');
+    }
+  }
+
   function cancelOffer(postId, replyId) {
     if (!postId || !replyId) return;
-    // Server offers cannot be withdrawn yet — the backend has no
-    // delete-reply path. Say so instead of pretending; the local
-    // removal below only ever affected demo data.
     const targetPost = (Array.isArray(displayPosts) ? displayPosts : []).find((p) => p && p.id === postId);
     if (targetPost?._supabase) {
-      showToast('Withdrawing an offer isn’t available yet — message the owner instead.');
+      // M5: selected helpers cancel participation; everyone else
+      // withdraws their offer. Both are real server operations.
+      if (getSelectedHelperIds(targetPost).includes(me.id)) m5CancelParticipation(targetPost);
+      else m5Withdraw(targetPost);
       return;
     }
     setPosts((prev) =>
@@ -3633,8 +3690,7 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
   // DEMO ONLY: helpers shouldn’t change the global post stage; they
   // update their own reply-level helperStatus (offered | started |
   // done). Server posts never reach this function — their helpers
-  // signal completion via handleHelperCompleted (a real message to
-  // the owner inside the post's conversation).
+  // record completion via helper_mark_done (M5, persistent done_at).
   function setHelperStatus(postId, replyId, status) {
     if (!postId || !replyId) return;
     const post = posts.find((p) => p && p.id === postId);
@@ -3681,34 +3737,10 @@ setCheckInFor(uid, { lastDate: today, streak: nextStreak });
     });
   }
 
-  // Server posts: a helper signals completion by messaging the owner
-  // inside the post's real conversation. The backend deliberately has
-  // no per-reply helper status and lifecycle transitions are
-  // owner-only, so the message IS the durable completion signal; the
-  // owner then marks the post done and confirms. Conversations are
-  // created by the owner (at selection time, via openChat), so the
-  // helper looks theirs up. If none exists, say so honestly — never
-  // fake the state locally.
-  async function handleHelperCompleted(post) {
-    if (!post || !post._supabase) return;
-    if (!m2Ready) {
-      showToast("Can't reach the server right now — nothing changed.");
-      return;
-    }
-    try {
-      const convs = await m2FetchConversations();
-      const conv = (convs || []).find((c) => c && c.post_id === post.id);
-      if (!conv) {
-        showToast('No conversation with the owner yet — they confirm completion from their side.');
-        return;
-      }
-      await m2SendMessage(conv.id, "I've finished this help — complete on my end. Thanks for having me!");
-      setHelperDoneNotified((prev) => ({ ...(prev || {}), [post.id]: true }));
-      showToast('Owner notified — they’ll confirm and send thanks.');
-    } catch (e) {
-      showToast(e.message || 'Could not notify the owner — nothing was sent.');
-    }
-  }
+  // M5 (2026-10-13) superseded the seam-era message-based helper
+  // completion: helperMarkDone (m5MarkDone above, near cancelOffer)
+  // records a persistent done_at on the helpers entry and the
+  // server notifies the owner. No message workaround remains.
 
   // confirmHelp was removed in the 2026-10-13 seam fix: it was
   // unreferenced dead code whose local-list lookup and completion-
@@ -4343,10 +4375,19 @@ expandedOtherVols,
                     </div>
                     <div className="nb-offer-actions">
                       <button className="nb-btn nb-btn-ghost" onClick={() => goToOfferPost(o.postId)}>Open post</button>
-                      {!o.selected ? (
-                        <button className="nb-btn nb-btn-ghost" onClick={() => { cancelOffer(o.postId, o.replyId); }} style={{ marginLeft: 8 }}>Cancel</button>
+                      {o.replyStatus === 'withdrawn' ? (
+                        <div style={{ marginLeft: 8, fontWeight: 900, color: 'var(--muted)' }}>Withdrawn</div>
+                      ) : o.replyStatus === 'cancelled' ? (
+                        <div style={{ marginLeft: 8, fontWeight: 900, color: 'var(--muted)' }}>Cancelled</div>
+                      ) : !o.selected ? (
+                        <button className="nb-btn nb-btn-ghost" onClick={() => { cancelOffer(o.postId, o.replyId); }} style={{ marginLeft: 8 }}>Withdraw</button>
+                      ) : o.myDoneAt ? (
+                        <div style={{ marginLeft: 8, fontWeight: 900, color: 'var(--accent)' }}>Finished ✓</div>
                       ) : (
-                        <div style={{ marginLeft: 8, fontWeight: 900, color: 'var(--accent)' }}>Selected</div>
+                        <>
+                          <div style={{ marginLeft: 8, fontWeight: 900, color: 'var(--accent)' }}>Selected</div>
+                          <button className="nb-btn nb-btn-ghost" onClick={() => { cancelOffer(o.postId, o.replyId); }} style={{ marginLeft: 8 }}>Cancel participation</button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -4636,7 +4677,11 @@ expandedOtherVols,
     const isHelp = post.kind === 'help';
     const helpersNeeded = isHelp ? getHelpersNeeded(post) : 1;
     const selectedIds = isHelp ? getSelectedHelperIds(post) : [];
-    const replyCount = visibleReplies.length;
+    // M5: the "volunteered" summary counts ACTIVE offers on
+    // server posts (see PostCard's thread count).
+    const replyCount = post._supabase && isHelp
+      ? visibleReplies.filter((r) => r.type !== 'volunteer' || (r.status || 'active') === 'active').length
+      : visibleReplies.length;
       const [composerText, setComposerText] = useState('');
       const [composerErr, setComposerErr] = useState('');
       const composerRef = useRef(null);
@@ -4809,8 +4854,11 @@ expandedOtherVols,
           const comments = getRecComments(r);
 
           const isChosenHelper = isHelp && selectedIds.includes(r.authorId);
+          // M5: only an ACTIVE offer can be chosen (the server
+          // enforces the same rule in select_helpers).
           const canChooseThis =
-            canOwnerActions && isHelp && !slotsFull && !isChosenHelper;
+            canOwnerActions && isHelp && !slotsFull && !isChosenHelper
+            && (r.status || 'active') === 'active';
 
           const chatOtherUserId = isOwner ? r.authorId : post.ownerId;
 
@@ -4870,6 +4918,19 @@ expandedOtherVols,
                 <div className="nb-reply-tags">
                   {isHelp && isChosenHelper ? (
                     <span className="nb-tag top">Selected</span>
+                  ) : null}
+                  {/* M5 §9.2 state-as-surface: withdrawn/cancelled
+                      offers stay visible, labelled, for everyone —
+                      and a chosen helper's persistent done shows. */}
+                  {post._supabase && isHelp && r.status === 'withdrawn' ? (
+                    <span className="nb-tag" style={{ opacity: 0.75 }}>Withdrew</span>
+                  ) : null}
+                  {post._supabase && isHelp && r.status === 'cancelled' ? (
+                    <span className="nb-tag" style={{ opacity: 0.75 }}>Cancelled</span>
+                  ) : null}
+                  {post._supabase && isHelp && isChosenHelper
+                    && (Array.isArray(post.helpers) ? post.helpers : []).find((h) => h && (h.id || h) === r.authorId)?.done_at ? (
+                    <span className="nb-tag top">Marked done ✓</span>
                   ) : null}
                   {r.topPick ? (
                     <span className="nb-tag top">Top pick</span>
@@ -5258,7 +5319,13 @@ function pushActivity(arg, meta = {}) {
     const overflowBtnRef = useRef(null);
     const open = !!expandedThreads[post.id];
     const repliesVisible = (post.replies || []).filter((r) => !r.hidden);
-    const replyCount = repliesVisible.length;
+    // M5: on server help posts the Volunteers count reads ACTIVE
+    // volunteer offers only (withdrawn/cancelled rows stay visible
+    // in the thread, labelled, but out of the count). Suggestions
+    // and demo posts count as before.
+    const replyCount = post._supabase && post.kind === 'help'
+      ? repliesVisible.filter((r) => r.type !== 'volunteer' || (r.status || 'active') === 'active').length
+      : repliesVisible.length;
 
     const threadLabel =
       post.kind === 'rec'
@@ -5287,8 +5354,11 @@ function pushActivity(arg, meta = {}) {
 
     const replyBtnLabel = post.kind === 'rec' ? 'Recommend' : 'Offer help';
 
+    // M5 §9.1: "has offered" keys on ACTIVE offers only — a
+    // withdrawn offer must never lock the member out of offering
+    // again (the server allows a fresh reply row).
     const viewerAlreadyOffered = (post.replies || []).some(
-      (r) => r && r.authorId === me.id && r.type === 'volunteer'
+      (r) => r && r.authorId === me.id && r.type === 'volunteer' && (r.status || 'active') === 'active'
     );
 
     const remaining = remainingRepliesToday(post.kind);
@@ -5514,14 +5584,24 @@ function pushActivity(arg, meta = {}) {
               </div>
             ) : null}
 
-            {/* Selected helper UI: single Completed button + awaiting confirmation */}
+            {/* Selected helper UI: persistent Done state + cancel.
+                M5: on server posts the Done state is the server's
+                done_at on my helpers entry (survives reloads and
+                devices), and cancelling is a real server operation
+                — no message workaround, no session-only state. */}
             {!isOwner && post.kind === 'help' && post.status !== 'resolved' && (post.replies || []).some((r) => r && r.authorId === me.id) && selectedHelperIds.includes(me.id) ? (
               (() => {
-                const myReply = (post.replies || []).find((r) => r && r.authorId === me.id);
+                const myReply = (post.replies || []).find((r) => r && r.authorId === me.id && (r.status || 'active') === 'active')
+                  || (post.replies || []).find((r) => r && r.authorId === me.id);
                 if (!myReply) return null;
+                const myEntry = (Array.isArray(post.helpers) ? post.helpers : []).find(
+                  (h) => h && (h.id || h) === me.id
+                );
+                const myDoneAt = myEntry?.done_at || null;
                 const cur = post._supabase
-                  ? (post.stage === 'done' || post.stage === 'confirmed' || helperDoneNotified[post.id] ? 'done' : 'offered')
+                  ? (myDoneAt || post.stage === 'done' || post.stage === 'confirmed' ? 'done' : 'offered')
                   : myReply.helperStatus || 'offered';
+                const ownerName = usersById[post.ownerId]?.name || 'the owner';
                 return (
                   <div className="nb-helpflow">
                     {cur !== 'done' ? (
@@ -5530,26 +5610,36 @@ function pushActivity(arg, meta = {}) {
                         onClick={() => {
                           if (!myReply) return;
                           if (post._supabase) {
-                            handleHelperCompleted(post);
+                            m5MarkDone(post);
                             return;
                           }
                           setHelperStatus(post.id, myReply.id, 'done');
                           pushActivity({ text: `${usersById[me.id]?.name || 'You'} marked this as completed.`, actorId: me.id, postId: post.id, audienceIds: [me.id, post.ownerId] });
                         }}
                       >
-                        {post._supabase ? "I'm done — notify the owner" : 'Completed'}
+                        {post._supabase ? 'Mark done' : 'Completed'}
                       </button>
                     ) : (
                       <span className="nb-muted small" style={{ fontWeight: 900 }}>
-                        Awaiting confirmation
+                        {post._supabase ? `Finished ✓ — waiting for ${ownerName} to confirm` : 'Awaiting confirmation'}
                       </span>
                     )}
 
+                    {post._supabase ? (
+                      !myDoneAt && post.stage !== 'done' && post.stage !== 'confirmed' ? (
+                        <button
+                          className="nb-btn nb-btn-ghost nb-btn-sm"
+                          onClick={() => m5CancelParticipation(post)}
+                          title="Cancel your participation"
+                        >
+                          Cancel participation
+                        </button>
+                      ) : null
+                    ) : (
                     <button
                       className="nb-btn nb-btn-ghost nb-btn-sm"
                         onClick={() => {
                         if (!myReply) return;
-                        if (post._supabase) { showToast('Withdrawing an offer isn’t available yet — message the owner instead.'); return; }
                         const ok = window.confirm('Cancel your offer?');
                         if (!ok) return;
                         setPosts((prev) =>
@@ -5575,6 +5665,7 @@ function pushActivity(arg, meta = {}) {
                     >
                       Cancel offer
                     </button>
+                    )}
                   </div>
                 );
               })()

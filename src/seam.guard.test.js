@@ -35,7 +35,7 @@ const ALLOWLIST = {
   setTopPick:
     'demo-only rec moderation; its buttons no longer render on server posts',
   setHelperStatus:
-    'demo-only helper status; server helpers signal via handleHelperCompleted',
+    'demo-only helper status; server helpers record completion via helper_mark_done (M5)',
   awardHelpers:
     'the bare lookups sit in the demo fallback branch (after the server branch returns) and feed local breadcrumbs',
   RecCommentModal:
@@ -95,5 +95,23 @@ describe('seam guard: no bare local-list lookups outside the allowlist', () => {
   it('the merged-feed pattern is in use (guard is not vacuous)', () => {
     const patternUses = lines.filter((l) => l.includes('displayPosts.find(')).length;
     expect(patternUses).toBeGreaterThan(5);
+  });
+});
+
+// M5 guard (added 2026-10-13 with the M5 client): the withdrawal
+// dead-end the seam era shipped ("isn't available yet") must never
+// come back, and the three lifecycle RPCs must stay wired — a
+// refactor that drops one silently re-opens the launch-mandatory
+// gap the founder called out.
+describe('M5 guard: lifecycle RPCs stay wired, dead-end copy stays gone', () => {
+  it('App.jsx calls all three M5 lifecycle wrappers', () => {
+    for (const fn of ['m2WithdrawOffer(', 'm2CancelParticipation(', 'm2HelperMarkDone(']) {
+      expect(src.includes(fn), `missing call: ${fn}`).toBe(true);
+    }
+  });
+
+  it('the pre-M5 withdrawal dead-end copy is absent', () => {
+    expect(src.includes('isn’t available yet')).toBe(false);
+    expect(src.includes('helperDoneNotified')).toBe(false);
   });
 });
