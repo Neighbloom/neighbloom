@@ -561,16 +561,29 @@ export async function hideGratitude(gratitudeId) {
 /**
  * Fetch recent public gratitude posts (for feed / Kindness Moments).
  */
-export async function fetchGratitude(limit = 10) {
+export async function fetchGratitude(limit = 10, town = null) {
   const supabase = getSupabase();
-  const { data, error } = await supabase
+  // Town scoping (founder directive, 2026-10-13): the Home
+  // Kindness section must show gratitude belonging to the
+  // member's town. The authoritative town of a gratitude row is
+  // the town of the completed request it thanks — posts.area,
+  // reached through gratitude_posts.post_id. The filter is
+  // applied in the query (inner join on posts), BEFORE the
+  // limit, so a busier or newer town can never crowd out or
+  // leak into another town's section. Callers that count a
+  // member's OWN gratitude (Profile story) omit `town` and keep
+  // the person-scoped behavior.
+  let query = supabase
     .from('gratitude_posts')
     .select(`
       *,
       helper:profiles!gratitude_posts_helper_id_fkey(id, display_name, avatar_url),
       thanker:profiles!gratitude_posts_thanker_id_fkey(id, display_name, avatar_url)
+      ${town ? ', post:posts!inner(area)' : ''}
     `)
-    .eq('hidden_by_helper', false)
+    .eq('hidden_by_helper', false);
+  if (town) query = query.eq('post.area', town);
+  const { data, error } = await query
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw new Error(error.message);

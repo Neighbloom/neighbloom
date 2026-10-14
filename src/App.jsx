@@ -2264,18 +2264,22 @@ const chatsById = chats;
   // neighbors, from gratitude_posts. Rendered only when genuine
   // items exist — never fabricated, never backfilled.
   const [gratitudeItems, setGratitudeItems] = useState([]);
+  const kindnessTown = authProfile?.town || null;
   useEffect(() => {
     if (!isAuthenticated || !m2Ready) return;
+    // No selected town yet -> no Kindness section, rather than
+    // falling back to the global (cross-town) gratitude feed.
+    if (!kindnessTown) { setGratitudeItems([]); return; }
     let cancelled = false;
     (async () => {
       try {
         const { fetchGratitude } = await import('./m2.js');
-        const rows = await fetchGratitude(5);
+        const rows = await fetchGratitude(5, kindnessTown);
         if (!cancelled) setGratitudeItems(Array.isArray(rows) ? rows : []);
       } catch { if (!cancelled) setGratitudeItems([]); }
     })();
     return () => { cancelled = true; };
-  }, [isAuthenticated, m2Ready]);
+  }, [isAuthenticated, m2Ready, kindnessTown]);
 
   // Design pass (2026-10-13): the Profile story card counts the
   // signed-in member's OWN gratitude from the same public record
@@ -9439,6 +9443,13 @@ const [nearText, setNearText] = useState('');
                     <div className="nb-np-progress-inner" style={{ width: `${Math.round(prog * 100)}%` }} />
                   </div>
                 </button>
+                {/* Daily check-in interface HIDDEN on dev by
+                    founder directive (2026-10-13), pending the
+                    engagement-strategy review. The mechanism
+                    (dailyCheckIn, streak state, server NP award)
+                    is fully preserved and untouched — only this
+                    control row is not rendered. */}
+                {false ? (
                 <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ color: 'var(--muted)', fontSize: 13 }}>
                     {ci.streak > 0 ? `${ci.streak}-day check-in streak 🔥` : 'No check-in streak yet'}
@@ -9453,6 +9464,7 @@ const [nearText, setNearText] = useState('');
                     {checkedToday ? 'Checked in ✅' : 'Daily check-in (+5 NP)'}
                   </button>
                 </div>
+                ) : null}
               </div>
             );
           })()}
