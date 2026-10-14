@@ -1,1 +1,226 @@
-LS0gQXdhcmQgTlAgcmVtZWRpYXRpb24gKGZvdW5kZXItYXBwcm92ZWQgMjAyNi0xMC0xNCwgZGV2IGZpcnN0KS4KLS0KLS0gUG9saWN5OiByZXRpcmUgZGFpbHlfY2hlY2tpbiBhbmQgcXVpY2tfc3RhcnQgYXMgZWFybmluZwotLSBtZWNoYW5pc21zIChzZXJ2ZXItc2lkZSByZWZ1c2FsOyBoaXN0b3JpY2FsIHJvd3MgcHJlc2VydmVkKTsKLS0gcHJlc2VydmUgdGhlICsyMCBoZWxwX2NvbmZpcm1lZCBhd2FyZCB3aXRoIE9ORSB2YWxpZCBhd2FyZCBwZXIKLS0gKHBvc3QsIHNlbGVjdGVkIGhlbHBlcikgZW5mb3JjZWQgZnJvbSB0aGUgbGVkZ2VyIGFuZCBieSBhCi0tIHBhcnRpYWwgdW5pcXVlIGluZGV4IOKAlCBpbmRlcGVuZGVudCBvZiBjYWxsZXItc3VwcGxpZWQKLS0gaWRlbXBvdGVuY3kga2V5cy4KLS0KLS0gUmVjb25jaWxpYXRpb246IHRoZSBzaW5nbGUga25vd24gZHVwbGljYXRlIHBhaXIgKGEgbGVnaXRpbWF0ZQotLSBhd2FyZCBwbHVzIGEgc2VjdXJpdHktcHJvYmUgcmVwZWF0IGF3YXJkIG9uIGEgZGV2IHRlc3QKLS0gYWNjb3VudCkgaXMgcmVzb2x2ZWQgYnkgbWFya2luZyB0aGUgcHJvYmUgYXdhcmQgJ3JldmVyc2VkJwotLSBhbmQgaW5zZXJ0aW5nIGEgY29tcGVuc2F0aW5nIC0yMCAnYWRqdXN0bWVudCcgZW50cnkgdGhhdCBuYW1lcwotLSBpdC4gTm90aGluZyBpcyBkZWxldGVkOyBiYWxhbmNlcyBlbmQgYXQgbGVnaXRpbWF0ZSB0b3RhbHMuCi0tCi0tIFByZWZsaWdodCBnYXRlIChydW4gcmVhZC1vbmx5IEJFRk9SRSB0aGlzIGZpbGU7IFNUT1AgdW5sZXNzCi0tIHRoZSBvbmx5IGR1cGxpY2F0ZSBncm91cCBpcyB0aGUga25vd24gcHJvYmUgcGFpcik6Ci0tICAgU0VMRUNUIHBvc3RfaWQsIHByb2ZpbGVfaWQsIENPVU5UKCopIEZST00gcHVibGljLm5wX2xlZGdlcgotLSAgIFdIRVJFIHJlYXNvbiA9ICdoZWxwX2NvbmZpcm1lZCcgQU5EIHBvc3RfaWQgSVMgTk9UIE5VTEwKLS0gICBHUk9VUCBCWSBwb3N0X2lkLCBwcm9maWxlX2lkIEhBVklORyBDT1VOVCgqKSA+IDE7Ci0tCi0tIFRoaXMgZmlsZSBpcyBhIHNpbmdsZSB0cmFuc2FjdGlvbjogYW55IGZhaWx1cmUgcm9sbHMgYmFjawotLSBldmVyeSBzdGVwLCBpbmNsdWRpbmcgdGhlIGJhbGFuY2UgY29ycmVjdGlvbi4KCkJFR0lOOwoKLS0gMS4gVmFsaWQvcmV2ZXJzZWQgZGlzdGluY3Rpb24gKGdlbmVyYWwgbGVkZ2VyIHByb3BlcnR5KS4KQUxURVIgVEFCTEUgcHVibGljLm5wX2xlZGdlcgogIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyBhd2FyZF9zdGF0ZSBURVhUIE5PVCBOVUxMIERFRkFVTFQgJ3ZhbGlkJwogIENIRUNLIChhd2FyZF9zdGF0ZSBJTiAoJ3ZhbGlkJywgJ3JldmVyc2VkJykpOwoKLS0gMi4gTWFyayB0aGUgcHJvYmUgYXdhcmQgcmV2ZXJzZWQgKGd1YXJkZWQ6IGFib3J0cyB1bmxlc3MKLS0gICAgZXhhY3RseSB0aGlzIHJvdyB0cmFuc2l0aW9ucywgc28gdGhpcyBtaWdyYXRpb24gY2FuIG5ldmVyCi0tICAgIGJlIGFwcGxpZWQgdHdpY2UpLgpETyAkJApCRUdJTgogIFVQREFURSBwdWJsaWMubnBfbGVkZ2VyCiAgU0VUIGF3YXJkX3N0YXRlID0gJ3JldmVyc2VkJwogIFdIRVJFIGlkID0gJ2QzNWZlYjFkLWU4OTAtNDM2My1iYzQ3LTBmZmNkYmNmMjk3NCcKICAgIEFORCBhd2FyZF9zdGF0ZSA9ICd2YWxpZCc7CiAgSUYgTk9UIEZPVU5EIFRIRU4KICAgIFJBSVNFIEVYQ0VQVElPTiAnUmV2ZXJzYWwgdGFyZ2V0IG5vdCBpbiB2YWxpZCBzdGF0ZSDigJQgbWlncmF0aW9uIGFscmVhZHkgYXBwbGllZCBvciBpbnZlbnRvcnkgY2hhbmdlZCc7CiAgRU5EIElGOwpFTkQgJCQ7CgotLSAzLiBDb21wZW5zYXRpbmcgZW50cnkgbmFtaW5nIHRoZSByZXZlcnNlZCByb3cgKFVOSVFVRSBrZXkgaXMKLS0gICAgYSBzZWNvbmQgb25jZS1vbmx5IGxvY2spLgpJTlNFUlQgSU5UTyBwdWJsaWMubnBfbGVkZ2VyIChwcm9maWxlX2lkLCBhbW91bnQsIHJlYXNvbiwgcG9zdF9pZCwgaWRlbXBvdGVuY3lfa2V5KQpWQUxVRVMgKAogICdjM2M5YzU1MC04Mzc2LTQwY2ItYmNjOS1mNWI0MzYzZmI0NDcnLAogIC0yMCwKICAnYWRqdXN0bWVudCcsCiAgJ2ZiZmY1YzVlLTJkOGMtNDZkYy1hZTk3LTIzZmY4OTAyMmY0NicsCiAgJ3JldmVyc2FsOmQzNWZlYjFkLWU4OTAtNDM2My1iYzQ3LTBmZmNkYmNmMjk3NCcKKTsKCi0tIDQuIEJhbGFuY2UgY29ycmVjdGlvbiB1bmRlciB0aGUgc3RhbmRhcmQgTlAgYnlwYXNzLCBpbnNpZGUKLS0gICAgdGhlIHNhbWUgdHJhbnNhY3Rpb24gYXMgaXRzIHJldmVyc2FsIHJlY29yZC4KU0VMRUNUIHBnX2NhdGFsb2cuc2V0X2NvbmZpZygnbmVpZ2hibG9vbS5hbGxvd19ucF91cGRhdGUnLCAndHJ1ZScsIHRydWUpOwpVUERBVEUgcHVibGljLnByb2ZpbGVzIFNFVCBucCA9IG5wIC0gMjAKV0hFUkUgaWQgPSAnYzNjOWM1NTAtODM3Ni00MGNiLWJjYzktZjViNDM2M2ZiNDQ3JzsKCi0tIDUuIE9uZSBWQUxJRCBhd2FyZCBwZXIgKHBvc3QsIGhlbHBlciksIGRhdGFiYXNlLWVuZm9yY2VkLgotLSAgICBSZXZlcnNlZCBhd2FyZHMgYXJlIGV4Y2x1ZGVkIGJ5IHRoZSBnZW5lcmFsIGF3YXJkX3N0YXRlCi0tICAgIHJ1bGUg4oCUIG5vIHJvdy1zcGVjaWZpYyBleGNlcHRpb25zLgpDUkVBVEUgVU5JUVVFIElOREVYIG5wX2xlZGdlcl9oZWxwX29uY2UKICBPTiBwdWJsaWMubnBfbGVkZ2VyIChwb3N0X2lkLCBwcm9maWxlX2lkKQogIFdIRVJFIHJlYXNvbiA9ICdoZWxwX2NvbmZpcm1lZCcgQU5EIGF3YXJkX3N0YXRlID0gJ3ZhbGlkJzsKCi0tIDYuIGF3YXJkX25wIGZpbmFsIGZvcm0uCi0tICAgIENoYW5nZXMgZnJvbSB0aGUgTTUtZXJhIGRlZmluaXRpb246Ci0tICAgIGEuIFRoZSBpZGVtcG90ZW50LXJlcGxheSBsb29rdXAgaXMgc2NvcGVkIHRvIHRoZSBhd2FyZCdzCi0tICAgICAgIG93biBwYXJhbWV0ZXJzLCBvbmx5IHJldHVybnMgVkFMSUQgcm93cywgYW5kIG9ubHkKLS0gICAgICAgcmV0dXJucyBhIHJlY29yZCB0byBhIGNhbGxlciBhdXRob3JpemVkIGZvciB0aGF0IGF3YXJkCi0tICAgICAgICh0aGUgcmVjaXBpZW50IHRoZW1zZWx2ZXMsIG9yIOKAlCBmb3IgaGVscF9jb25maXJtZWQg4oCUCi0tICAgICAgIHRoZSBvd25lciBvZiB0aGUgcG9zdCkuIEEgcmVwbGF5IG9mIGEgUkVWRVJTRUQgYXdhcmQncwotLSAgICAgICBrZXkgaXMgcmVmdXNlZCBleHBsaWNpdGx5OiByZXZlcnNlZCBhd2FyZHMgYXJlIGZpbmFsCi0tICAgICAgIGFuZCB0aGVpciBrZXlzIGFyZSByZXRpcmVkLgotLSAgICBiLiBoZWxwX2NvbmZpcm1lZCByZWZ1c2VzIGEgc2Vjb25kIFZBTElEIGF3YXJkIGZvciB0aGUKLS0gICAgICAgc2FtZSAocG9zdCwgaGVscGVyKSwgd2hhdGV2ZXIga2V5IHRoZSBjYWxsZXIgc3VwcGxpZXMuCi0tICAgIGMuIGRhaWx5X2NoZWNraW4gYW5kIHF1aWNrX3N0YXJ0IHJlZnVzZSBhbGwgbmV3IGF3YXJkcy4KQ1JFQVRFIE9SIFJFUExBQ0UgRlVOQ1RJT04gcHVibGljLmF3YXJkX25wKAogIHBfcHJvZmlsZV9pZCBVVUlELAogIHBfYW1vdW50IElOVEVHRVIsCiAgcF9yZWFzb24gVEVYVCwKICBwX3Bvc3RfaWQgVVVJRCBERUZBVUxUIE5VTEwsCiAgcF9pZGVtcG90ZW5jeV9rZXkgVEVYVCBERUZBVUxUIE5VTEwKKQpSRVRVUk5TIHB1YmxpYy5ucF9sZWRnZXIKTEFOR1VBR0UgcGxwZ3NxbCBTRUNVUklUWSBERUZJTkVSClNFVCBzZWFyY2hfcGF0aCA9ICcnCkFTICQkCkRFQ0xBUkUKICB2X2NhbGxlciBVVUlEIDo9IGF1dGgudWlkKCk7CiAgdl9rZXkgVEVYVDsKICB2X2V4aXN0aW5nIHB1YmxpYy5ucF9sZWRnZXIlUk9XVFlQRTsKICB2X3JldmVyc2VkIHB1YmxpYy5ucF9sZWRnZXIlUk9XVFlQRTsKICB2X2VudHJ5IHB1YmxpYy5ucF9sZWRnZXIlUk9XVFlQRTsKICB2X3Bvc3QgcHVibGljLnBvc3RzJVJPV1RZUEU7CkJFR0lOCiAgSUYgdl9jYWxsZXIgSVMgTlVMTCBUSEVOCiAgICBSQUlTRSBFWENFUFRJT04gJ05vdCBhdXRoZW50aWNhdGVkJzsKICBFTkQgSUY7CgogIElGIHBfcmVhc29uIE5PVCBJTiAoJ2hlbHBfY29uZmlybWVkJywgJ2RhaWx5X2NoZWNraW4nLCAncXVpY2tfc3RhcnQnLCAnYWRqdXN0bWVudCcpIFRIRU4KICAgIFJBSVNFIEVYQ0VQVElPTiAnSW52YWxpZCBhd2FyZCByZWFzb246ICUnLCBwX3JlYXNvbjsKICBFTkQgSUY7CgogIElGIHBfYW1vdW50IElTIE5VTEwgT1IgcF9hbW91bnQgPCAxIE9SIHBfYW1vdW50ID4gMTAwMCBUSEVOCiAgICBSQUlTRSBFWENFUFRJT04gJ0ludmFsaWQgYXdhcmQgYW1vdW50OiAlJywgcF9hbW91bnQ7CiAgRU5EIElGOwoKICB2X2tleSA6PSBDT0FMRVNDRSgKICAgIHBfaWRlbXBvdGVuY3lfa2V5LAogICAgcF9yZWFzb24gfHwgJzonIHx8IHBfcHJvZmlsZV9pZDo6VEVYVCB8fCAnOicgfHwgcGdfY2F0YWxvZy5kYXRlX3BhcnQoJ2Vwb2NoJywgcGdfY2F0YWxvZy5ub3coKSk6OlRFWFQKICApOwoKICAtLSBJZGVtcG90ZW50IHJlcGxheSwgaGFyZGVuZWQ6CiAgLS0gKiBzY29wZWQgdG8gdGhpcyBhd2FyZCdzIG93biBwYXJhbWV0ZXJzIChhIGJhcmUga2V5CiAgLS0gICBjb2xsaXNpb24gcmV0dXJucyBub3RoaW5nIG9mIGFub3RoZXIgbWVtYmVyJ3MpOwogIC0tICogVkFMSUQgcm93cyBvbmx5IOKAlCBhIHJldmVyc2VkIGF3YXJkIGlzIG5ldmVyIHJldHVybmVkIGFzCiAgLS0gICBhIHN1Y2Nlc3NmdWwgYXdhcmQ7CiAgLS0gKiBhdXRob3JpemF0aW9uIGlzIGVzdGFibGlzaGVkIEJFRk9SRSBhbnkgcmVjb3JkIGlzCiAgLS0gICByZXR1cm5lZDogdGhlIGNhbGxlciBtdXN0IGJlIHRoZSBhd2FyZCdzIHJlY2lwaWVudCwgb3IsCiAgLS0gICBmb3IgaGVscF9jb25maXJtZWQsIHRoZSBvd25lciBvZiB0aGUgcG9zdC4KICBTRUxFQ1QgKiBJTlRPIHZfZXhpc3RpbmcgRlJPTSBwdWJsaWMubnBfbGVkZ2VyCiAgV0hFUkUgaWRlbXBvdGVuY3lfa2V5ID0gdl9rZXkKICAgIEFORCBwcm9maWxlX2lkID0gcF9wcm9maWxlX2lkCiAgICBBTkQgcmVhc29uID0gcF9yZWFzb24KICAgIEFORCBwb3N0X2lkIElTIE5PVCBESVNUSU5DVCBGUk9NIHBfcG9zdF9pZAogICAgQU5EIGF3YXJkX3N0YXRlID0gJ3ZhbGlkJzsKICBJRiBGT1VORCBUSEVOCiAgICBJRiB2X2NhbGxlciA9IHBfcHJvZmlsZV9pZAogICAgICAgT1IgKHBfcmVhc29uID0gJ2hlbHBfY29uZmlybWVkJyBBTkQgcF9wb3N0X2lkIElTIE5PVCBOVUxMIEFORCBFWElTVFMgKAogICAgICAgICAgICAgU0VMRUNUIDEgRlJPTSBwdWJsaWMucG9zdHMKICAgICAgICAgICAgIFdIRVJFIGlkID0gcF9wb3N0X2lkIEFORCBvd25lcl9pZCA9IHZfY2FsbGVyCiAgICAgICAgICAgKSkgVEhFTgogICAgICBSRVRVUk4gdl9leGlzdGluZzsKICAgIEVORCBJRjsKICAgIC0tIENhbGxlciBpcyBub3QgYXV0aG9yaXplZCBmb3IgdGhpcyByZWNvcmQuIEZhbGwgdGhyb3VnaAogICAgLS0gV0lUSE9VVCByZXR1cm5pbmcgaXQ6IHRoZSBicmFuY2ggY2hlY2tzIGJlbG93IGVuZm9yY2UKICAgIC0tIGF1dGhvcml6YXRpb24gb24gdGhlaXIgb3duIHRlcm1zLCBhbmQgYSBtaXNtYXRjaGVkCiAgICAtLSBpbnNlcnQgZGllcyBvbiB0aGUga2V5J3MgVU5JUVVFIGNvbnN0cmFpbnQuCiAgRU5EIElGOwoKICAtLSBBIHJldmVyc2VkIGF3YXJkJ3Mga2V5IGlzIHJldGlyZWQ6IHJlcGxheWluZyBpdCBpcyBhCiAgLS0gcmVmdXNhbCwgbmV2ZXIgYSByZXN1cnJlY3Rpb24gYW5kIG5ldmVyIGEgc2lsZW50IHN1Y2Nlc3MuCiAgU0VMRUNUICogSU5UTyB2X3JldmVyc2VkIEZST00gcHVibGljLm5wX2xlZGdlcgogIFdIRVJFIGlkZW1wb3RlbmN5X2tleSA9IHZfa2V5IEFORCBhd2FyZF9zdGF0ZSA9ICdyZXZlcnNlZCc7CiAgSUYgRk9VTkQgVEhFTgogICAgUkFJU0UgRVhDRVBUSU9OICdUaGlzIGF3YXJkIHdhcyByZXZlcnNlZDsgaXRzIGlkZW1wb3RlbmN5IGtleSBpcyByZXRpcmVkJzsKICBFTkQgSUY7CgogIElGIHBfcmVhc29uID0gJ2hlbHBfY29uZmlybWVkJyBUSEVOCiAgICBJRiBwX3Bvc3RfaWQgSVMgTlVMTCBUSEVOCiAgICAgIFJBSVNFIEVYQ0VQVElPTiAncG9zdF9pZCByZXF1aXJlZCBmb3IgaGVscF9jb25maXJtZWQnOwogICAgRU5EIElGOwogICAgU0VMRUNUICogSU5UTyB2X3Bvc3QgRlJPTSBwdWJsaWMucG9zdHMgV0hFUkUgaWQgPSBwX3Bvc3RfaWQgRk9SIFVQREFURTsKICAgIElGIE5PVCBGT1VORCBUSEVOCiAgICAgIFJBSVNFIEVYQ0VQVElPTiAnUG9zdCBub3QgZm91bmQnOwogICAgRU5EIElGOwogICAgSUYgdl9wb3N0Lm93bmVyX2lkICE9IHZfY2FsbGVyIFRIRU4KICAgICAgUkFJU0UgRVhDRVBUSU9OICdPbmx5IHRoZSBwb3N0IG93bmVyIGNhbiBjb25maXJtIGNvbXBsZXRpb24nOwogICAgRU5EIElGOwogICAgSUYgdl9wb3N0LnN0YWdlIE5PVCBJTiAoJ2RvbmUnLCAnY29uZmlybWVkJykgVEhFTgogICAgICBSQUlTRSBFWENFUFRJT04gJ1Bvc3QgbXVzdCBiZSBpbiBkb25lIHN0YWdlIHRvIGNvbmZpcm0gKGN1cnJlbnQ6ICUpJywgdl9wb3N0LnN0YWdlOwogICAgRU5EIElGOwogICAgSUYgTk9UIEVYSVNUUyAoCiAgICAgIFNFTEVDVCAxIEZST00gcGdfY2F0YWxvZy5qc29uYl9hcnJheV9lbGVtZW50cyh2X3Bvc3QuaGVscGVycykgQVMgaAogICAgICBXSEVSRSAoaC0+PidpZCcpOjpVVUlEID0gcF9wcm9maWxlX2lkCiAgICApIFRIRU4KICAgICAgUkFJU0UgRVhDRVBUSU9OICdOUCBjYW4gb25seSBiZSBhd2FyZGVkIHRvIHNlbGVjdGVkIGhlbHBlcnMnOwogICAgRU5EIElGOwogICAgLS0gT25lIFZBTElEIGF3YXJkIHBlciAocG9zdCwgaGVscGVyKSwgZnJvbSB0aGUgbGVkZ2VyIOKAlAogICAgLS0gaW5kZXBlbmRlbnQgb2YgdGhlIGNhbGxlcidzIGtleS4gUmV2ZXJzZWQgYXdhcmRzIGRvIG5vdAogICAgLS0gYmxvY2sgYSBsZWdpdGltYXRlIHJlLWF3YXJkLgogICAgSUYgRVhJU1RTICgKICAgICAgU0VMRUNUIDEgRlJPTSBwdWJsaWMubnBfbGVkZ2VyCiAgICAgIFdIRVJFIHJlYXNvbiA9ICdoZWxwX2NvbmZpcm1lZCcKICAgICAgICBBTkQgYXdhcmRfc3RhdGUgPSAndmFsaWQnCiAgICAgICAgQU5EIHBvc3RfaWQgPSBwX3Bvc3RfaWQKICAgICAgICBBTkQgcHJvZmlsZV9pZCA9IHBfcHJvZmlsZV9pZAogICAgKSBUSEVOCiAgICAgIFJBSVNFIEVYQ0VQVElPTiAnSGVscCBhbHJlYWR5IGNvbmZpcm1lZCBhbmQgYXdhcmRlZCBmb3IgdGhpcyBoZWxwZXInOwogICAgRU5EIElGOwogICAgSUYgcF9hbW91bnQgIT0gMjAgVEhFTgogICAgICBSQUlTRSBFWENFUFRJT04gJ2hlbHBfY29uZmlybWVkIGF3YXJkcyBleGFjdGx5IDIwIE5QJzsKICAgIEVORCBJRjsKICAgIElGIHZfcG9zdC5zdGFnZSA9ICdkb25lJyBUSEVOCiAgICAgIFBFUkZPUk0gcGdfY2F0YWxvZy5zZXRfY29uZmlnKCduZWlnaGJsb29tLmFsbG93X3N5c3RlbV9maWVsZF91cGRhdGUnLCAndHJ1ZScsIHRydWUpOwogICAgICBVUERBVEUgcHVibGljLnBvc3RzIFNFVCBzdGFnZSA9ICdjb25maXJtZWQnLCBzdGF0dXMgPSAnY29uZmlybWVkJywKICAgICAgICB1cGRhdGVkX2F0ID0gcGdfY2F0YWxvZy5ub3coKSBXSEVSRSBpZCA9IHBfcG9zdF9pZDsKICAgICAgSU5TRVJUIElOVE8gcHVibGljLnBvc3RfdHJhbnNpdGlvbnMgKHBvc3RfaWQsIGZyb21fc3RhZ2UsIHRvX3N0YWdlLCBhY3Rvcl9pZCkKICAgICAgVkFMVUVTIChwX3Bvc3RfaWQsICdkb25lJywgJ2NvbmZpcm1lZCcsIHZfY2FsbGVyKTsKICAgIEVORCBJRjsKCiAgRUxTSUYgcF9yZWFzb24gPSAnZGFpbHlfY2hlY2tpbicgVEhFTgogICAgLS0gUmV0aXJlZCBhcyBhbiBlYXJuaW5nIG1lY2hhbmlzbSAoZm91bmRlciBkZWNpc2lvbiwKICAgIC0tIDIwMjYtMTAtMTMpLiBQYXN0IGF3YXJkcyByZW1haW4gaW4gdGhlIGxlZGdlciBhcyBoaXN0b3J5LgogICAgUkFJU0UgRVhDRVBUSU9OICdkYWlseV9jaGVja2luIGF3YXJkcyBhcmUgbm8gbG9uZ2VyIGF2YWlsYWJsZSc7CgogIEVMU0lGIHBfcmVhc29uID0gJ3F1aWNrX3N0YXJ0JyBUSEVOCiAgICAtLSBSZXRpcmVkIGFzIGFuIGVhcm5pbmcgbWVjaGFuaXNtIChmb3VuZGVyIGRlY2lzaW9uLAogICAgLS0gMjAyNi0xMC0xMykuIFRoZSBwYXRoIHdhcyBkb3JtYW50IGluIHRoZSBjbGllbnQ7IHRoZSBSUEMKICAgIC0tIG5vdyByZWZ1c2VzIGl0IGFzIHdlbGwuCiAgICBSQUlTRSBFWENFUFRJT04gJ3F1aWNrX3N0YXJ0IGF3YXJkcyBhcmUgbm8gbG9uZ2VyIGF2YWlsYWJsZSc7CgogIEVMU0lGIHBfcmVhc29uID0gJ2FkanVzdG1lbnQnIFRIRU4KICAgIFJBSVNFIEVYQ0VQVElPTiAnYWRqdXN0bWVudCBhd2FyZHMgYXJlIG5vdCBhdmFpbGFibGUnOwogIEVORCBJRjsKCiAgUEVSRk9STSBwZ19jYXRhbG9nLnNldF9jb25maWcoJ25laWdoYmxvb20uYWxsb3dfbnBfdXBkYXRlJywgJ3RydWUnLCB0cnVlKTsKICBVUERBVEUgcHVibGljLnByb2ZpbGVzIFNFVCBucCA9IG5wICsgcF9hbW91bnQgV0hFUkUgaWQgPSBwX3Byb2ZpbGVfaWQ7CiAgSUYgTk9UIEZPVU5EIFRIRU4KICAgIFJBSVNFIEVYQ0VQVElPTiAnUHJvZmlsZSBub3QgZm91bmQnOwogIEVORCBJRjsKCiAgSU5TRVJUIElOVE8gcHVibGljLm5wX2xlZGdlciAocHJvZmlsZV9pZCwgYW1vdW50LCByZWFzb24sIHBvc3RfaWQsIGlkZW1wb3RlbmN5X2tleSkKICBWQUxVRVMgKHBfcHJvZmlsZV9pZCwgcF9hbW91bnQsIHBfcmVhc29uLCBwX3Bvc3RfaWQsIHZfa2V5KQogIFJFVFVSTklORyAqIElOVE8gdl9lbnRyeTsKCiAgUkVUVVJOIHZfZW50cnk7CkVORDsKJCQ7CgpDT01NSVQ7Cg==
+-- Award NP remediation (founder-approved 2026-10-14, dev first).
+--
+-- Policy: retire daily_checkin and quick_start as earning
+-- mechanisms (server-side refusal; historical rows preserved);
+-- preserve the +20 help_confirmed award with ONE valid award per
+-- (post, selected helper) enforced from the ledger and by a
+-- partial unique index — independent of caller-supplied
+-- idempotency keys.
+--
+-- Reconciliation: the single known duplicate pair (a legitimate
+-- award plus a security-probe repeat award on a dev test
+-- account) is resolved by marking the probe award 'reversed'
+-- and inserting a compensating -20 'adjustment' entry that names
+-- it. Nothing is deleted; balances end at legitimate totals.
+--
+-- Preflight gate (run read-only BEFORE this file; STOP unless
+-- the only duplicate group is the known probe pair):
+--   SELECT post_id, profile_id, COUNT(*) FROM public.np_ledger
+--   WHERE reason = 'help_confirmed' AND post_id IS NOT NULL
+--   GROUP BY post_id, profile_id HAVING COUNT(*) > 1;
+--
+-- This file is a single transaction: any failure rolls back
+-- every step, including the balance correction.
+
+BEGIN;
+
+-- 1. Valid/reversed distinction (general ledger property).
+ALTER TABLE public.np_ledger
+  ADD COLUMN IF NOT EXISTS award_state TEXT NOT NULL DEFAULT 'valid'
+  CHECK (award_state IN ('valid', 'reversed'));
+
+-- 2. Mark the probe award reversed (guarded: aborts unless
+--    exactly this row transitions, so this migration can never
+--    be applied twice).
+DO $$
+BEGIN
+  UPDATE public.np_ledger
+  SET award_state = 'reversed'
+  WHERE id = 'd35feb1d-e890-4363-bc47-0ffcdbcf2974'
+    AND award_state = 'valid';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Reversal target not in valid state — migration already applied or inventory changed';
+  END IF;
+END $$;
+
+-- 3. Compensating entry naming the reversed row (UNIQUE key is
+--    a second once-only lock).
+INSERT INTO public.np_ledger (profile_id, amount, reason, post_id, idempotency_key)
+VALUES (
+  'c3c9c550-8376-40cb-bcc9-f5b4363fb447',
+  -20,
+  'adjustment',
+  'fbff5c5e-2d8c-46dc-ae97-23ff89022f46',
+  'reversal:d35feb1d-e890-4363-bc47-0ffcdbcf2974'
+);
+
+-- 4. Balance correction under the standard NP bypass, inside
+--    the same transaction as its reversal record.
+SELECT pg_catalog.set_config('neighbloom.allow_np_update', 'true', true);
+UPDATE public.profiles SET np = np - 20
+WHERE id = 'c3c9c550-8376-40cb-bcc9-f5b4363fb447';
+
+-- 5. One VALID award per (post, helper), database-enforced.
+--    Reversed awards are excluded by the general award_state
+--    rule — no row-specific exceptions.
+CREATE UNIQUE INDEX np_ledger_help_once
+  ON public.np_ledger (post_id, profile_id)
+  WHERE reason = 'help_confirmed' AND award_state = 'valid';
+
+-- 6. award_np final form.
+--    Changes from the M5-era definition:
+--    a. The idempotent-replay lookup is scoped to the award's
+--       own parameters, only returns VALID rows, and only
+--       returns a record to a caller authorized for that award
+--       (the recipient themselves, or — for help_confirmed —
+--       the owner of the post). A replay of a REVERSED award's
+--       key is refused explicitly: reversed awards are final
+--       and their keys are retired.
+--    b. help_confirmed refuses a second VALID award for the
+--       same (post, helper), whatever key the caller supplies.
+--    c. daily_checkin and quick_start refuse all new awards.
+CREATE OR REPLACE FUNCTION public.award_np(
+  p_profile_id UUID,
+  p_amount INTEGER,
+  p_reason TEXT,
+  p_post_id UUID DEFAULT NULL,
+  p_idempotency_key TEXT DEFAULT NULL
+)
+RETURNS public.np_ledger
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_caller UUID := auth.uid();
+  v_key TEXT;
+  v_existing public.np_ledger%ROWTYPE;
+  v_reversed public.np_ledger%ROWTYPE;
+  v_entry public.np_ledger%ROWTYPE;
+  v_post public.posts%ROWTYPE;
+BEGIN
+  IF v_caller IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  IF p_reason NOT IN ('help_confirmed', 'daily_checkin', 'quick_start', 'adjustment') THEN
+    RAISE EXCEPTION 'Invalid award reason: %', p_reason;
+  END IF;
+
+  IF p_amount IS NULL OR p_amount < 1 OR p_amount > 1000 THEN
+    RAISE EXCEPTION 'Invalid award amount: %', p_amount;
+  END IF;
+
+  v_key := COALESCE(
+    p_idempotency_key,
+    p_reason || ':' || p_profile_id::TEXT || ':' || pg_catalog.date_part('epoch', pg_catalog.now())::TEXT
+  );
+
+  -- Idempotent replay, hardened:
+  -- * scoped to this award's own parameters (a bare key
+  --   collision returns nothing of another member's);
+  -- * VALID rows only — a reversed award is never returned as
+  --   a successful award;
+  -- * authorization is established BEFORE any record is
+  --   returned: the caller must be the award's recipient, or,
+  --   for help_confirmed, the owner of the post.
+  SELECT * INTO v_existing FROM public.np_ledger
+  WHERE idempotency_key = v_key
+    AND profile_id = p_profile_id
+    AND reason = p_reason
+    AND post_id IS NOT DISTINCT FROM p_post_id
+    AND award_state = 'valid';
+  IF FOUND THEN
+    IF v_caller = p_profile_id
+       OR (p_reason = 'help_confirmed' AND p_post_id IS NOT NULL AND EXISTS (
+             SELECT 1 FROM public.posts
+             WHERE id = p_post_id AND owner_id = v_caller
+           )) THEN
+      RETURN v_existing;
+    END IF;
+    -- Caller is not authorized for this record. Fall through
+    -- WITHOUT returning it: the branch checks below enforce
+    -- authorization on their own terms, and a mismatched
+    -- insert dies on the key's UNIQUE constraint.
+  END IF;
+
+  -- A reversed award's key is retired: replaying it is a
+  -- refusal, never a resurrection and never a silent success.
+  SELECT * INTO v_reversed FROM public.np_ledger
+  WHERE idempotency_key = v_key AND award_state = 'reversed';
+  IF FOUND THEN
+    RAISE EXCEPTION 'This award was reversed; its idempotency key is retired';
+  END IF;
+
+  IF p_reason = 'help_confirmed' THEN
+    IF p_post_id IS NULL THEN
+      RAISE EXCEPTION 'post_id required for help_confirmed';
+    END IF;
+    SELECT * INTO v_post FROM public.posts WHERE id = p_post_id FOR UPDATE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Post not found';
+    END IF;
+    IF v_post.owner_id != v_caller THEN
+      RAISE EXCEPTION 'Only the post owner can confirm completion';
+    END IF;
+    IF v_post.stage NOT IN ('done', 'confirmed') THEN
+      RAISE EXCEPTION 'Post must be in done stage to confirm (current: %)', v_post.stage;
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_catalog.jsonb_array_elements(v_post.helpers) AS h
+      WHERE (h->>'id')::UUID = p_profile_id
+    ) THEN
+      RAISE EXCEPTION 'NP can only be awarded to selected helpers';
+    END IF;
+    -- One VALID award per (post, helper), from the ledger —
+    -- independent of the caller's key. Reversed awards do not
+    -- block a legitimate re-award.
+    IF EXISTS (
+      SELECT 1 FROM public.np_ledger
+      WHERE reason = 'help_confirmed'
+        AND award_state = 'valid'
+        AND post_id = p_post_id
+        AND profile_id = p_profile_id
+    ) THEN
+      RAISE EXCEPTION 'Help already confirmed and awarded for this helper';
+    END IF;
+    IF p_amount != 20 THEN
+      RAISE EXCEPTION 'help_confirmed awards exactly 20 NP';
+    END IF;
+    IF v_post.stage = 'done' THEN
+      PERFORM pg_catalog.set_config('neighbloom.allow_system_field_update', 'true', true);
+      UPDATE public.posts SET stage = 'confirmed', status = 'confirmed',
+        updated_at = pg_catalog.now() WHERE id = p_post_id;
+      INSERT INTO public.post_transitions (post_id, from_stage, to_stage, actor_id)
+      VALUES (p_post_id, 'done', 'confirmed', v_caller);
+    END IF;
+
+  ELSIF p_reason = 'daily_checkin' THEN
+    -- Retired as an earning mechanism (founder decision,
+    -- 2026-10-13). Past awards remain in the ledger as history.
+    RAISE EXCEPTION 'daily_checkin awards are no longer available';
+
+  ELSIF p_reason = 'quick_start' THEN
+    -- Retired as an earning mechanism (founder decision,
+    -- 2026-10-13). The path was dormant in the client; the RPC
+    -- now refuses it as well.
+    RAISE EXCEPTION 'quick_start awards are no longer available';
+
+  ELSIF p_reason = 'adjustment' THEN
+    RAISE EXCEPTION 'adjustment awards are not available';
+  END IF;
+
+  PERFORM pg_catalog.set_config('neighbloom.allow_np_update', 'true', true);
+  UPDATE public.profiles SET np = np + p_amount WHERE id = p_profile_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Profile not found';
+  END IF;
+
+  INSERT INTO public.np_ledger (profile_id, amount, reason, post_id, idempotency_key)
+  VALUES (p_profile_id, p_amount, p_reason, p_post_id, v_key)
+  RETURNING * INTO v_entry;
+
+  RETURN v_entry;
+END;
+$$;
+
+COMMIT;
