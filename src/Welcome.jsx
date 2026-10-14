@@ -38,26 +38,30 @@ export function WelcomeHero({ town, displayName, onAnswerQuestion, onIntroduce, 
   if (loading) {
     return (
       <div className="nb-welcome-hero nb-welcome-loading">
-        <div className="nb-welcome-title">Welcome{town ? ` to ${town}` : ''} 🏡</div>
+        <div className="nb-welcome-title">Welcome{town ? ` to ${town}` : ''}</div>
         <div className="nb-welcome-sub">Getting to know your neighborhood…</div>
       </div>
     );
   }
 
-  const isPioneer = neighborCount !== null && neighborCount <= 10;
+  // A count of 0 is impossible — the viewer is a profile in this
+  // town — so 0 means the count raced the session and lost; show
+  // no number rather than a wrong one ("neighbor #0").
+  const safeCount = neighborCount && neighborCount > 0 ? neighborCount : null;
+  const isPioneer = safeCount !== null && safeCount <= 10;
   // The count includes the viewer; "neighbors are here" must not.
-  const othersCount = neighborCount !== null ? Math.max(0, neighborCount - 1) : null;
+  const othersCount = safeCount !== null ? Math.max(0, safeCount - 1) : null;
 
   return (
     <div className="nb-welcome-hero">
       <div className="nb-welcome-title">
-        Welcome{town ? ` to ${town}` : ''} 🏡
+        Welcome{town ? ` to ${town}` : ''}
       </div>
 
       <div className="nb-welcome-count">
-        {neighborCount !== null ? (
+        {safeCount !== null ? (
           isPioneer ? (
-            <>You're neighbor <strong>#{neighborCount}</strong> — you're helping found this neighborhood.</>
+            <>You're neighbor <strong>#{safeCount}</strong> — you're helping found this neighborhood.</>
           ) : (
             <><strong>{othersCount}</strong> neighbor{othersCount === 1 ? ' is' : 's are'} here.</>
           )
@@ -162,7 +166,7 @@ export function IntroComposer({ initialIntro = '', initialSkills = [], onSave, o
 
   return (
     <div className="nb-intro-composer">
-      <div className="nb-intro-title">Say hello 👋</div>
+      <div className="nb-intro-title">Say hello</div>
       <div className="nb-intro-sub">
         A quick intro helps neighbors know who you are. What should they know?
       </div>
@@ -304,7 +308,7 @@ export function TownAsk({ displayName, onSave, onSkip }) {
 
   return (
     <div className="nb-welcome-hero">
-      <div className="nb-welcome-title">Welcome{firstName ? `, ${firstName}` : ''} 🏡</div>
+      <div className="nb-welcome-title">Welcome{firstName ? `, ${firstName}` : ''}</div>
       <div className="nb-welcome-sub">
         Neighbloom runs town by town — your town decides which neighbors and posts you see first.
         Which town do you call home?

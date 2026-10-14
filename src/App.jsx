@@ -177,8 +177,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined' && !window.
 }
 /* -------------------------------------------------------------------- */
 
-const NEIGHBLOOM_LOGO =
-  'https://storage.googleapis.com/space-apps-assets/store_MJDeCrFHOB/9kmK0Kexuz-logo.jpg';
+// The founder's original logo, self-hosted (was a remote hotlink —
+// if that storage URL ever died, the brand mark broke app-wide).
+const NEIGHBLOOM_LOGO = '/logo.jpg';
 
   const APP_NAME = 'Neighbloom';
 const APP_TAGLINE = 'Little missions, big city.';
@@ -1128,7 +1129,7 @@ onRefresh,
       {away && (away.asks > 0 || away.updates > 0) ? (
         <div className="nb-section" style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
           <div style={{ flex: 1, fontWeight: 850, fontSize: 14 }}>
-            👋 While you were away:{' '}
+            While you were away:{' '}
             {away.asks > 0 ? `${away.asks} new ask${away.asks === 1 ? '' : 's'} nearby` : ''}
             {away.asks > 0 && away.updates > 0 ? ' · ' : ''}
             {away.updates > 0 ? `${away.updates} update${away.updates === 1 ? '' : 's'} waiting` : ''}
@@ -1143,7 +1144,7 @@ onRefresh,
 
       {Array.isArray(kindness) && kindness.length > 0 ? (
         <div className="nb-section" style={{ marginTop: 12 }}>
-          <div className="nb-section-title">💛 Kindness in the neighborhood</div>
+          <div className="nb-section-title">Kindness in the neighborhood</div>
           {/* Design pass (2026-10-13): gratitude is the emotional
               core — the newest thank-you gets a designed card
               (faces first, the words prominent, brand coral),
@@ -4426,7 +4427,7 @@ expandedOtherVols,
           className={`nb-tabbtn ${activeTab === 'home' ? 'is-active' : ''}`}
           onClick={() => navTo('home')}
         >
-          <span className="nb-tabicon" aria-hidden="true">🏠</span>
+          <span className="nb-tabicon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9.5 21v-6h5v6"/></svg></span>
           <span className="nb-tablabel">Home</span>
         </button>
 
@@ -4435,7 +4436,7 @@ expandedOtherVols,
           className={`nb-tabbtn ${activeTab === 'post' ? 'is-active' : ''}`}
           onClick={() => navTo('post')}
         >
-          <span className="nb-tabicon" aria-hidden="true">➕</span>
+          <span className="nb-tabicon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
           <span className="nb-tablabel">Post</span>
         </button>
 
@@ -4444,7 +4445,7 @@ expandedOtherVols,
           className={`nb-tabbtn ${activeTab === 'activity' ? 'is-active' : ''}`}
           onClick={() => navTo('activity')}
         >
-          <span className="nb-tabicon" aria-hidden="true">🔔</span>
+          <span className="nb-tabicon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 9a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 15 18 9"/><path d="M10 20a2.2 2.2 0 0 0 4 0"/></svg></span>
           <span className="nb-tablabel">Activity</span>
 
           {totalUnread > 0 ? (
@@ -4459,7 +4460,7 @@ expandedOtherVols,
           className={`nb-tabbtn ${activeTab === 'profile' ? 'is-active' : ''}`}
           onClick={() => navTo('profile')}
         >
-          <span className="nb-tabicon" aria-hidden="true">👤</span>
+          <span className="nb-tabicon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4.5 20.5c1.4-3.4 4.2-5 7.5-5s6.1 1.6 7.5 5"/></svg></span>
           <span className="nb-tablabel">Profile</span>
         </button>
       </div>
@@ -5414,9 +5415,9 @@ function pushActivity(arg, meta = {}) {
         : post.stage === 'done'
         ? '✓ Marked done — ready for thanks'
         : post.stage === 'started'
-        ? '🤝 Help is happening now'
+        ? 'Help is happening now'
         : post.stage === 'booked'
-        ? '📅 Helpers are booked'
+        ? 'Helpers are booked'
         : null;
 
     return (
@@ -5439,7 +5440,7 @@ function pushActivity(arg, meta = {}) {
             {/* Simplified chips: category, location, time */}
             {post.kind === 'help' ? (
               <>
-                <span className="nb-meta-chip">{post.category}</span>
+                {post.category ? (<span className="nb-meta-chip">{post.category}</span>) : null}
                 <span className="nb-meta-chip">{post.area}</span>
                 {post.whenRange ? (
                   <span className="nb-meta-chip">{post.whenRange}</span>
@@ -6008,7 +6009,7 @@ function pushActivity(arg, meta = {}) {
                           {h.name}
                           <span style={{ marginLeft: 8 }}><UserBadge userId={h.id} /></span>
                         </div>
-                        <div className="nb-thanks-np">💛 +20 NP for helping</div>
+                        <div className="nb-thanks-np">+20 NP for helping</div>
                       </div>
                       <textarea
                         className="nb-input"
@@ -8632,7 +8633,7 @@ const [nearText, setNearText] = useState('');
                         </div>
                       ) : null}
                     </div>
-                    <div className="nb-activity-sub">{g.preview}</div>
+
                     {g.isRemote && g.postTitle ? (
                       <div className="nb-activity-postref">on “{g.postTitle}”</div>
                     ) : null}
@@ -9303,14 +9304,13 @@ const [nearText, setNearText] = useState('');
         <div className="nb-section nb-profile-hero">
           <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
             <div style={{ flex: '0 0 auto' }}>
-              <img src={me.avatar} alt={me.name} style={{ width: 120, height: 120, borderRadius: 16, objectFit: 'cover', border: '2px solid var(--gold)', padding: 2 }} />
+              <img src={me.avatar} alt={me.name} style={{ width: 88, height: 88, borderRadius: 20, objectFit: 'cover', border: '1px solid var(--border)' }} />
             </div>
 
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 980, fontSize: 20 }}>
                 <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{me.name}</div>
                 <div className="nb-handle">{me.handle}</div>
-                <div style={{ marginLeft: 6, fontSize: 18 }}>🌱</div>
               </div>
               <div style={{ marginTop: 6, color: 'var(--muted)', fontWeight: 850 }}>{me.location || 'Worth'}</div>
               {isAuthenticated ? (
@@ -9371,13 +9371,13 @@ const [nearText, setNearText] = useState('');
             <div style={{ fontWeight: 980, fontSize: 15 }}>Trust</div>
             <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 6 }}>
               {(authProfile?.town || (!isAuthenticated && me?.location)) ? (
-                <li style={{ display: 'flex', gap: 8, alignItems: 'center' }}>🏡 {authProfile?.town || me.location} neighbor</li>
+                <li style={{ display: 'flex', gap: 8, alignItems: 'center' }}>{authProfile?.town || me.location} neighbor</li>
               ) : null}
               {impactHelpCount > 0 ? (
-                <li style={{ display: 'flex', gap: 8, alignItems: 'center' }}>🤝 Helped {impactHelpCount} neighbor{impactHelpCount === 1 ? '' : 's'}</li>
+                <li style={{ display: 'flex', gap: 8, alignItems: 'center' }}>Helped {impactHelpCount} neighbor{impactHelpCount === 1 ? '' : 's'}</li>
               ) : null}
               {(authProfile?.intro && authProfile.intro.trim()) ? (
-                <li style={{ display: 'flex', gap: 8, alignItems: 'center' }}>✍️ Introduced themselves to the neighborhood</li>
+                <li style={{ display: 'flex', gap: 8, alignItems: 'center' }}>Introduced themselves to the neighborhood</li>
               ) : null}
               {!authProfile?.town && impactHelpCount === 0 && !(authProfile?.intro && authProfile.intro.trim()) ? (
                 <li style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--muted)' }}>New here — trust grows as you help and get helped.</li>
@@ -9405,12 +9405,12 @@ const [nearText, setNearText] = useState('');
             const ci = getCheckInFor(me.id);
             const checkedToday = ci.lastDate === todayKey();
             const storyBits = [];
-            if (impactHelpCount > 0) storyBits.push(`🤝 Helped ${impactHelpCount} neighbor${impactHelpCount === 1 ? '' : 's'}`);
-            if (myPostCount > 0) storyBits.push(`📣 Posted ${myPostCount} request${myPostCount === 1 ? '' : 's'} & recommendations`);
-            if (myGratitude.received > 0) storyBits.push(`💛 Received ${myGratitude.received} thank-you${myGratitude.received === 1 ? '' : 's'}`);
-            if (myGratitude.sent > 0) storyBits.push(`🙏 Thanked ${myGratitude.sent} neighbor${myGratitude.sent === 1 ? '' : 's'}`);
+            if (impactHelpCount > 0) storyBits.push(`Helped ${impactHelpCount} neighbor${impactHelpCount === 1 ? '' : 's'}`);
+            if (myPostCount > 0) storyBits.push(`Posted ${myPostCount} request${myPostCount === 1 ? '' : 's'} & recommendations`);
+            if (myGratitude.received > 0) storyBits.push(`Received ${myGratitude.received} thank-you${myGratitude.received === 1 ? '' : 's'}`);
+            if (myGratitude.sent > 0) storyBits.push(`Thanked ${myGratitude.sent} neighbor${myGratitude.sent === 1 ? '' : 's'}`);
             return (
-              <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 12, padding: 14, background: 'rgba(255,255,255,.02)' }}>
+              <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 18, padding: 16, background: 'rgba(255,255,255,.03)' }}>
                 <div style={{ fontWeight: 950 }}>Your story in {authProfile?.town || me.location || 'the neighborhood'}</div>
                 {storyBits.length > 0 ? (
                   <ul style={{ marginTop: 8, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 6 }}>

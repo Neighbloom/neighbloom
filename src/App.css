@@ -1,6 +1,17 @@
+/* Brand typeface — Nunito, self-hosted (variable, latin).
+   The app declared Nunito for years but never loaded it; every
+   screen silently fell back to system-ui. */
+@font-face {
+  font-family: 'Nunito';
+  src: url('/fonts/nunito-latin-var.woff2') format('woff2');
+  font-weight: 200 1000;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root{
-  --bg0:#050A14;
-  --bg1:#0B1220;
+  --bg0:#081426;
+  --bg1:#0F1F3A;
 
   --panel: rgba(12,18,33,.78);
   --card: rgba(10,16,30,.82);
@@ -11,8 +22,9 @@
   --border: rgba(242,246,255,.10);
   --soft: rgba(242,246,255,.06);
 
-  --accent:#FF6A3D;
-  --accent2:#FF915A;
+  --accent:#F35B50;
+  --accent2:#3FB9AC;
+  --coral:#F35B50;
 
   --good:#36D399;
   --warn:#F59E0B;
@@ -50,7 +62,7 @@ html{
 
 body{
   margin:0;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  font-family: 'Nunito', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   color:var(--text);
   background: transparent; /* prevents iOS/Chrome bounce showing white */
 }
@@ -90,8 +102,8 @@ body{
   --soft: rgba(242,246,255,.06);
 
   /* Accent colors — increased visibility for CTAs */
-  --accent: #FF6A3D;    /* coral — primary/help CTAs */
-  --accent2: #4FD1C5;   /* turquoise — recommendations */
+  --accent: #F35B50;    /* brand coral — primary/help CTAs */
+  --accent2: #3FB9AC;   /* brand turquoise — recommendations */
 
   /* Gold for NP / badges */
   --gold: #F59E0B;
@@ -2467,3 +2479,92 @@ details.nb-details summary::-webkit-details-marker {
   color: #11B5A3;
   font-weight: 600;
 }
+
+/* ============================================================
+   CRAFT PASS — consolidated design layer (2026-10-13)
+   One treatment per role, brand tokens only. Appended last so
+   it wins over the accreted per-component rules above. This
+   layer is presentation only — no behavior lives here.
+   ============================================================ */
+
+/* Primary action: flat brand coral, dark text (measured AA on
+   this coral in the .nb-btn.nb-btn-primary note above). */
+.nb-btn.nb-btn-primary,
+.nb-btn-primary,
+.nb-quickbtn-primary,
+.nb-hero-cta {
+  background: var(--coral);
+  color: #2A130A;
+  border-color: transparent;
+  box-shadow: 0 8px 22px rgba(243, 91, 80, .22);
+}
+
+/* Recommendation action: flat brand turquoise. */
+.nb-btn.nb-btn-rec {
+  background: var(--accent2);
+  color: #062D29;
+  border-color: transparent;
+  box-shadow: 0 8px 22px rgba(63, 185, 172, .20);
+}
+
+/* NP gold: one flat tone, points contexts only — no more
+   orange-to-gold progress blends. */
+.nb-badge,
+.nb-np-badge {
+  background: #E9B44C;
+  color: #23180A;
+  box-shadow: none;
+}
+.nb-np-progress-inner { background: #E9B44C; }
+
+/* Unread pill: solid coral (was a coral-to-teal gradient). */
+.nb-unread-pill { background: var(--coral); color: #2A130A; }
+
+/* Cards: one surface — hairline border, gentle lift, soft
+   shadow; the request is the loudest thing on the card. */
+.nb-card {
+  background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 10px 28px rgba(2, 6, 16, .35);
+}
+
+/* Card author block at conversation scale (was 72px). */
+.nb-card-meta .nb-avatar { width: 46px; height: 46px; }
+
+/* Chips: one voice. */
+.nb-chip { font-size: 12.5px; font-weight: 800; letter-spacing: .01em; }
+
+/* Tab bar: drawn icons (replaced emoji in BottomTabs). */
+.nb-tabicon { display: inline-flex; align-items: center; justify-content: center; }
+.nb-tabicon svg { width: 23px; height: 23px; display: block; }
+
+/* Rules row: a caption, not a tinted banner with a beacon dot.
+   The facts stay; the shout goes. */
+.nb-rules-row {
+  background: transparent;
+  border-color: transparent;
+  padding: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.nb-rules-dot { display: none; }
+
+/* Status pill: neutral outline chip. The prose stage line is
+   the state storyteller; the pill just confirms it quietly. */
+.nb-status {
+  background: rgba(255,255,255,.04);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Chat: my bubbles carry the brand coral tint (was the old
+   orange), and the drawer sits on the navy system. */
+.nb-chat { background: rgba(10, 20, 38, .96); }
+.nb-msg.me .nb-msg-bubble {
+  background: rgba(243, 91, 80, .18);
+  border-color: rgba(243, 91, 80, .34);
+}
+
+/* Modal sheets on the same navy. */
+.nb-modal { background: rgba(10, 20, 38, .97); }
