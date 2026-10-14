@@ -2497,8 +2497,8 @@ details.nb-details summary::-webkit-details-marker {
   --paper: #FAF6ED;
   --paper-deep: #F3ECDB;
   --ink: #21334B;
-  --ink-soft: rgba(33, 51, 75, 0.66);
-  --ink-faint: rgba(33, 51, 75, 0.52);
+  --ink-soft: rgba(33, 51, 75, 0.76);
+  --ink-faint: rgba(33, 51, 75, 0.72);
   --rule: rgba(33, 51, 75, 0.18);
   --rule-strong: rgba(33, 51, 75, 0.85);
   --coral: #F35B50;
@@ -2573,6 +2573,7 @@ details.nb-details summary::-webkit-details-marker {
 }
 .nb-brief-textbtn {
   background: none; border: none; cursor: pointer; padding: 6px 2px;
+  display: inline-flex; align-items: center; min-height: 40px;
   font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 900;
   color: var(--ink);
   border-bottom: 2px solid var(--coral);
@@ -2637,11 +2638,12 @@ details.nb-details summary::-webkit-details-marker {
 }
 .nb-brief-help {
   background: none; border: none; cursor: pointer; padding: 2px 0;
+  display: inline-flex; align-items: center; min-height: 40px;
   font-family: 'Nunito', sans-serif; font-size: 14px; font-weight: 900;
   color: var(--coral-deep);
   border-bottom: 2px solid var(--coral);
 }
-.nb-brief-offered { font-size: 13.5px; font-weight: 900; color: var(--teal); }
+.nb-brief-offered { font-size: 13.5px; font-weight: 900; color: var(--ink); }
 .nb-brief-waiting { color: var(--coral-deep); font-weight: 900; }
 
 /* — Expansion well: the working machinery sits on the navy board — */
@@ -2691,4 +2693,10 @@ details.nb-details summary::-webkit-details-marker {
   margin-top: 14px; background: none; border: none; cursor: pointer;
   font-family: 'Nunito', sans-serif; font-size: 12.5px; font-weight: 800;
   color: var(--ink-faint); text-decoration: underline; text-underline-offset: 3px;
+}
+
+.nb-brief-textbtn-quiet { border-bottom-color: rgba(33, 51, 75, .35); }
+.nb-brief-well-label {
+  font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+  color: rgba(250, 246, 237, .75); margin: 2px 2px 10px;
 }

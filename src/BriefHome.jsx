@@ -1,0 +1,500 @@
+import React, { useEffect, useState } from 'react';
+import { timeAgo } from './utils.js';
+import { useAuth } from './auth.jsx';
+
+// The Worth Brief — Neighbloom's Home as a finite, dated,
+// editorial front page for the member's own town. Code-split
+// (loaded via BriefHomeWrapper in App.jsx) so the redesign stays
+// out of the initial bundle. Everything it needs from App scope
+// arrives through one ctx object; the transaction machinery
+// (PostCard) is passed in untouched.
+export function BriefHome({ ctx, onClassic }) {
+  const {
+    displayPosts, me, isAuthenticated, authProfile, setModal,
+    setActiveTab, setPostFlow, awayAsks, activityNewCount,
+    getBlockedSet, PostCard, TownAskWrapper,
+  } = ctx;
+    const { updateProfile } = useAuth();
+    const [townSkipped, setTownSkipped] = useState(false);
+    const [expandedId, setExpandedId] = useState(null);
+    const [neighborCount, setNeighborCount] = useState(null);
+    const [neighbors, setNeighbors] = useState([]);
+    const [welcomeDismissed, setWelcomeDismissed] = useState(false);
+    const [settled, setSettled] = useState(false);
+
+    const town = authProfile?.town || '';
+    // displayPosts spans towns (the classic feed narrows by
+    // radius); the Brief is this town's front page, so scope by
+    // the post's own area — otherwise the masthead would claim
+    // other towns' asks as this town's. The classic feed's two
+    // safety/honesty filters apply here too, unchanged: posts by
+    // authors the viewer blocked never render, and cancelled or
+    // archived posts stay out of the default view.
+    const briefBlockedSet = getBlockedSet(me?.id);
+    const townPosts = (Array.isArray(displayPosts) ? displayPosts : []).filter(
+      (p) =>
+        (!town || p.area === town) &&
+        !briefBlockedSet.has(p.ownerId) &&
+        p.stage !== 'cancelled' &&
+        p.status !== 'cancelled' &&
+        p.lifecycle !== 'archived' &&
+        p.status !== 'archived'
+    );
+
+    // Posts arrive async; never declare a town "empty" on a
+    // cold cache. The masthead renders immediately; the body
+    // settles once posts land or a short window passes.
+    useEffect(() => {
+      if (townPosts.length > 0) { setSettled(true); return; }
+      const t = setTimeout(() => setSettled(true), 2500);
+      return () => clearTimeout(t);
+    }, [townPosts.length]);
+
+    // New-member welcome (same rule as SmartHero): no intro,
+    // joined < 7 days, not dismissed.
+    const hasIntro = !!(authProfile?.intro && authProfile.intro.trim());
+    const joinedAt = authProfile?.created_at ? new Date(authProfile.created_at) : null;
+    const daysSinceJoin = joinedAt ? (Date.now() - joinedAt.getTime()) / 86400000 : 999;
+    useEffect(() => {
+      try {
+        setWelcomeDismissed(
+          localStorage.getItem(`nb_welcome_dismissed_${authProfile?.id}`) === '1'
+        );
+      } catch {}
+    }, [authProfile?.id]);
+    const showWelcome = !hasIntro && daysSinceJoin < 7 && !welcomeDismissed;
+
+    const [briefGrat, setBriefGrat] = useState([]);
+    useEffect(() => {
+      if (!town) return;
+      let live = true;
+      (async () => {
+        try {
+          const { supabase } = await import('./supabase.js');
+          if (!supabase) return;
+          const { data, error } = await supabase
+            .from('gratitude_posts')
+            .select('*, helper:profiles!gratitude_posts_helper_id_fkey(id, display_name, avatar_url), thanker:profiles!gratitude_posts_thanker_id_fkey(id, display_name, avatar_url), post:posts!gratitude_posts_post_id_fkey(area)')
+            .eq('hidden_by_helper', false)
+            .order('created_at', { ascending: false })
+            .limit(25);
+          if (!live || error) return;
+          setBriefGrat((data || []).filter((g) => g.post?.area === town).slice(0, 5));
+        } catch {}
+      })();
+      return () => { live = false; };
+    }, [town]);
+
+    useEffect(() => {
+      if (!town) return;
+      let live = true;
+      (async () => {
+        try {
+          const m2 = await import('./m2.js');
+          const [count, list] = await Promise.all([
+            m2.getNeighborCount(town).catch(() => null),
+            m2.fetchNeighbors(town, 5).catch(() => []),
+          ]);
+          if (!live) return;
+          setNeighborCount(count);
+          setNeighbors(Array.isArray(list) ? list : []);
+        } catch {}
+      })();
+      return () => { live = false; };
+    }, [town]);
+
+    // Townless profiles get the plain town ask first (B2) — the
+    // brief cannot name a place it does not know.
+    if (isAuthenticated && authProfile && !town && !townSkipped) {
+      return (
+        <TownAskWrapper
+          displayName={authProfile?.display_name}
+          onSave={async (t) => { await updateProfile({ town: t }); }}
+          onSkip={() => setTownSkipped(true)}
+        />
+      );
+    }
+
+    const isHelp = (p) => p.kind === 'help';
+    const isRec = (p) => p.kind === 'rec' || p.kind === 'recommendation';
+    const stageOf = (p) => p.stage || p.status || 'open';
+    const activeOffers = (p) =>
+      (Array.isArray(p.replies) ? p.replies : []).filter(
+        (r) => r.type === 'volunteer' && (r.status || 'active') === 'active'
+      );
+    const byNew = (a, b) => (b.createdAt || 0) - (a.createdAt || 0);
+    const helpPosts = townPosts.filter(isHelp);
+    const openAsks = helpPosts.filter((p) => stageOf(p) === 'open').sort(byNew);
+    const stillWaiting = openAsks.filter(
+      (p) => Date.now() - (p.createdAt || 0) > 86400000 && activeOffers(p).length === 0
+    );
+    const waitingIds = new Set(stillWaiting.map((p) => p.id));
+    const recs = townPosts.filter(isRec).sort(byNew);
+    const completedCount = helpPosts.filter((p) =>
+      ['confirmed', 'done'].includes(stageOf(p))
+    ).length;
+    const grat = briefGrat;
+
+    const ledeAsk = openAsks.length > 0 ? openAsks[0] : null;
+    const ledeGrat = !ledeAsk && grat.length > 0 ? grat[0] : null;
+    const kindnessHead = ledeAsk ? grat[0] || null : grat[1] || null;
+    const kindnessLines = grat
+      .filter((g) => g !== ledeGrat && g !== kindnessHead)
+      .slice(0, 2);
+    const indexAsks = openAsks.filter((p) => p !== ledeAsk && !waitingIds.has(p.id));
+
+    const today = new Date();
+    const dateLine = today.toLocaleDateString('en-US', {
+      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    });
+    const firstName = (name) => (name || 'A neighbor').split(' ')[0];
+    const myOfferOn = (p) =>
+      (Array.isArray(p.replies) ? p.replies : []).some(
+        (r) => r.authorId === me?.id && r.type === 'volunteer' && (r.status || 'active') === 'active'
+      );
+
+    const helpAction = (p) => {
+      if (p.ownerId === me?.id) return <span className="nb-brief-offered">Your ask</span>;
+      if (myOfferOn(p)) return <span className="nb-brief-offered">You offered ✓</span>;
+      return (
+        <button
+          type="button"
+          className="nb-brief-help"
+          onClick={(e) => {
+            e.stopPropagation();
+            setModal({ type: 'reply', postId: p.id, mode: 'volunteer' });
+          }}
+        >
+          I can help
+        </button>
+      );
+    };
+
+    const askRow = (p, waiting) => {
+      const offers = activeOffers(p).length;
+      const expanded = expandedId === p.id;
+      return (
+        <div className="nb-brief-row" key={p.id}>
+          <button
+            type="button"
+            className="nb-brief-rowhead"
+            aria-expanded={expanded}
+            onClick={() => setExpandedId(expanded ? null : p.id)}
+          >
+            <div className="nb-brief-row-title">{p.title}</div>
+            {p.details ? <div className="nb-brief-row-body">{p.details}</div> : null}
+            <div className="nb-brief-row-meta">
+              <span>{firstName(p.ownerName)} · {timeAgo(p.createdAt)}</span>
+              <span aria-hidden="true">·</span>
+              {waiting ? (
+                <span className="nb-brief-waiting">
+                  Waiting {Math.max(1, Math.floor((Date.now() - (p.createdAt || 0)) / 86400000))}d — no offers yet
+                </span>
+              ) : (
+                <span>{offers === 0 ? 'No offers yet' : `${offers} neighbor${offers === 1 ? '' : 's'} offered`}</span>
+              )}
+            </div>
+          </button>
+          <div style={{ paddingBottom: 12, marginTop: -4 }}>{helpAction(p)}</div>
+          {expanded ? (
+            <div className="nb-brief-well">
+              <div className="nb-brief-well-label">The full ask — helpers &amp; replies</div>
+              <PostCard post={p} />
+            </div>
+          ) : null}
+        </div>
+      );
+    };
+
+    const quoteBlock = (g, kicker) => (
+      <div className="nb-brief-quote">
+        {kicker ? <div className="nb-brief-lede-kicker">{kicker}</div> : null}
+        <div className="nb-brief-quote-text">“{g.message}”</div>
+        <div className="nb-brief-quote-attr">
+          — <strong>{g.thanker?.display_name || 'A neighbor'}</strong>, thanking{' '}
+          {g.helper?.display_name || 'a neighbor'}
+          {g.created_at ? ` · ${timeAgo(new Date(g.created_at).getTime())}` : ''}
+        </div>
+      </div>
+    );
+
+    const isEmptyTown = settled && townPosts.length === 0;
+    // The viewer is a profile in this town, so a count of 0 is a
+    // stale/anon read, never the truth — fall back to no number
+    // rather than print a wrong one.
+    const safeCount = neighborCount && neighborCount > 0 ? neighborCount : null;
+    const othersCount = safeCount !== null ? Math.max(0, safeCount - 1) : null;
+
+    return (
+      <div className="nb-page" style={{ overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: 0 }}>
+        <div className="nb-brief">
+          {/* Masthead */}
+          <div className="nb-brief-masthead">
+            <div className="nb-brief-plate">
+              <div className="nb-brief-kicker">The {town || 'Neighborhood'} Brief</div>
+              <div className="nb-brief-town">{town || 'Your neighborhood'}</div>
+              <div className="nb-brief-dateline">{dateLine}</div>
+            </div>
+            {showWelcome ? (
+              <p className="nb-brief-status">
+                {safeCount !== null && safeCount <= 10 ? (
+                  <>Welcome — you're <strong>neighbor #{safeCount}</strong>. You're helping found {town}.</>
+                ) : safeCount !== null ? (
+                  <>Welcome — <strong>{othersCount} neighbors</strong> are already here in {town}.</>
+                ) : (
+                  <>Welcome to {town}.</>
+                )}
+              </p>
+            ) : isEmptyTown ? (
+              <p className="nb-brief-status">{town} is just getting started — no asks yet.</p>
+            ) : openAsks.filter((p) => p.ownerId !== me?.id).length > 0 ? (
+              <p className="nb-brief-status">
+                <strong>{openAsks.filter((p) => p.ownerId !== me?.id).length} neighbor{openAsks.filter((p) => p.ownerId !== me?.id).length === 1 ? '' : 's'}</strong>{' '}
+                {openAsks.filter((p) => p.ownerId !== me?.id).length === 1 ? 'is' : 'are'} asking for a hand in {town}. The newest is first below.
+              </p>
+            ) : openAsks.length > 0 ? (
+              <p className="nb-brief-status">Your ask is open — no one else in {town} is asking right now.</p>
+            ) : (
+              <p className="nb-brief-status">
+                No open asks in {town} right now. The latest kindness is below.
+              </p>
+            )}
+            {awayAsks > 0 || activityNewCount > 0 ? (
+              <div className="nb-brief-away">
+                While you were away: {awayAsks > 0 ? `${awayAsks} new ask${awayAsks === 1 ? '' : 's'}` : ''}
+                {awayAsks > 0 && activityNewCount > 0 ? ' · ' : ''}
+                {activityNewCount > 0
+                  ? `${activityNewCount} update${activityNewCount === 1 ? '' : 's'} in Activity`
+                  : null}
+              </div>
+            ) : null}
+          </div>
+
+          {/* The one filled button */}
+          <div className="nb-brief-actions">
+            <button
+              type="button"
+              className="nb-brief-ask"
+              onClick={() => { setActiveTab('post'); setPostFlow({ step: 'form', kind: 'help' }); }}
+            >
+              Ask for a hand
+            </button>
+            <button
+              type="button"
+              className="nb-brief-textbtn nb-brief-textbtn-quiet"
+              onClick={() => { setActiveTab('post'); setPostFlow({ step: 'form', kind: 'rec' }); }}
+            >
+              Recommend someone
+            </button>
+          </div>
+
+          {/* New-member welcome strip — in an empty town it folds
+              into the quiet-front-page block below (block discipline) */}
+          {showWelcome && !isEmptyTown ? (
+            <div className="nb-brief-welcome">
+              {neighbors.length > 0 ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+                <div style={{ fontWeight: 900, fontSize: 14 }}>Your neighbors</div>
+                <button
+                  type="button"
+                  className="nb-brief-help"
+                  onClick={() => {
+                    try { localStorage.setItem(`nb_welcome_dismissed_${authProfile?.id}`, '1'); } catch {}
+                    setWelcomeDismissed(true);
+                  }}
+                >
+                  Dismiss
+                </button>
+              </div>
+              ) : null}
+              {neighbors.length > 0 ? (
+                <div className="nb-brief-faces">
+                  {neighbors.slice(0, 5).map((n) => (
+                    <div className="nb-brief-face" key={n.id}>
+                      {n.avatar_url ? (
+                        <img src={n.avatar_url} alt="" />
+                      ) : (
+                        <span className="nb-brief-face-fallback">{(n.display_name || '?').charAt(0)}</span>
+                      )}
+                      <div className="nb-brief-face-name">{firstName(n.display_name)}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {!hasIntro ? (
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    type="button"
+                    className="nb-brief-textbtn"
+                    onClick={() => setModal({ type: 'intro_composer' })}
+                  >
+                    Say hello to your neighbors →
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {!settled ? (
+            <p className="nb-brief-status" style={{ marginTop: 26 }}>Gathering today's brief…</p>
+          ) : isEmptyTown ? (
+            <div className="nb-brief-empty">
+              {grat.length > 0 ? (
+                <>
+                  <div className="nb-brief-empty-title">The last time {town} helped</div>
+                  {quoteBlock(grat[0], null)}
+                  <p className="nb-brief-empty-body">
+                    Nothing new since. The next ask could be yours — it takes one line.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="nb-brief-empty-title">A quiet front page</div>
+                  <p className="nb-brief-empty-body">
+                    No one in {town} has posted yet. The first ask sets the tone —
+                    make it a kind one: a ladder, a hand with a couch, a ride across town.
+                  </p>
+                  {showWelcome && !hasIntro ? (
+                    <div style={{ marginTop: 12 }}>
+                      <button
+                        type="button"
+                        className="nb-brief-textbtn"
+                        onClick={() => setModal({ type: 'intro_composer' })}
+                      >
+                        Say hello to your neighbors →
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* The Lede */}
+              {ledeAsk ? (
+                <div className="nb-brief-lede">
+                  <div className="nb-brief-lede-kicker">The latest ask</div>
+                  <div className="nb-brief-lede-title">{ledeAsk.title}</div>
+                  {ledeAsk.details ? <div className="nb-brief-lede-body">{ledeAsk.details}</div> : null}
+                  <div className="nb-brief-lede-meta">
+                    {firstName(ledeAsk.ownerName)} · {timeAgo(ledeAsk.createdAt)} ·{' '}
+                    {activeOffers(ledeAsk).length === 0
+                      ? 'No offers yet'
+                      : `${activeOffers(ledeAsk).length} offered`}
+                  </div>
+                  <div className="nb-brief-lede-actions">
+                    {helpAction(ledeAsk)}
+                    <button
+                      type="button"
+                      className="nb-brief-help"
+                      style={{ color: 'var(--ink)', borderBottomColor: 'var(--ink)' }}
+                      aria-expanded={expandedId === ledeAsk.id}
+                      onClick={() => setExpandedId(expandedId === ledeAsk.id ? null : ledeAsk.id)}
+                    >
+                      {expandedId === ledeAsk.id ? 'Close' : 'Full ask'}
+                    </button>
+                  </div>
+                  {expandedId === ledeAsk.id ? (
+                    <div className="nb-brief-well" style={{ marginTop: 12 }}>
+                      <div className="nb-brief-well-label">The full ask — helpers &amp; replies</div>
+                      <PostCard post={ledeAsk} />
+                    </div>
+                  ) : null}
+                </div>
+              ) : ledeGrat ? (
+                <div className="nb-brief-lede">{quoteBlock(ledeGrat, 'The latest kindness')}</div>
+              ) : null}
+
+              {/* Open asks index */}
+              {indexAsks.length > 0 ? (
+                <div className="nb-brief-section">
+                  <div className="nb-brief-section-head">
+                    <div className="nb-brief-section-title">{ledeAsk ? 'More open asks' : 'Open asks'}</div>
+                  </div>
+                  {indexAsks.map((p) => askRow(p, false))}
+                </div>
+              ) : null}
+
+              {/* Still waiting */}
+              {stillWaiting.length > 0 ? (
+                <div className="nb-brief-section">
+                  <div className="nb-brief-section-head">
+                    <div className="nb-brief-section-title">Still waiting</div>
+                    <div className="nb-brief-section-note">no offers after a day</div>
+                  </div>
+                  {stillWaiting.map((p) => askRow(p, true))}
+                </div>
+              ) : null}
+
+              {/* Kindness */}
+              {kindnessHead || kindnessLines.length > 0 ? (
+                <div className="nb-brief-section">
+                  <div className="nb-brief-section-head">
+                    <div className="nb-brief-section-title">Kindness in the neighborhood</div>
+                  </div>
+                  {kindnessHead ? quoteBlock(kindnessHead, null) : null}
+                  {kindnessLines.map((g) => (
+                    <div className="nb-brief-line" key={g.id}>
+                      <strong>{g.thanker?.display_name || 'A neighbor'}</strong> thanked{' '}
+                      <strong>{g.helper?.display_name || 'a neighbor'}</strong>
+                      {g.message ? <span className="nb-brief-line-msg"> — “{g.message}”</span> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {/* Recommendations directory */}
+              {recs.length > 0 ? (
+                <div className="nb-brief-section">
+                  <div className="nb-brief-section-head">
+                    <div className="nb-brief-section-title">Recommended by neighbors</div>
+                  </div>
+                  {recs.map((p) => {
+                    const expanded = expandedId === p.id;
+                    return (
+                      <div className="nb-brief-dir-row" key={p.id}>
+                        <button
+                          type="button"
+                          className="nb-brief-rowhead"
+                          style={{ padding: 0 }}
+                          aria-expanded={expanded}
+                          onClick={() => setExpandedId(expanded ? null : p.id)}
+                        >
+                          <div className="nb-brief-dir-title">{p.title}</div>
+                          <div className="nb-brief-dir-meta">
+                            Recommended by {firstName(p.ownerName)} · {timeAgo(p.createdAt)}
+                            {p.category ? ` · ${p.category}` : ''}
+                          </div>
+                        </button>
+                        {expanded ? (
+                          <div className="nb-brief-well" style={{ marginTop: 10 }}>
+                            <div className="nb-brief-well-label">The full recommendation — neighbors &amp; replies</div>
+                            <PostCard post={p} />
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </>
+          )}
+
+          {/* Colophon */}
+          <div className="nb-brief-colophon">
+            <div className="nb-brief-colophon-main">That's everything in {town || 'your neighborhood'}.</div>
+            {openAsks.length + completedCount + recs.length > 0 ? (
+              <div className="nb-brief-colophon-sub">
+                {openAsks.length} open ask{openAsks.length === 1 ? '' : 's'} ·{' '}
+                {completedCount} help{completedCount === 1 ? '' : 's'} completed ·{' '}
+                {recs.length} recommendation{recs.length === 1 ? '' : 's'} — counted from real posts in {town || 'town'}
+              </div>
+            ) : null}
+            <button type="button" className="nb-brief-classic" onClick={onClassic}>
+              Classic view — search &amp; filters
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
